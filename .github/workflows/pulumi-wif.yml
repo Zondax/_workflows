@@ -9,12 +9,9 @@ on:
       project-id:
         required: true
         type: string
-      workload-identity-provider-plan:
+      workload-identity-provider:
         required: true
         type: string
-      workload-identity-provider-apply:
-        required: true
-        type: string  
       cloud-url:
         required: true
         type: string
@@ -27,50 +24,49 @@ jobs:
     name: Pulumi
     runs-on: zondax-runners
     permissions:
-      id-token: write  # Enables automatic ID token injection for google-github-actions/auth
-      contents: read   # Required for actions/checkout and GitHub API access
-      pull-requests: write  # Required for commenting on PRs
+      id-token: write # Enables automatic ID token injection for google-github-actions/auth
+      contents: read # Required for actions/checkout and GitHub API access
+      pull-requests: write # Required for commenting on PRs
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Added to authenticate GitHub API calls for plugin downloads
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Added to authenticate GitHub API calls for plugin downloads
 
       # Set conditional environment variables based on event type
-      WORKLOAD_IDENTITY_PROVIDER: ${{ github.event_name == 'pull_request' && inputs.workload-identity-provider-plan || inputs.workload-identity-provider-apply }}
       PULUMI_COMMAND: ${{ github.event_name == 'pull_request' && 'preview' || 'up' }}
     steps:
-      # Dependencies installed          
+      # Dependencies installed
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: OIDC Debugger
-        uses: 'github/actions-oidc-debugger@main'
+        uses: "github/actions-oidc-debugger@main"
         with:
-          audience: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          audience: ${{ inputs.workload-identity-provider }}
 
       - name: Authenticate with Google Cloud
-        uses: 'google-github-actions/auth@v2'
+        uses: "google-github-actions/auth@v2"
         with:
           project_id: ${{ inputs.project-id }}
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
 
-      # Set up Google Cloud SDK (in case gcloud is not already installed on the runner).       
+      # Set up Google Cloud SDK (in case gcloud is not already installed on the runner).
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-          version: 'latest'
-          install_components: 'beta'
+          version: "latest"
+          install_components: "beta"
 
       # Verify authentication and permissions
       - name: Verify GCP authentication
         run: |
           echo "=== Authenticated Account ==="
           gcloud auth list
-          
+
           echo "=== Project Info ==="
           gcloud config get-value project
-          
+
           echo "=== Service Account Details ==="
           gcloud auth list --format="get(account)"
-          
+
           echo "=== Basic Access Test ==="
           # Test if we can list storage buckets (requires storage.buckets.list permission)
           gcloud storage ls 2>&1 || echo "Note: No storage access or no buckets"
@@ -92,7 +88,7 @@ jobs:
 
       - name: Install dependencies
         run: bun install
-  
+
       - name: Run Pulumi
         uses: pulumi/actions@v6
         with:
