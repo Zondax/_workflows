@@ -9,9 +9,12 @@ on:
       project-id:
         required: true
         type: string
-      workload-identity-provider:
+      workload-identity-provider-plan:
         required: true
         type: string
+      workload-identity-provider-apply:
+        required: true
+        type: string  
       cloud-url:
         required: true
         type: string
@@ -28,20 +31,27 @@ jobs:
       contents: read   # Required for actions/checkout and GitHub API access
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Added to authenticate GitHub API calls for plugin downloads
+
+      # Set conditional environment variables based on event type
+      WORKLOAD_IDENTITY_PROVIDER: ${{ github.event_name == 'pull_request' && inputs.workload-identity-provider-plan || inputs.workload-identity-provider-apply }}
+      PULUMI_COMMAND: ${{ github.event_name == 'pull_request' && 'preview' || 'up' }}
     steps:
+      # Dependencies installed          
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - uses: 'github/actions-oidc-debugger@main'
+        
+      - name: OIDC Debugger
+        uses: 'github/actions-oidc-debugger@main'
         with:
-          audience: ${{ inputs.workload-identity-provider }}
-    
-      - uses: 'google-github-actions/auth@v2'
+          audience: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+
+      - name: Authenticate with Google Cloud
+        uses: 'google-github-actions/auth@v2'
         with:
           project_id: ${{ inputs.project-id }}
-          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
 
-      # Set up Google Cloud SDK (in case gcloud is not already installed on the runner)
+      # Set up Google Cloud SDK (in case gcloud is not already installed on the runner).       
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
@@ -67,7 +77,8 @@ jobs:
           echo "=== Current Configuration ==="
           gcloud config list
 
-      # All good! ready to run pulumi!
+      ## GCP access should be ready
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -81,22 +92,11 @@ jobs:
       - name: Install dependencies
         run: bun install
   
-      - name: Run preview
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Run Pulumi
         uses: pulumi/actions@v6
         with:
-          command: preview
+          command: ${{ env.PULUMI_COMMAND }}
           stack-name: ${{ inputs.stack-name }}
           cloud-url: ${{ inputs.cloud-url }}
           comment-on-pr: true
-          comment-on-summary: true            
-
-      - name: Run apply
-        if: ${{ github.event_name == 'push' }}
-        uses: pulumi/actions@v6
-        with:
-          command: up
-          stack-name: ${{ inputs.stack-name }}
-          cloud-url: ${{ inputs.cloud-url }}
-          comment-on-pr: true
-          comment-on-summary: true            
+          comment-on-summary: true
