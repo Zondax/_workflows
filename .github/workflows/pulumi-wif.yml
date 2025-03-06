@@ -55,24 +55,32 @@ jobs:
           version: "latest"
           install_components: "beta"
 
-      # Verify authentication and permissions
+        # Verify authentication and permissions
       - name: Verify GCP authentication
         run: |
           echo "=== Authenticated Account ==="
           gcloud auth list
-
+          
           echo "=== Project Info ==="
           gcloud config get-value project
-
+          
           echo "=== Service Account Details ==="
           gcloud auth list --format="get(account)"
-
+          
+          echo "=== IAM Roles and Permissions ==="
+          # Get the current authenticated service account
+          SERVICE_ACCOUNT=$(gcloud auth list --format="value(account)")
+          # List all roles for this service account
+          echo "Roles for $SERVICE_ACCOUNT:"
+          gcloud projects get-iam-policy ${{ inputs.project-id }} --flatten="bindings[].members" --format="table(bindings.role)" --filter="bindings.members:$SERVICE_ACCOUNT" 2>&1 || echo "Could not fetch IAM roles"
+          
           echo "=== Basic Access Test ==="
           # Test if we can list storage buckets (requires storage.buckets.list permission)
           gcloud storage ls 2>&1 || echo "Note: No storage access or no buckets"
                     
           echo "=== Current Configuration ==="
           gcloud config list
+
 
       ## GCP access should be ready
 
