@@ -12,6 +12,9 @@ on:
       workload-identity-provider:
         required: true
         type: string
+      cloud-url:
+        required: true
+        type: string
       environment:
         required: true
         type: string
@@ -75,16 +78,25 @@ jobs:
         with:
           bun-version: "latest"
 
-      - name: Install pulumi CLI
-        uses: pulumi/actions@v6
-            
       - name: Install dependencies
         run: bun install
-      
-      - name: PR previews
+  
+      - name: Run preview
         if: ${{ github.event_name == 'pull_request' }}
-        run: bun preview:${{ inputs.environment }}
+        uses: pulumi/actions@v6
+        with:
+          command: preview
+          stack-name: ${{ inputs.stack-name }}
+          cloud-url: ${{ inputs.cloud-url }}
+          comment-on-pr: true
+          comment-on-summary: true            
 
-      - name: Apply infrastructure update
+      - name: Run apply
         if: ${{ github.event_name == 'push' }}
-        run: bun up:${{ inputs.environment }} 
+        uses: pulumi/actions@v6
+        with:
+          command: up
+          stack-name: ${{ inputs.stack-name }}
+          cloud-url: ${{ inputs.cloud-url }}
+          comment-on-pr: true
+          comment-on-summary: true            
