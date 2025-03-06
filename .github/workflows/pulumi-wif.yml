@@ -1,0 +1,90 @@
+name: Reusable Pulumi Workflow
+
+on:
+  workflow_call:
+    inputs:
+      stack-name:
+        required: true
+        type: string
+      project-id:
+        required: true
+        type: string
+      workload-identity-provider:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+
+jobs:
+  pulumi:
+    name: Pulumi
+    runs-on: zondax-runners
+    permissions:
+      id-token: write  # Enables automatic ID token injection for google-github-actions/auth
+      contents: read   # Required for actions/checkout and GitHub API access
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Added to authenticate GitHub API calls for plugin downloads
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: 'github/actions-oidc-debugger@main'
+        with:
+          audience: ${{ inputs.workload-identity-provider }}
+    
+      - uses: 'google-github-actions/auth@v2'
+        with:
+          project_id: ${{ inputs.project-id }}
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+
+      # Set up Google Cloud SDK (in case gcloud is not already installed on the runner)
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          version: 'latest'
+          install_components: 'beta'
+
+      # Verify authentication and permissions
+      - name: Verify GCP authentication
+        run: |
+          echo "=== Authenticated Account ==="
+          gcloud auth list
+          
+          echo "=== Project Info ==="
+          gcloud config get-value project
+          
+          echo "=== Service Account Details ==="
+          gcloud auth list --format="get(account)"
+          
+          echo "=== Basic Access Test ==="
+          # Test if we can list storage buckets (requires storage.buckets.list permission)
+          gcloud storage ls 2>&1 || echo "Note: No storage access or no buckets"
+                    
+          echo "=== Current Configuration ==="
+          gcloud config list
+
+      # All good! ready to run pulumi!
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
+
+      - name: Install pulumi CLI
+        uses: pulumi/actions@v6
+            
+      - name: Install dependencies
+        run: bun install
+      
+      - name: PR previews
+        if: ${{ github.event_name == 'pull_request' }}
+        run: bun preview:${{ inputs.environment }}
+
+      - name: Apply infrastructure update
+        if: ${{ github.event_name == 'push' }}
+        run: bun up:${{ inputs.environment }} 
