@@ -29,6 +29,7 @@ jobs:
     permissions:
       id-token: write  # Enables automatic ID token injection for google-github-actions/auth
       contents: read   # Required for actions/checkout and GitHub API access
+      pull-requests: write  # Required for commenting on PRs
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Added to authenticate GitHub API calls for plugin downloads
 
