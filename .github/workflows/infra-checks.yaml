@@ -1,0 +1,50 @@
+name: Infra Checks
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "The runner to use for the workflow"
+        type: "string"
+        default: "zondax-runners"
+        required: false
+      container_image:
+        description: "The container image to use"
+        type: "string"
+        default: "oven/bun:1-alpine"
+        required: false
+      kubeconform_version:
+        description: "The version of kubeconform to use"
+        type: "string"
+        default: "v0.6.7"
+        required: false
+      make_command:
+        description: "The make command to run for infra checks"
+        type: "string"
+        default: "infra-checks"
+        required: false
+
+jobs:
+  infra-checks:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.container_image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Requirements
+        env:
+          KUBECONFORM_VERSION: ${{ inputs.kubeconform_version }}
+          KUBECONFORM_ARCH: linux-amd64
+          KUBECONFORM_URL: https://github.com/yannh/kubeconform/releases/download
+        run: |
+          apk add --no-cache make ca-certificates curl tar yq
+          curl -sL ${KUBECONFORM_URL}/${KUBECONFORM_VERSION}/kubeconform-${KUBECONFORM_ARCH}.tar.gz | tar xzvOf - kubeconform > /usr/local/bin/kubeconform
+          chmod 755 /usr/local/bin/kubeconform
+          chmod +x /usr/local/bin/kubeconform
+
+      - name: Validate Infra manifests
+        run: |
+          bun install
+          make ${{ inputs.make_command }}
