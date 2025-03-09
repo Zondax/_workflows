@@ -34,7 +34,7 @@ on:
         required: true
 
 jobs:
-  update-test:
+  zup:
     runs-on: zondax-runners
     container:
       image: ubuntu:24.04
@@ -77,9 +77,15 @@ jobs:
         run: |
           gh auth login --with-token <<< "${{ secrets.custom_token }}"
           # Search for PRs with our specific label
-          gh pr list --search "label:${{ env.PR_LABEL }}" --state open --json number,title | \
-          jq -r '.[] | .number' | \
-          xargs -I {} gh pr close {} --comment "Closing in favor of a new automated PR from the update-test workflow"
+          gh pr list --search "label:${{ env.PR_LABEL }}" --state open --json number,title,headRefName | \
+          jq -c '.[]' | \
+          while read -r pr; do
+            PR_NUMBER=$(echo $pr | jq -r '.number')
+            BRANCH_NAME=$(echo $pr | jq -r '.headRefName')
+            echo "Closing PR #$PR_NUMBER and deleting branch $BRANCH_NAME"
+            gh pr close $PR_NUMBER --comment "Closing in favor of a new automated PR from the zup workflow"
+            gh api repos/{owner}/{repo}/git/refs/heads/$BRANCH_NAME -X DELETE || echo "Could not delete branch $BRANCH_NAME"
+          done
         env:
           GH_TOKEN: "${{ secrets.custom_token }}"
 

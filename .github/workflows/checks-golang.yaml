@@ -1,0 +1,48 @@
+name: Checks golang
+
+on:
+  workflow_call:
+    inputs:
+      package_path:
+        description: 'Path to the Go package relative to the repository root'
+        type: string
+        required: true
+      go_version:
+        description: 'Go version to use'
+        type: string
+        default: '1.23'
+      runner:
+        description: 'GitHub runner to use'
+        type: string
+        default: 'zondax-runners'
+
+jobs:
+  checks:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: golang:${{ inputs.go_version }}
+      options: --tty
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build
+        run: |
+          git config --global --add safe.directory "*"
+          cd ${{ inputs.package_path }}
+          make build
+      - name: ModTidy check
+        run: |
+          cd ${{ inputs.package_path }}
+          make check-modtidy
+      - name: Lint check
+        run: |
+          cd ${{ inputs.package_path }}
+          make install-lint
+          make lint
+      - name: Run tests
+        run: |
+          cd ${{ inputs.package_path }}
+          make test 

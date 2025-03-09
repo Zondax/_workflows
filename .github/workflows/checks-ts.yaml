@@ -1,0 +1,80 @@
+name: Reusable TypeScript Checks
+
+on:
+  workflow_call:
+    inputs:
+      disable_linting:
+        description: 'Disable linting checks'
+        required: false
+        type: boolean
+        default: false
+      disable_tests:
+        description: 'Disable tests'
+        required: false
+        type: boolean
+        default: false
+      node_version:
+        description: 'Node.js version to use'
+        required: false
+        type: string
+        default: 'lts/*'
+      package_manager:
+        description: 'Package manager to use (bun or pnpm)'
+        required: false
+        type: string
+        default: 'bun'
+      package_manager_version:
+        description: 'Package manager version'
+        required: false
+        type: string
+        default: '1'
+      bun_image:
+        description: 'Docker image to use for bun'
+        required: false
+        type: string
+        default: 'oven/bun:{0}-alpine'
+      node_image:
+        description: 'Docker image to use for node/pnpm'
+        required: false
+        type: string
+        default: 'node:lts-alpine'
+
+jobs:
+  checks-ts:
+    runs-on: zondax-runners
+    container:
+      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.package_manager_version) || inputs.node_image }}
+    timeout-minutes: 15
+    
+    env:
+      PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
+      PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm run' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup pnpm
+        if: ${{ inputs.package_manager == 'pnpm' }}
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ inputs.package_manager_version }}
+
+      - name: Install dependencies
+        run: ${{ env.PM }} install
+
+      - name: Check format
+        run: ${{ env.PM_RUN }} format:check
+
+      - name: Run lint
+        if: ${{ !inputs.disable_linting }}
+        run: ${{ env.PM_RUN }} lint
+
+      - name: Run tests
+        if: ${{ !inputs.disable_tests }}
+        run: ${{ env.PM_RUN }} test 
