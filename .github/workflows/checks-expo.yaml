@@ -75,6 +75,6 @@ jobs:
         if: ${{ !inputs.disable_linting }}
         run: ${{ env.PM_RUN }} lint
 
-      - name: Run tests
-        if: ${{ !inputs.disable_tests }}
-        run: ${{ env.PM_RUN }} test 
+      - name: Run doctor
+        if: ${{ !inputs.disable_linting }}
+        run: ${{ env.PM_RUN }} doctor
