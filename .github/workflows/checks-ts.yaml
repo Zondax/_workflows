@@ -23,11 +23,16 @@ on:
         required: false
         type: string
         default: 'bun'
-      package_manager_version:
-        description: 'Package manager version'
+      bun_version:
+        description: 'Bun version'
         required: false
         type: string
-        default: '1'
+        default: '1.2.3'
+      pnpm_version:
+        description: 'PNPM version'
+        required: false
+        type: string
+        default: '10.4.1'
       bun_image:
         description: 'Docker image to use for bun'
         required: false
@@ -43,7 +48,7 @@ jobs:
   checks-ts:
     runs-on: zondax-runners
     container:
-      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.package_manager_version) || inputs.node_image }}
+      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.bun_version) || inputs.node_image }}
     timeout-minutes: 15
     
     env:
@@ -63,7 +68,7 @@ jobs:
         if: ${{ inputs.package_manager == 'pnpm' }}
         uses: pnpm/action-setup@v4
         with:
-          version: ${{ inputs.package_manager_version }}
+          version: ${{ inputs.pnpm_version }}
 
       - name: Install dependencies
         run: ${{ env.PM }} install
