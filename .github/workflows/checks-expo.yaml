@@ -17,7 +17,7 @@ on:
         description: 'Disable doctor checks'
         required: false
         type: boolean
-        default: false
+        default: true
       node_version:
         description: 'Node.js version to use'
         required: false
