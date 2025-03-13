@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      disable_doctor:
+        description: 'Disable doctor checks'
+        required: false
+        type: boolean
+        default: false
       node_version:
         description: 'Node.js version to use'
         required: false
@@ -81,5 +86,9 @@ jobs:
         run: ${{ env.PM_RUN }} lint
 
       - name: Run doctor
-        if: ${{ !inputs.disable_linting }}
+        if: ${{ !inputs.disable_doctor }}
         run: ${{ env.PM_RUN }} doctor
+
+      - name: Run tests
+        if: ${{ !inputs.disable_tests }}
+        run: ${{ env.PM_RUN }} test
