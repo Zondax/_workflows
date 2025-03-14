@@ -10,13 +10,11 @@ on:
       pr_title:
         description: "PR title"
         type: "string"
-        default: "ZUP - .make update"
-        required: false
+        required: true
       pr_label:
         description: "PR label"
         type: "string"
-        default: "zup"
-        required: false
+        required: true
       commit_message:
         description: "Commit message"
         type: "string"

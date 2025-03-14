@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Lessons
+
+## Repository Structure
+- `.workflows` repository contains reusable GitHub Actions workflows for standardization across Zondax projects
+- Workflows include checks for TypeScript, Golang, Expo, Infrastructure, Docker publishing, and Pulumi
+- Workflows are configurable through input parameters and can be called using `workflow_call` trigger 
