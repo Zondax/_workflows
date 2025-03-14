@@ -21,7 +21,7 @@ concurrency:
 jobs:
   publish-images:
     name: Publish Docker Image
-    uses: ./publish-docker.yaml
+    uses: ./.github/workflows/publish-docker.yaml
     with:
       checkout_ref: ${{ github.event.pull_request.head.ref || github.ref }}
     secrets:
