@@ -1,0 +1,77 @@
+name: Reusable Zup Make
+
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        description: "The branch to create PRs against"
+        type: "string"
+        required: true
+      pr_title:
+        description: "PR title"
+        type: "string"
+        required: true
+      pr_label:
+        description: "PR label"
+        type: "string"
+        required: true
+      commit_message:
+        description: "Commit message"
+        type: "string"
+        required: true
+      pr_body:
+        description: "PR body"
+        type: "string"
+        required: false
+        default: "This is an automated PR."
+      docker_image:
+        description: "Docker image to pull from"
+        type: "string"
+        default: ""
+        required: true
+      docker_tag:
+        description: "Docker image tag"
+        type: "string"
+        default: ""
+        required: true
+      source_dir:
+        description: "Source directory in the container"
+        type: "string"
+        default: ""
+        required: true
+      target_dir:
+        description: "Target directory in the repository"
+        type: "string"
+        default: ""
+        required: true
+    secrets:
+      custom_token:
+        description: "GitHub token for authentication"
+        required: true
+
+jobs:
+  make-update:
+    uses: ./.github/workflows/.zup.yaml
+    with:
+      base_branch: ${{ inputs.base_branch }}
+      pr_title: ${{ inputs.pr_title }}
+      pr_label: ${{ inputs.pr_label }}
+      commit_message: ${{ inputs.commit_message }}
+      pr_body: ${{ inputs.pr_body }}
+      inline_script: |
+        #!/bin/bash
+        set -e
+
+        # Update make files from container
+        echo "Pulling ${{ inputs.docker_image }}:${{ inputs.docker_tag }}..."
+        docker pull ${{ inputs.docker_image }}:${{ inputs.docker_tag }}
+
+        # Extract files from container
+        CONTAINER_ID=$(docker create --entrypoint true ${{ inputs.docker_image }}:${{ inputs.docker_tag }})
+        rm -rf ${{ inputs.target_dir }} && mkdir -p ${{ inputs.target_dir }}
+        docker export "$CONTAINER_ID" | tar x --strip-components=1 -C ${{ inputs.target_dir }} ${{ inputs.source_dir }}
+        docker rm "$CONTAINER_ID"
+
+        echo "Successfully updated ${{ inputs.target_dir }}"
+    secrets:
+      custom_token: ${{ secrets.custom_token }}
