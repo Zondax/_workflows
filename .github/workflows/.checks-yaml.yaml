@@ -30,5 +30,4 @@ jobs:
 
       - name: Check yaml
         run: |
-          bun install
           make ${{ inputs.make_command }}
