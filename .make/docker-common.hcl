@@ -27,6 +27,7 @@ target "docker-common" {
     BUILD_DATE = "${BUILD_DATE}"
     VERSION = "${VERSION}"
   }
+  context    = "."
   platforms = ["${PLATFORMS}"]
   attest = [
     "type=provenance,mode=max,builder-id=github-actions",
