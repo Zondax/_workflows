@@ -4,17 +4,17 @@ on:
   workflow_call:
     inputs:
       package_path:
-        description: 'Path to the Go package relative to the repository root'
+        description: "Path to the Go package relative to the repository root"
         type: string
         required: true
       go_version:
-        description: 'Go version to use'
+        description: "Go version to use"
         type: string
-        default: '1.23'
+        default: "1.23"
       runner:
-        description: 'GitHub runner to use'
+        description: "GitHub runner to use"
         type: string
-        default: 'zondax-runners'
+        default: "zondax-runners"
 
 jobs:
   checks:
@@ -45,4 +45,4 @@ jobs:
       - name: Run tests
         run: |
           cd ${{ inputs.package_path }}
-          make test 
+          make test

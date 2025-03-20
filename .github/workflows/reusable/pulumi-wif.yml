@@ -60,21 +60,21 @@ jobs:
         run: |
           echo "=== Authenticated Account ==="
           gcloud auth list
-          
+
           echo "\n"
           echo "=== Project Info ==="
           gcloud config get-value project
-          
+
           echo "\n"
           echo "=== Service Account Details ==="
           gcloud auth list --format="get(account)"
-          
+
           echo "\n"
           echo "=== IAM Roles and Permissions ==="
           # Get the current authenticated identity
           CURRENT_IDENTITY=$(gcloud auth list --format="value(account)")
           echo "Current identity: $CURRENT_IDENTITY"
-          
+
           # Get IAM policy in JSON format and filter for roles applicable to the specified member
           echo "Roles for $CURRENT_IDENTITY:"
           gcloud projects get-iam-policy ${{ inputs.project-id }} --format=json | jq -r --arg member "$CURRENT_IDENTITY" '.bindings[] | select(.members[] | contains($member)) | .role'
@@ -90,7 +90,7 @@ jobs:
           echo "\n"
           echo "=== Current Configuration ==="
           gcloud config list
-          
+
           echo "\n"
           echo "=== Authentication Verification ==="
           # Check if authentication succeeded (minimal check)
