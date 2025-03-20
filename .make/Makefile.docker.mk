@@ -93,10 +93,6 @@ IMAGE_NAMES=$(if $(DOCKER_BUILD_TARGET),\
 	$(foreach name,$(BASE_IMAGE_NAMES),$(subst :,:$(DOCKER_BUILD_TARGET)-,$(name))),\
 	$(BASE_IMAGE_NAMES))
 
-# Variable to store tag settings for bake command
-# FIXME: ideally, we should pass IMAGE_TAGS and use the name of the image in the docker-bake.hcl file
-BAKE_TAG_ARGS = $(foreach tag,$(IMAGE_NAMES),--set "*.tags=$(tag)")
-
 define docker_legacy
 	@echo "🔨 Building Docker image..."
 	@echo "🎯 Target platforms: $(PLATFORMS)"
@@ -138,13 +134,12 @@ define docker_bake
 	fi
 	@echo "🚀 Starting build..."
 
-	export GIT_BRANCH=$(GIT_BRANCH)
-
+	GIT_BRANCH="$(GIT_BRANCH)" \
+	EXTRA_TAGS="$(IMAGE_TAGS)" \
 	docker buildx bake \
 		$(if $(REMOTE_BUILD_KIT),--builder $(REMOTE_BUILD_KIT_NAME),) \
 		--progress=$(DOCKER_BUILD_PROGRESS) \
 		--set "*.platform=$(PLATFORMS)" \
-		$(BAKE_TAG_ARGS) \
 		$(if $(DOCKER_BUILD_TARGET),--set "*.target=$(DOCKER_BUILD_TARGET)",) \
 		$(1) \
 		-f docker-bake.hcl $(2)
@@ -214,7 +209,6 @@ docker-info: docker-gen-info ## Show build info and tags
 	@echo "🔗 Images to publish"
 	@for tag in $(IMAGE_NAMES); do echo "📦 $$tag"; done
 	@rm -rf $(INFO_TMP_DIR)
-	@echo "BAKE_TAG_ARGS=$(BAKE_TAG_ARGS)"
 
 # Install and configure Docker buildx remote builder
 docker-install: docker-gen-info ## Configure buildx builder
