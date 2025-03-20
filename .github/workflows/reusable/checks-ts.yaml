@@ -42,24 +42,24 @@ on:
         description: "Docker image to use for node/pnpm"
         required: false
         type: string
-        default: 'node:lts-alpine'
+        default: "node:lts-alpine"
       test_command:
-        description: 'Test command to run from package.json'
+        description: "Test command to run from package.json"
         required: false
         type: string
-        default: 'test'
+        default: "test"
       lint_command:
-        description: 'Lint command to run from package.json'
+        description: "Lint command to run from package.json"
         required: false
         type: string
-        default: 'lint'
+        default: "lint"
       format_command:
-        description: 'Format command to run from package.json'
+        description: "Format command to run from package.json"
         required: false
         type: string
-        default: 'format:check' 
+        default: "format:check"
       checkout_submodules:
-        description: 'Checkout submodules'
+        description: "Checkout submodules"
         required: false
         type: boolean
         default: false
@@ -107,4 +107,4 @@ jobs:
 
       - name: Run tests
         if: ${{ !inputs.disable_tests }}
-        run: ${{ env.PM_RUN }} ${{ inputs.test_command }} 
+        run: ${{ env.PM_RUN }} ${{ inputs.test_command }}

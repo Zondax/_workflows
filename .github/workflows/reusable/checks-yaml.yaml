@@ -1,0 +1,34 @@
+name: Infra Checks
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "The runner to use for the workflow"
+        type: "string"
+        default: "zondax-runners"
+        required: false
+      container_image:
+        description: "The container image to use"
+        type: "string"
+        default: "oven/bun:1-alpine"
+        required: false
+      make_command:
+        description: "The make command to run for yaml checks"
+        type: "string"
+        default: "yaml-checks"
+        required: false
+
+jobs:
+  yaml-checks:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.container_image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check yaml
+        run: |
+          bun install
+          make ${{ inputs.make_command }}
