@@ -4,42 +4,42 @@ on:
   workflow_call:
     inputs:
       disable_linting:
-        description: 'Disable linting checks'
+        description: "Disable linting checks"
         required: false
         type: boolean
         default: false
       disable_tests:
-        description: 'Disable tests'
+        description: "Disable tests"
         required: false
         type: boolean
         default: false
       node_version:
-        description: 'Node.js version to use'
+        description: "Node.js version to use"
         required: false
         type: string
-        default: 'lts/*'
+        default: "lts/*"
       package_manager:
-        description: 'Package manager to use (bun or pnpm)'
+        description: "Package manager to use (bun or pnpm)"
         required: false
         type: string
-        default: 'bun'
+        default: "bun"
       bun_version:
-        description: 'Bun version'
+        description: "Bun version"
         required: false
         type: string
-        default: '1.2.3'
+        default: "1.2.3"
       pnpm_version:
-        description: 'PNPM version'
+        description: "PNPM version"
         required: false
         type: string
-        default: '10.4.1'
+        default: "10.4.1"
       bun_image:
-        description: 'Docker image to use for bun'
+        description: "Docker image to use for bun"
         required: false
         type: string
-        default: 'oven/bun:{0}-alpine'
+        default: "oven/bun:{0}-alpine"
       node_image:
-        description: 'Docker image to use for node/pnpm'
+        description: "Docker image to use for node/pnpm"
         required: false
         type: string
         default: 'node:lts-alpine'
@@ -70,7 +70,7 @@ jobs:
     container:
       image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.bun_version) || inputs.node_image }}
     timeout-minutes: 15
-    
+
     env:
       PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
       PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm run' }}
@@ -78,7 +78,7 @@ jobs:
     steps:
       - name: Install git
         run: apk add --no-cache git
-   
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:

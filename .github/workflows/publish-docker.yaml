@@ -4,24 +4,24 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: 'Runner to use for the workflow'
+        description: "Runner to use for the workflow"
         type: string
-        default: 'zondax-runners'
+        default: "zondax-runners"
       timeout_minutes:
-        description: 'Timeout in minutes for the job'
+        description: "Timeout in minutes for the job"
         type: number
         default: 15
       checkout_ref:
-        description: 'The ref to checkout (branch, tag, SHA)'
+        description: "The ref to checkout (branch, tag, SHA)"
         type: string
-        default: ''
+        default: ""
         required: false
     secrets:
       DOCKERHUB_USER:
-        description: 'Docker Hub username'
+        description: "Docker Hub username"
         required: true
       DOCKERHUB_TOKEN:
-        description: 'Docker Hub access token'
+        description: "Docker Hub access token"
         required: true
 
 jobs:
@@ -80,4 +80,4 @@ jobs:
 
       - name: Publish
         run: |
-          make docker-publish 
+          make docker-publish
