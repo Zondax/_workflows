@@ -1,4 +1,4 @@
-name: Checks golang
+name: Reusable Checks golang
 
 on:
   workflow_call:

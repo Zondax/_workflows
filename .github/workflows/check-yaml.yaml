@@ -5,9 +5,9 @@ on:
     branches: ["*"]
   push:
     branches:
-        - main
-        - dev
-    
+      - main
+      - dev
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref }}
   cancel-in-progress: true

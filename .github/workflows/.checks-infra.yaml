@@ -1,4 +1,4 @@
-name: Infra Checks
+name: Reusable Infra Checks
 
 on:
   workflow_call:
