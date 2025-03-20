@@ -142,7 +142,7 @@ define docker_bake
 		--set "*.platform=$(PLATFORMS)" \
 		$(if $(DOCKER_BUILD_TARGET),--set "*.target=$(DOCKER_BUILD_TARGET)",) \
 		$(1) \
-		-f docker-bake.hcl -f .docker/docker-common.hcl $(2)
+		-f docker-bake.hcl -f .make/docker-common.hcl $(2)
 endef
 
 # Smart proxy function that automatically selects between legacy and bake

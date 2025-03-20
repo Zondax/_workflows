@@ -9,6 +9,6 @@ group "default" {
 # Final application target that combines artifacts from all builder stages
 target "zup-make" {
   context    = "."
-  dockerfile = ".docker/zup-make.Dockerfile"
+  dockerfile = ".docker-private/zup-make.Dockerfile"
   tags = generate_tags("zondax/zup-make")
 }
