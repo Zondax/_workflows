@@ -21,23 +21,23 @@ variable "SBOM_FORMAT" {
   default = "spdx+json"
 }
 
+# Default target configuration with SBOM and provenance
+target "docker-common" {
+  args = {
+    BUILD_DATE = "${BUILD_DATE}"
+    VERSION = "${VERSION}"
+  }
+  platforms = ["${PLATFORMS}"]
+  attest = [
+    "type=provenance,mode=max,builder-id=github-actions",
+    "type=sbom"
+  ]
+}
+
 function "generate_tags" {
   params = [base_name]
   result = concat(
     ["${base_name}:latest"],
     [for tag in split(" ", EXTRA_TAGS) : "${base_name}:${tag}" if tag != ""]
   )
-}
-
-# Default target configuration with SBOM and provenance
-target "common" {
-  attest = [
-    "type=sbom",
-    "type=provenance,mode=max"
-  ]
-  platforms = ["${PLATFORMS}"]
-  args = {
-    BUILD_DATE = "${BUILD_DATE}"
-    VERSION = "${VERSION}"
-  }
 }
