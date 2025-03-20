@@ -9,6 +9,9 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.vendor="Zondax"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.sbom.format="spdx+json"
+LABEL org.opencontainers.image.sbom.ref="@sha256:${SBOM_HASH}"
+LABEL org.opencontainers.image.provenance.ref="@sha256:${PROVENANCE_HASH}"
 
 # Create non-root user and group
 # Note: Since this is a scratch image, we need to handle this differently
