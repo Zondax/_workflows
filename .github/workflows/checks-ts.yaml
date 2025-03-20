@@ -43,6 +43,26 @@ on:
         required: false
         type: string
         default: 'node:lts-alpine'
+      test_command:
+        description: 'Test command to run from package.json'
+        required: false
+        type: string
+        default: 'test'
+      lint_command:
+        description: 'Lint command to run from package.json'
+        required: false
+        type: string
+        default: 'lint'
+      format_command:
+        description: 'Format command to run from package.json'
+        required: false
+        type: string
+        default: 'format:check' 
+      checkout_submodules:
+        description: 'Checkout submodules'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   checks-ts:
@@ -62,7 +82,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: ${{ inputs.checkout_submodules }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -79,12 +99,12 @@ jobs:
         run: ${{ env.PM }} install
 
       - name: Check format
-        run: ${{ env.PM_RUN }} format:check
+        run: ${{ env.PM_RUN }} ${{ inputs.format_command }}
 
       - name: Run lint
         if: ${{ !inputs.disable_linting }}
-        run: ${{ env.PM_RUN }} lint
+        run: ${{ env.PM_RUN }} ${{ inputs.lint_command }}
 
       - name: Run tests
         if: ${{ !inputs.disable_tests }}
-        run: ${{ env.PM_RUN }} test 
+        run: ${{ env.PM_RUN }} ${{ inputs.test_command }} 
