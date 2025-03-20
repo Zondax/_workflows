@@ -100,15 +100,15 @@ jobs:
             echo "::error::No update script path provided"
             exit 1
           fi
-          
+
           if [ ! -f "$SCRIPT_PATH" ]; then
             echo "::error::Update script not found at: $SCRIPT_PATH"
             exit 1
           fi
-          
+
           # Make script executable
           chmod +x "$SCRIPT_PATH"
-          
+
           # Execute the script with proper error handling
           echo "Executing update script: $SCRIPT_PATH"
           set -e

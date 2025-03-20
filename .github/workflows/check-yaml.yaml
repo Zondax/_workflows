@@ -1,0 +1,16 @@
+name: YAML Checks
+
+on:
+  pull_request:
+    branches: ["*"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  yaml-checks:
+    name: YAML Checks
+    uses: ./.github/workflows/reusable/checks-yaml.yaml
+    with:
+      make_command: yaml-checks
