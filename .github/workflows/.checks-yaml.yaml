@@ -1,4 +1,4 @@
-name: Infra Checks
+name: Reusable YAML Checks
 
 on:
   workflow_call:
@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Install make
         run: |
           apk add --no-cache make

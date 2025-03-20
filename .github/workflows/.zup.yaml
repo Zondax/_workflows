@@ -1,4 +1,4 @@
-name: Zup
+name: Reusable Zup
 
 on:
   workflow_call:

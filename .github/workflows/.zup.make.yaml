@@ -1,4 +1,4 @@
-name: Zup
+name: Reusable Zup Make
 
 on:
   workflow_call:
