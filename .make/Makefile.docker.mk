@@ -139,7 +139,6 @@ define docker_bake
 	docker buildx bake \
 		$(if $(REMOTE_BUILD_KIT),--builder $(REMOTE_BUILD_KIT_NAME),) \
 		--progress=$(DOCKER_BUILD_PROGRESS) \
-		--set "*.platform=$(PLATFORMS)" \
 		$(if $(DOCKER_BUILD_TARGET),--set "*.target=$(DOCKER_BUILD_TARGET)",) \
 		$(1) \
 		-f docker-bake.hcl -f .make/docker-common.hcl $(2)

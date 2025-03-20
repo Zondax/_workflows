@@ -12,7 +12,7 @@ target "zup-make" {
   context    = "."
   dockerfile = ".docker-private/zup-make.Dockerfile"
   tags = generate_tags("zondax/zup-make")
-  platforms = ["${PLATFORMS}"]
+  platforms = ["linux/amd64", "linux/arm64"]
   attest = [
     "type=sbom",
     "type=provenance,mode=max,builder-id=github-actions"
