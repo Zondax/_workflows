@@ -15,6 +15,6 @@ concurrency:
 jobs:
   yaml-checks:
     name: YAML Checks
-    uses: ./.github/workflows/.checks-yaml.yaml
+    uses: ./.github/workflows/_checks-yaml.yaml
     with:
       make_command: yaml-checks
