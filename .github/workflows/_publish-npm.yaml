@@ -1,0 +1,52 @@
+name: Reusable NPM Publish
+
+on:
+  workflow_call:
+    inputs:
+      release-version:
+        required: true
+        type: string
+        description: "Version to publish"
+    secrets:
+      NPM_TOKEN:
+        required: true
+        description: "NPM token for publishing"
+
+jobs:
+  publish:
+    timeout-minutes: 5
+    runs-on: zondax-runners
+    container:
+      image: node:20-bookworm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Perform a deep clone (fetch all history)
+          submodules: "recursive" # Fetch Git submodules recursively
+
+      # Related to https://github.com/actions/runner/issues/2033
+      - name: Patch git clone
+        run: git config --system --add safe.directory '*'
+
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+          scope: "@zondax"
+
+      - uses: oven-sh/setup-bun@v1
+
+      - run: bun install
+
+      - name: Show version
+        run: echo ${{ inputs.release-version }}
+
+      - name: Update tag
+        run: npm --no-git-tag-version version ${{ inputs.release-version }}
+
+      - name: Publish package
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
