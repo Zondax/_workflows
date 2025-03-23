@@ -1,21 +1,31 @@
-name: Reusable NPM Publish
+name: Reusable Publish NPM
 
 on:
   workflow_call:
     inputs:
-      release_version:
-        required: true
+      runner:
+        description: "Runner to use for the workflow"
         type: string
+        default: "zondax-runners"
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 15
+      release_version:
         description: "Version to publish"
+        type: string
+        required: true
+  
+  
     secrets:
       NPM_TOKEN:
-        required: true
         description: "NPM token for publishing"
+        required: true
 
 jobs:
   publish:
-    timeout-minutes: 5
-    runs-on: zondax-runners
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    runs-on: ${{ inputs.runner }}
     container:
       image: node:20-bookworm
     steps:

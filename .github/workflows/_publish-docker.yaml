@@ -26,8 +26,8 @@ on:
 
 jobs:
   publish:
-    runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    runs-on: ${{ inputs.runner }}
     permissions:
       contents: read
       packages: write
