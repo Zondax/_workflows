@@ -3,20 +3,15 @@ name: Reusable Publish NPM
 on:
   workflow_call:
     inputs:
-      runner:
-        description: "Runner to use for the workflow"
-        type: string
-        default: "zondax-runners"
       timeout_minutes:
         description: "Timeout in minutes for the job"
         type: number
         default: 15
-      release_version:
-        description: "Version to publish"
-        type: string
-        required: true
-  
-  
+      dry_run:
+        description: "If true, will not publish to npm"
+        type: boolean
+        default: false
+
     secrets:
       NPM_TOKEN:
         description: "NPM token for publishing"
@@ -25,7 +20,7 @@ on:
 jobs:
   publish:
     timeout-minutes: ${{ inputs.timeout_minutes }}
-    runs-on: ${{ inputs.runner }}
+    runs-on: "zondax-runners"
     container:
       image: node:20-bookworm
     steps:
@@ -50,13 +45,21 @@ jobs:
 
       - run: bun install
 
-      - name: Show version
-        run: echo ${{ inputs.release-version }}
+      - name: Set version from Git
+        run: npm version from-git --no-git-tag-version
 
-      - name: Update tag
-        run: npm --no-git-tag-version version ${{ inputs.release-version }}
+      - name: Log package version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Package version: $VERSION"
+          echo "::notice title=NPM Package Version::$VERSION"
 
       - name: Publish package
+        if: ${{ !inputs.dry_run }}
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Skip publishing (dry-run mode)
+        if: ${{ inputs.dry_run }}
+        run: echo "Dry-run mode enabled. Skipping npm publish."

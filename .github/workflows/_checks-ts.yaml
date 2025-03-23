@@ -88,7 +88,7 @@ jobs:
 
       - name: Patch git clone
         run: git config --system --add safe.directory '*'
-  
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
