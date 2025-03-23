@@ -3,7 +3,7 @@ name: Reusable NPM Publish
 on:
   workflow_call:
     inputs:
-      release-version:
+      release_version:
         required: true
         type: string
         description: "Version to publish"
