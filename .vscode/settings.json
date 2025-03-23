@@ -1,0 +1,31 @@
+{
+    "cSpell.words": [
+        "addgroup",
+        "adduser",
+        "Alek",
+        "buildkit",
+        "buildx",
+        "bunx",
+        "covermode",
+        "coverprofile",
+        "DOCKERHUB",
+        "gitclean",
+        "GOCMD",
+        "gocov",
+        "golangci",
+        "GOPATH",
+        "GOTEST",
+        "gsub",
+        "jstemmer",
+        "kubeconform",
+        "libgcc",
+        "libstdc",
+        "Modtidy",
+        "pulumi",
+        "setaf",
+        "SLSA",
+        "tput",
+        "Txterm",
+        "wordlist"
+    ]
+}

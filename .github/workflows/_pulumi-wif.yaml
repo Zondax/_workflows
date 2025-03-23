@@ -23,6 +23,7 @@ jobs:
   pulumi:
     name: Pulumi
     runs-on: zondax-runners
+    timeout-minutes: 15
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
       contents: read # Required for actions/checkout and GitHub API access

@@ -44,6 +44,7 @@ jobs:
     runs-on: zondax-runners
     container:
       image: ubuntu:24.04
+    timeout-minutes: 15
     env:
       PR_TITLE: "🤖 ${{ inputs.pr_title }}"
       PR_LABEL: "zup-${{ inputs.pr_label }}"
