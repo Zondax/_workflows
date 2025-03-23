@@ -13,10 +13,13 @@ LABEL org.opencontainers.image.sbom.format="spdx+json"
 LABEL org.opencontainers.image.sbom.ref="@sha256:${SBOM_HASH}"
 LABEL org.opencontainers.image.provenance.ref="@sha256:${PROVENANCE_HASH}"
 
+ENTRYPOINT ["true"]
+
 # Create non-root user and group
 # Note: Since this is a scratch image, we need to handle this differently
 # The user/group should be created in the binary itself or through the build process
 USER 65532:65532
 
 # Copy binary with proper permissions
-COPY --chown=65532:65532 .make .payload/.make
+COPY --chown=65532:65532 .make .make
+COPY --chown=65532:65532 .make/.manifest.json /

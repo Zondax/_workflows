@@ -1,0 +1,8 @@
+{
+    "name": "zondax/zup-make",
+    "description": "Zondax Make system utilities",
+    "sourceDir": ".make",
+    "targetDir": ".make",
+    "author": "Zondax AG",
+    "homepage": "https://zondax.ch"
+}
