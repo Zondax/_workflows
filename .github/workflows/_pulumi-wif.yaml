@@ -62,16 +62,13 @@ jobs:
           echo "=== Authenticated Account ==="
           gcloud auth list
 
-          echo "\n"
           echo "=== Project Info ==="
           gcloud config get-value project
 
-          echo "\n"
           echo "=== Basic Access Test ==="
           # Test if we can list storage buckets but don't fail if we can't
           gcloud storage ls
                     
-          echo "\n"
           echo "=== Current Configuration ==="
           gcloud config list
 

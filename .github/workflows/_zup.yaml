@@ -34,6 +34,16 @@ on:
         description: "Inline script to execute instead of a file"
         type: "string"
         required: false
+      install_nodejs:
+        description: "Whether to install Node.js and npm/npx"
+        type: "boolean"
+        default: false
+        required: false
+      node_version:
+        description: "Node.js version to install"
+        type: "string"
+        default: "20"
+        required: false
     secrets:
       custom_token:
         description: "GitHub token for authentication"
@@ -56,6 +66,19 @@ jobs:
       - name: Install Git
         run: |
           apt-get update && apt-get install -y git
+
+      - name: Install Node.js and npm
+        if: ${{ inputs.install_nodejs }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Verify Node.js installation
+        if: ${{ inputs.install_nodejs }}
+        run: |
+          node --version
+          npm --version
+          npx --version
 
       - name: Checkout code
         uses: actions/checkout@v4
