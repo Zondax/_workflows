@@ -1,4 +1,4 @@
-name: Publish zup make
+name: Publish docker images
 on:
   push:
     branches:
