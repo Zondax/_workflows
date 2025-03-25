@@ -36,7 +36,7 @@ jobs:
       - name: ModTidy check
         run: |
           cd ${{ inputs.package_path }}
-          make check-modtidy
+          make go-mod-check
       - name: Lint check
         run: |
           cd ${{ inputs.package_path }}
