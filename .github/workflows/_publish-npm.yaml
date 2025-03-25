@@ -54,6 +54,13 @@ jobs:
           echo "Package version: $VERSION"
           echo "::notice title=NPM Package Version::$VERSION"
 
+      - name: Copy README.npm.md to README.md if exists
+        run: |
+          if [ -f README.npm.md ]; then
+            cp README.npm.md README.md
+            echo "Copied README.npm.md to README.md"
+          fi
+
       - name: Publish package
         if: ${{ !inputs.dry_run }}
         run: npm publish
