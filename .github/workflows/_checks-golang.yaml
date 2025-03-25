@@ -32,7 +32,7 @@ jobs:
         run: |
           git config --global --add safe.directory "*"
           cd ${{ inputs.package_path }}
-          make build
+          make go-build
       - name: ModTidy check
         run: |
           cd ${{ inputs.package_path }}
@@ -40,9 +40,9 @@ jobs:
       - name: Lint check
         run: |
           cd ${{ inputs.package_path }}
-          make install-lint
-          make lint
+          make go-lint-install
+          make go-lint
       - name: Run tests
         run: |
           cd ${{ inputs.package_path }}
-          make test
+          make go-test
