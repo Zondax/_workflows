@@ -26,6 +26,7 @@
         "SLSA",
         "tput",
         "Txterm",
-        "wordlist"
+        "wordlist",
+        "zondax"
     ]
 }

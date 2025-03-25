@@ -34,16 +34,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Requirements
+      - name: Install kubeconform
         env:
           KUBECONFORM_VERSION: ${{ inputs.kubeconform_version }}
           KUBECONFORM_ARCH: linux-amd64
           KUBECONFORM_URL: https://github.com/yannh/kubeconform/releases/download
         run: |
-          apk add --no-cache make ca-certificates curl tar yq
-          curl -sL ${KUBECONFORM_URL}/${KUBECONFORM_VERSION}/kubeconform-${KUBECONFORM_ARCH}.tar.gz | tar xzvOf - kubeconform > /usr/local/bin/kubeconform
-          chmod 755 /usr/local/bin/kubeconform
-          chmod +x /usr/local/bin/kubeconform
+          make infra-kubeconform-install
 
       - name: Validate Infra manifests
         run: |

@@ -7,10 +7,11 @@ on:
         description: "Path to the Go package relative to the repository root"
         type: string
         required: true
+        default: "."
       go_version:
         description: "Go version to use"
         type: string
-        default: "1.23"
+        default: "1.24"
       runner:
         description: "GitHub runner to use"
         type: string

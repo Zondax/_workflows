@@ -19,4 +19,17 @@ infra-kubeconform: ## Infra Kubeconform
 		-ignore-filename-pattern '\.infra/.*/name-remapping\.yaml' \
 		-summary .infra/
 
+KUBECONFORM_VERSION ?= v0.6.7
+KUBECONFORM_ARCH ?= linux-amd64
+KUBECONFORM_URL ?= https://github.com/yannh/kubeconform/releases/download
+
+infra-kubeconform-install: ## Install kubeconform
+	@echo "Installing kubeconform..."
+	@curl -sL $(KUBECONFORM_URL)/$(KUBECONFORM_VERSION)/kubeconform-$(KUBECONFORM_ARCH).tar.gz | tar xzvOf - kubeconform > /usr/local/bin/kubeconform
+	@chmod 755 /usr/local/bin/kubeconform
+	@chmod +x /usr/local/bin/kubeconform
+	@echo "kubeconform installed successfully"
+
 .PHONY: infra-checks infra-lint infra-kubeconform
+.PHONY: infra-kubeconform-install
+
