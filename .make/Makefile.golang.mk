@@ -12,14 +12,14 @@ DEFAULT_APP_NAME ?= api
 $(info Using $(shell nproc) CPUs)
 
 ## Golang
-mod-tidy: ## Mod tidy
+go-mod-tidy: ## Mod tidy
 	@go mod tidy
 
-mod-update: ## Mod Update
+go-mod-update: ## Mod Update
 	@go get -u ./...
 
 .PHONY: generate
-generate: mod-tidy ## Mod generate
+go-generate: go-mod-tidy ## Mod generate
 	@go generate ./internal/...
 
 output/%: cmd/% FORCE | generate
@@ -31,45 +31,46 @@ output/%: cmd/% FORCE | generate
 .PHONY: FORCE
 FORCE:
 
-list: ## List all available binaries
+go-list: ## List all available binaries
 	@for cmd in $(CMDS); do echo $$cmd; done
 
-build: generate $(BINS) ## Build
+go-build: go-generate $(BINS) ## Build
 	@# Check for main.go in the root and build if it exists too
 	@[ -e main.go ] && go build -v -o output/$(DEFAULT_APP_NAME) || true
 	
-run: build ## Run
+go-run: go-build ## Run
 	@echo "Running $(DEFAULT_APP_NAME)"
 	./output/$(DEFAULT_APP_NAME) start
 
-version: build ## Get Version
-	./output/$(DEFAULT_APP_NAME) version
+go-version: go-generate ## Get Version
+	@echo "Version: $$(cat internal/version/version.txt)"
+	@echo "Revision: $$(cat internal/version/revision.txt)"
 
-clean: ## Go Clean
+go-clean: ## Go Clean
 	go clean
 	rm -rf internal/domain/entities/*
 
-check-modtidy: ## Check Modtidy
+go-mod-check: ## Check Modtidy
 	go mod tidy
 	git diff --exit-code -- go.mod go.sum
 
-lint: ## Lint
+go-lint: ## Lint
 	golangci-lint --version
 	golangci-lint run
 
 # Dependency helpers
-install-lint: ## Install go linter `golangci-lint`
+go-lint-install: ## Install go linter `golangci-lint`
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin latest
 
 ## Test
-test: ## Run the tests of the project, excluding integration tests.
+go-test: ## Run the tests of the project, excluding integration tests.
 ifeq ($(EXPORT_RESULT), true)
 	GO111MODULE=off go get -u github.com/jstemmer/go-junit-report
 	$(eval OUTPUT_OPTIONS = | tee /dev/tty | go-junit-report -set-exit-code > junit-report.xml)
 endif
 	$(GOTEST) -v -race $(shell go list ./... | grep -v "/internal/tests/integration/") $(OUTPUT_OPTIONS)
 
-coverage: ## Run the tests of the project and export the coverage, options: $EXPORT_RESULT
+go-coverage: ## Run the tests of the project and export the coverage, options: $EXPORT_RESULT
 	$(GOTEST) -cover -covermode=count -coverprofile=profile.cov ./...
 	$(GOCMD) tool cover -func profile.cov
 ifeq ($(EXPORT_RESULT), true)

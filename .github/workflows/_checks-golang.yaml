@@ -6,7 +6,6 @@ on:
       package_path:
         description: "Path to the Go package relative to the repository root"
         type: string
-        required: true
         default: "."
       go_version:
         description: "Go version to use"
