@@ -18,8 +18,12 @@ go-mod-tidy: ## Mod tidy
 go-mod-update: ## Mod Update
 	@go get -u ./...
 
-.PHONY: generate
-go-generate: go-mod-tidy ## Mod generate
+go-generate-install:
+	@rm -rf internal/version
+	@cp -r .make/templates/golang/version internal/
+
+.PHONY: go-generate
+go-generate: go-mod-tidy go-generate-install ## Mod generate
 	@go generate ./internal/...
 
 output/%: cmd/% FORCE | generate
@@ -47,26 +51,26 @@ go-version: go-generate ## Get Version
 	@echo "Revision: $$(cat internal/version/revision.txt)"
 
 go-clean: ## Go Clean
-	go clean
-	rm -rf internal/domain/entities/*
+	@go clean
+	@rm -rf internal/domain/entities/*
 
 go-mod-check: ## Check Modtidy
-	go mod tidy
-	git diff --exit-code -- go.mod go.sum
+	@go mod tidy
+	@git diff --exit-code -- go.mod go.sum
 
 go-lint: ## Lint
-	golangci-lint --version
-	golangci-lint run
+	@golangci-lint --version
+	@golangci-lint run
 
 # Dependency helpers
 go-lint-install: ## Install go linter `golangci-lint`
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin latest
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin latest
 
 ## Test
 go-test: ## Run the tests of the project, excluding integration tests.
 ifeq ($(EXPORT_RESULT), true)
-	GO111MODULE=off go get -u github.com/jstemmer/go-junit-report
-	$(eval OUTPUT_OPTIONS = | tee /dev/tty | go-junit-report -set-exit-code > junit-report.xml)
+	@GO111MODULE=off go get -u github.com/jstemmer/go-junit-report
+	@$(eval OUTPUT_OPTIONS = | tee /dev/tty | go-junit-report -set-exit-code > junit-report.xml)
 endif
 	$(GOTEST) -v -race $(shell go list ./... | grep -v "/internal/tests/integration/") $(OUTPUT_OPTIONS)
 
@@ -74,9 +78,9 @@ go-coverage: ## Run the tests of the project and export the coverage, options: $
 	$(GOTEST) -cover -covermode=count -coverprofile=profile.cov ./...
 	$(GOCMD) tool cover -func profile.cov
 ifeq ($(EXPORT_RESULT), true)
-	GO111MODULE=off go get -u github.com/AlekSi/gocov-xml
-	GO111MODULE=off go get -u github.com/axw/gocov/gocov
-	gocov convert profile.cov | gocov-xml > coverage.xml
+	@GO111MODULE=off go get -u github.com/AlekSi/gocov-xml
+	@GO111MODULE=off go get -u github.com/axw/gocov/gocov
+	@gocov convert profile.cov | gocov-xml > coverage.xml
 endif
 
 .PHONY: *
