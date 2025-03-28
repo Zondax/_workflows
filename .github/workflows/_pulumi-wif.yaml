@@ -64,10 +64,6 @@ jobs:
 
           echo "=== Project Info ==="
           gcloud config get-value project
-
-          echo "=== Basic Access Test ==="
-          # Test if we can list storage buckets but don't fail if we can't
-          gcloud storage ls
                     
           echo "=== Current Configuration ==="
           gcloud config list
