@@ -35,7 +35,7 @@ go-generate-install:
 go-generate: go-mod-tidy go-generate-install ## Mod generate
 	@go generate ./internal/...
 
-output/%: cmd/% FORCE | generate
+output/%: cmd/% FORCE | go-generate
 	@echo "$(GREEN)Building $(notdir $<) binary...$(RESET)"
 	@mkdir -p $(dir $@)
 	@go build -o $@ ./$<
