@@ -27,7 +27,7 @@ on:
         description: "Bun version"
         required: false
         type: string
-        default: "1.2.3"
+        default: "1.2.8"
       pnpm_version:
         description: "PNPM version"
         required: false
