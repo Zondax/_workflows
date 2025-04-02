@@ -73,7 +73,7 @@ jobs:
 
     env:
       PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
-      PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm run' }}
+      PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
 
     steps:
       - name: Install git
