@@ -40,7 +40,7 @@ jobs:
       PULUMI_COMMAND: ${{ github.event_name == 'pull_request' && 'preview' || 'up' }}
     steps:
       - name: Install git
-        run: apk add --no-cache git
+        run: sudo apt-get update && sudo apt-get install -y git
         
       # Dependencies installed
       - name: Checkout code
