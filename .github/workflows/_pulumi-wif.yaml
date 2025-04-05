@@ -18,7 +18,12 @@ on:
       environment:
         required: true
         type: string
-
+      checkout_submodules:
+        description: "Checkout submodules"
+        required: false
+        type: boolean
+        default: true
+  
 jobs:
   pulumi:
     name: Pulumi
@@ -34,9 +39,15 @@ jobs:
       # Set conditional environment variables based on event type
       PULUMI_COMMAND: ${{ github.event_name == 'pull_request' && 'preview' || 'up' }}
     steps:
+      - name: Install git
+        run: apk add --no-cache git
+        
       # Dependencies installed
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.checkout_submodules }}
 
       - name: OIDC Debugger
         uses: "github/actions-oidc-debugger@main"

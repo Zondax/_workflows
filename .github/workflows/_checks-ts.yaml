@@ -62,7 +62,7 @@ on:
         description: "Checkout submodules"
         required: false
         type: boolean
-        default: false
+        default: true
 
 jobs:
   checks-ts:
