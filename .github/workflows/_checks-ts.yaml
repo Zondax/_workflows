@@ -63,15 +63,22 @@ on:
         required: false
         type: boolean
         default: true
+      github_app_auth:
+        description: "Use GitHub App Token"
+        required: false
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
     secrets:
       app_id:
         description: "GitHub App ID"
         required: false
       app_pem:
         description: "GitHub App PEM"
-        required: false
-      repositories:
-        description: "Additional repositories to access (one per line)"
         required: false
 
 jobs:
@@ -91,14 +98,13 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app-token
-        if: ${{ secrets.app_id != '' && secrets.app_pem != '' }}
+        if: inputs.github_app_auth != false
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.app_id }}
           private-key: ${{ secrets.app_pem }}
           repositories: |
-            ${{ github.event.repository.full_name }}
-            ${{ secrets.repositories }}
+            ${{ inputs.github_app_repos }}
 
       - name: Checkout code
         uses: actions/checkout@v4
