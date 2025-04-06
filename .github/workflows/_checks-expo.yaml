@@ -48,6 +48,21 @@ on:
         required: false
         type: string
         default: "node:lts-alpine"
+      app_id:
+        description: "GitHub App ID"
+        required: false
+        type: string
+        default: ""
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+        type: string
+        default: ""
+      repositories:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   checks-expo:
@@ -59,15 +74,29 @@ jobs:
     env:
       PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
       PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm run' }}
+      GITHUB_APP_ID: ${{ inputs.app_id }}
+      GITHUB_APP_PEM: ${{ inputs.app_pem }}
 
     steps:
       - name: Install git
         run: apk add --no-cache git
 
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.GITHUB_APP_ID }}
+          private-key: ${{ env.GITHUB_APP_PEM }}
+          repositories: |
+            ${{ github.event.repository.full_name }}
+            ${{ inputs.repositories }}
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: false
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

@@ -23,6 +23,21 @@ on:
         type: "string"
         default: "infra-checks"
         required: false
+      app_id:
+        description: "GitHub App ID"
+        required: false
+        type: string
+        default: ""
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+        type: string
+        default: ""
+      repositories:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   infra-checks:
@@ -30,9 +45,27 @@ jobs:
     container:
       image: ${{ inputs.container_image }}
     timeout-minutes: 15
+
+    env:
+      GITHUB_APP_ID: ${{ inputs.app_id }}
+      GITHUB_APP_PEM: ${{ inputs.app_pem }}
+
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.GITHUB_APP_ID }}
+          private-key: ${{ env.GITHUB_APP_PEM }}
+          repositories: |
+            ${{ github.event.repository.full_name }}
+            ${{ inputs.repositories }}
+
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Install kubeconform
         env:

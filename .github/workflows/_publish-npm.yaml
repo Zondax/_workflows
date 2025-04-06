@@ -11,6 +11,21 @@ on:
         description: "If true, will not publish to npm"
         type: boolean
         default: false
+      app_id:
+        description: "GitHub App ID"
+        required: false
+        type: string
+        default: ""
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+        type: string
+        default: ""
+      repositories:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
 
     secrets:
       NPM_TOKEN:
@@ -23,12 +38,29 @@ jobs:
     runs-on: "zondax-runners"
     container:
       image: node:20-bookworm
+
+    env:
+      GITHUB_APP_ID: ${{ inputs.app_id }}
+      GITHUB_APP_PEM: ${{ inputs.app_pem }}
+
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.GITHUB_APP_ID }}
+          private-key: ${{ env.GITHUB_APP_PEM }}
+          repositories: |
+            ${{ github.event.repository.full_name }}
+            ${{ inputs.repositories }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Perform a deep clone (fetch all history)
           submodules: "recursive" # Fetch Git submodules recursively
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       # Related to https://github.com/actions/runner/issues/2033
       - name: Patch git clone

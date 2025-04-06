@@ -23,7 +23,22 @@ on:
         required: false
         type: boolean
         default: true
-  
+      app_id:
+        description: "GitHub App ID"
+        required: false
+        type: string
+        default: ""
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+        type: string
+        default: ""
+      repositories:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
+
 jobs:
   pulumi:
     name: Pulumi
@@ -35,19 +50,33 @@ jobs:
       pull-requests: write # Required for commenting on PRs
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Added to authenticate GitHub API calls for plugin downloads
+      GITHUB_APP_ID: ${{ inputs.app_id }}
+      GITHUB_APP_PEM: ${{ inputs.app_pem }}
 
       # Set conditional environment variables based on event type
       PULUMI_COMMAND: ${{ github.event_name == 'pull_request' && 'preview' || 'up' }}
     steps:
       - name: Install git
         run: sudo apt-get update && sudo apt-get install -y git
-        
+
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.GITHUB_APP_ID }}
+          private-key: ${{ env.GITHUB_APP_PEM }}
+          repositories: |
+            ${{ github.event.repository.full_name }}
+            ${{ inputs.repositories }}
+
       # Dependencies installed
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: ${{ inputs.checkout_submodules }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: OIDC Debugger
         uses: "github/actions-oidc-debugger@main"

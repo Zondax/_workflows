@@ -16,6 +16,21 @@ on:
         type: string
         default: ""
         required: false
+      app_id:
+        description: "GitHub App ID"
+        required: false
+        type: string
+        default: ""
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+        type: string
+        default: ""
+      repositories:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
     secrets:
       DOCKERHUB_USER:
         description: "Docker Hub username"
@@ -32,7 +47,23 @@ jobs:
       contents: read
       packages: write
       id-token: write # Needed for SLSA provenance
+
+    env:
+      GITHUB_APP_ID: ${{ inputs.app_id }}
+      GITHUB_APP_PEM: ${{ inputs.app_pem }}
+
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.GITHUB_APP_ID }}
+          private-key: ${{ env.GITHUB_APP_PEM }}
+          repositories: |
+            ${{ github.event.repository.full_name }}
+            ${{ inputs.repositories }}
+
       - name: Install deps
         run: |
           sudo apt-get update -y
@@ -43,6 +74,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.checkout_ref || github.event.pull_request.head.ref || github.ref }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Debug GitHub variables
         run: |
