@@ -44,17 +44,12 @@ on:
         type: "string"
         default: ""
         required: true
-      app_id:
-        description: "GitHub App ID"
+      github_app_auth:
+        description: "Use GitHub App Token"
         required: false
-        type: string
-        default: ""
-      app_pem:
-        description: "GitHub App PEM"
-        required: false
-        type: string
-        default: ""
-      repositories:
+        type: boolean
+        default: false
+      github_app_repos:
         description: "Additional repositories to access (one per line)"
         required: false
         type: string
@@ -63,6 +58,12 @@ on:
       custom_token:
         description: "GitHub token for authentication"
         required: true
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
 
 jobs:
   make-update:
@@ -73,9 +74,8 @@ jobs:
       pr_label: ${{ inputs.pr_label }}
       commit_message: ${{ inputs.commit_message }}
       pr_body: ${{ inputs.pr_body }}
-      app_id: ${{ inputs.app_id }}
-      app_pem: ${{ inputs.app_pem }}
-      repositories: ${{ inputs.repositories }}
+      github_app_auth: ${{ inputs.github_app_auth }}
+      github_app_repos: ${{ inputs.github_app_repos }}
       inline_script: |
         #!/bin/bash
         set -e

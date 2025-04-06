@@ -15,17 +15,12 @@ on:
         description: "GitHub runner to use"
         type: string
         default: "zondax-runners"
-      app_id:
-        description: "GitHub App ID"
+      github_app_auth:
+        description: "Use GitHub App Token"
         required: false
-        type: string
-        default: ""
-      app_pem:
-        description: "GitHub App PEM"
-        required: false
-        type: string
-        default: ""
-      repositories:
+        type: boolean
+        default: false
+      github_app_repos:
         description: "Additional repositories to access (one per line)"
         required: false
         type: string
@@ -39,21 +34,16 @@ jobs:
       options: --tty
     timeout-minutes: 15
 
-    env:
-      GITHUB_APP_ID: ${{ inputs.app_id }}
-      GITHUB_APP_PEM: ${{ inputs.app_pem }}
-
     steps:
       - name: Generate GitHub App Token
         id: app-token
-        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        if: inputs.github_app_auth != false
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ env.GITHUB_APP_ID }}
-          private-key: ${{ env.GITHUB_APP_PEM }}
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_pem }}
           repositories: |
-            ${{ github.event.repository.full_name }}
-            ${{ inputs.repositories }}
+            ${{ inputs.github_app_repos }}
 
       - name: Checkout
         uses: actions/checkout@v4
