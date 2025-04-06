@@ -63,21 +63,16 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
       app_id:
         description: "GitHub App ID"
         required: false
-        type: string
-        default: ""
       app_pem:
         description: "GitHub App PEM"
         required: false
-        type: string
-        default: ""
       repositories:
         description: "Additional repositories to access (one per line)"
         required: false
-        type: string
-        default: ""
 
 jobs:
   checks-ts:
@@ -89,8 +84,6 @@ jobs:
     env:
       PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
       PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
-      GITHUB_APP_ID: ${{ inputs.app_id }}
-      GITHUB_APP_PEM: ${{ inputs.app_pem }}
 
     steps:
       - name: Install git
@@ -98,14 +91,14 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app-token
-        if: ${{ inputs.app_id != '' && inputs.app_pem != '' }}
+        if: ${{ secrets.app_id != '' && secrets.app_pem != '' }}
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ env.GITHUB_APP_ID }}
-          private-key: ${{ env.GITHUB_APP_PEM }}
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_pem }}
           repositories: |
             ${{ github.event.repository.full_name }}
-            ${{ inputs.repositories }}
+            ${{ secrets.repositories }}
 
       - name: Checkout code
         uses: actions/checkout@v4
