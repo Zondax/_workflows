@@ -3,16 +3,31 @@ name: Reusable TypeScript Checks
 on:
   workflow_call:
     inputs:
-      disable_linting:
-        description: "Disable linting checks"
+      enable_linting:
+        description: "Enable linting checks"
+        required: false
+        type: boolean
+        default: true
+      enable_tests:
+        description: "Enable tests execution"
+        required: false
+        type: boolean
+        default: true
+      enable_coverage:
+        description: "Enable test coverage reporting"
+        required: false
+        type: boolean
+        default: true
+      upload_coverage:
+        description: "Upload coverage reports to Codecov"
         required: false
         type: boolean
         default: false
-      disable_tests:
-        description: "Disable tests"
+      coverage_command:
+        description: "Coverage command to run from package.json"
         required: false
-        type: boolean
-        default: false
+        type: string
+        default: "test:coverage"
       node_version:
         description: "Node.js version to use"
         required: false
@@ -73,12 +88,20 @@ on:
         required: false
         type: string
         default: ""
+      codecov_flags:
+        description: "Flags to pass to Codecov"
+        required: false
+        type: string
+        default: ""
     secrets:
       app_id:
         description: "GitHub App ID"
         required: false
       app_pem:
         description: "GitHub App PEM"
+        required: false
+      codecov_token:
+        description: "Codecov token for private repositories"
         required: false
 
 jobs:
@@ -135,9 +158,21 @@ jobs:
         run: ${{ env.PM_RUN }} ${{ inputs.format_command }}
 
       - name: Run lint
-        if: ${{ !inputs.disable_linting }}
+        if: ${{ inputs.enable_linting }}
         run: ${{ env.PM_RUN }} ${{ inputs.lint_command }}
 
       - name: Run tests
-        if: ${{ !inputs.disable_tests }}
+        if: ${{ inputs.enable_tests && !inputs.enable_coverage }}
         run: ${{ env.PM_RUN }} ${{ inputs.test_command }}
+
+      - name: Run tests with coverage
+        if: ${{ inputs.enable_tests && inputs.enable_coverage }}
+        run: ${{ env.PM_RUN }} ${{ inputs.coverage_command }}
+
+      - name: Upload coverage reports to Codecov
+        if: ${{ inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.codecov_token }}
+          flags: ${{ inputs.codecov_flags }}
+          fail_ci_if_error: false
