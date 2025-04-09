@@ -1,11 +1,11 @@
-name: "Playwright Tests"
+name: Playwright Tests
 on:
   workflow_call:
     inputs:
       working_directory:
         description: "Working directory for tests"
         type: string
-        default: "apps/web"
+        default: "."
       build_command:
         description: "Build command to run before tests"
         type: string
@@ -26,12 +26,33 @@ on:
         description: "Node.js container version"
         type: string
         default: "node:20-bookworm"
+      use_google_auth:
+        description: "Enable Google authentication"
+        type: boolean
+        required: false
+        default: false
+      project_id:
+        description: "GCP Project ID"
+        type: string
+        required: false
+        default: ""
+      workload_identity_provider:
+        description: "GCP Workload Identity Provider"
+        type: string
+        required: false
+        default: ""
+      use_env_script:
+        description: "Whether to use the environment script provided in secrets"
+        type: boolean
+        required: false
+        default: false
+    secrets:
       env_script:
         description: "Bash script to set environment variables (one export per line)"
         type: string
         required: false
         default: ""
-
+  
 env:
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
   HEAD_BRANCH_NAME: ${{ github.head_ref }}
@@ -40,6 +61,9 @@ jobs:
   playwright:
     name: Playwright Shard
     runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      id-token: write # Needed for Google authentication
     strategy:
       matrix:
         include:
@@ -78,14 +102,48 @@ jobs:
             libxkbcommon0 \
             libasound2
 
+      # Google Authentication Steps (Only run if use_google_auth is true)
+      - name: OIDC Debugger
+        if: inputs.use_google_auth
+        uses: "github/actions-oidc-debugger@main"
+        with:
+          audience: ${{ inputs.workload_identity_provider }}
+
+      - name: Authenticate with Google Cloud
+        if: inputs.use_google_auth
+        uses: "google-github-actions/auth@v2"
+        with:
+          project_id: ${{ inputs.project_id }}
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+
+      - name: Set up Google Cloud SDK
+        if: inputs.use_google_auth
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          version: "latest"
+          install_components: "beta"
+
+      - name: Verify GCP authentication
+        if: inputs.use_google_auth
+        run: |
+          echo "=== Authenticated Account ==="
+          gcloud auth list
+
+          echo "=== Project Info ==="
+          gcloud config get-value project
+                    
+          echo "=== Current Configuration ==="
+          gcloud config list
+
       - name: Setup environment variables
+        if: inputs.use_env_script
         run: |
           # Create environment script
           cat > /tmp/env.sh << 'EOL'
           #!/bin/bash
           # Environment setup script
           
-          ${{ inputs.env_script }}
+          ${{ secrets.env_script }}
           EOL
           
           # Make it executable
