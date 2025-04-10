@@ -96,8 +96,8 @@ jobs:
           # Make it executable
           chmod +x /tmp/env.sh
           
-          # Source it to set variables in this shell
-          source /tmp/env.sh
+          # Execute the script and export variables
+          . /tmp/env.sh
           
           # Export to GITHUB_ENV for future steps
           env | while read -r line; do
