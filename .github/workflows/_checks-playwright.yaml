@@ -34,9 +34,7 @@ on:
     secrets:
       env_script:
         description: "Bash script to set environment variables (one export per line)"
-        type: string
         required: false
-        default: ""
   
 env:
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -46,9 +44,6 @@ jobs:
   playwright:
     name: Playwright Shard
     runs-on: ${{ inputs.runner }}
-    permissions:
-      contents: read
-      id-token: write # Needed for Google authentication
     strategy:
       matrix:
         include:
