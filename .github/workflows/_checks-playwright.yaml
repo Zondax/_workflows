@@ -26,8 +26,8 @@ on:
         description: "Node.js container version"
         type: string
         default: "node:20-bookworm"
-      use_env_script:
-        description: "Whether to use the environment script provided in secrets"
+      use_env_local:
+        description: "Whether to use the environment local file provided in secrets"
         type: boolean
         required: false
         default: true
@@ -83,13 +83,13 @@ jobs:
             libasound2
 
       - name: Setup environment variables
-        if: inputs.use_env_script
+        if: inputs.use_env_local
         run: |
           # Create .env.local file directly for Next.js
           cd ${{ inputs.working_directory }}
           cat > .env.local << 'EOL'
           # Environment variables for Next.js
-          ${{ secrets.env_script }}
+          ${{ secrets.env_local }}
           EOL
           
           # Show confirmation (only count lines for security)
