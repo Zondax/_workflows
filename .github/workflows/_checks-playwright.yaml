@@ -90,6 +90,7 @@ jobs:
           #!/bin/bash
           # Environment setup script
           
+          echo "Loading environment variables"
           ${{ secrets.env_script }}
           EOL
           
@@ -118,15 +119,27 @@ jobs:
 
       - name: Run build
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.build_command }}
+        run: |
+          if [ -f /tmp/env.sh ]; then
+            . /tmp/env.sh
+          fi
+          ${{ inputs.build_command }}
 
       - name: Install Playwright browsers
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.install_command }}
+        run: |
+          if [ -f /tmp/env.sh ]; then
+            . /tmp/env.sh
+          fi
+          ${{ inputs.install_command }}
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ inputs.test_command }}
+        run: |
+          if [ -f /tmp/env.sh ]; then
+            . /tmp/env.sh
+          fi
+          ${{ inputs.test_command }}
 
       - name: Upload Playwright Report
         if: ${{ !cancelled() }}
