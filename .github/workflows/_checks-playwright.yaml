@@ -85,29 +85,15 @@ jobs:
       - name: Setup environment variables
         if: inputs.use_env_script
         run: |
-          # Create environment script
-          cat > /tmp/env.sh << 'EOL'
-          #!/bin/bash
-          # Environment setup script
-          
-          echo "Loading environment variables"
+          # Create .env.local file directly for Next.js
+          cd ${{ inputs.working_directory }}
+          cat > .env.local << 'EOL'
+          # Environment variables for Next.js
           ${{ secrets.env_script }}
           EOL
           
-          # Make it executable
-          chmod +x /tmp/env.sh
-          
-          # Execute the script and export variables
-          . /tmp/env.sh
-          
-          # Export to GITHUB_ENV for future steps
-          env | while read -r line; do
-            echo "$line" >> $GITHUB_ENV
-          done
-          
-          # List environment variables (only names for security)
-          echo "Environment variables set:"
-          env | cut -d= -f1 | sort
+          # Show confirmation (only count lines for security)
+          echo "Created .env.local file with $(grep -c "=" .env.local) environment variables"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -120,25 +106,15 @@ jobs:
       - name: Run build
         working-directory: ${{ inputs.working_directory }}
         run: |
-          if [ -f /tmp/env.sh ]; then
-            . /tmp/env.sh
-          fi
           ${{ inputs.build_command }}
 
       - name: Install Playwright browsers
         working-directory: ${{ inputs.working_directory }}
-        run: |
-          if [ -f /tmp/env.sh ]; then
-            . /tmp/env.sh
-          fi
-          ${{ inputs.install_command }}
+        run: npx playwright install --with-deps
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
         run: |
-          if [ -f /tmp/env.sh ]; then
-            . /tmp/env.sh
-          fi
           ${{ inputs.test_command }}
 
       - name: Upload Playwright Report
