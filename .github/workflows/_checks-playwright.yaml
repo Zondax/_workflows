@@ -32,8 +32,8 @@ on:
         required: false
         default: true
     secrets:
-      env_script:
-        description: "Bash script to set environment variables (one export per line)"
+      env_local:
+        description: "Env local file to set environment variables (one export per line)"
         required: false
   
 env:
