@@ -64,13 +64,19 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token || github.token }}
 
+      - name: Install dependencies
+        run: |
+          apk add --no-cache make wget tar
+          
       - name: Install kubeconform
         env:
           KUBECONFORM_VERSION: ${{ inputs.kubeconform_version }}
           KUBECONFORM_ARCH: linux-amd64
           KUBECONFORM_URL: https://github.com/yannh/kubeconform/releases/download
         run: |
-          make infra-kubeconform-install
+          wget ${KUBECONFORM_URL}/${KUBECONFORM_VERSION}/kubeconform-${KUBECONFORM_ARCH}.tar.gz
+          tar xzf kubeconform-${KUBECONFORM_ARCH}.tar.gz
+          mv kubeconform /usr/local/bin/
 
       - name: Validate Infra manifests
         run: |
