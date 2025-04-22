@@ -169,6 +169,13 @@ jobs:
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
         run: ${{ env.PM_RUN }} ${{ inputs.coverage_command }}
 
+      - name: Vitest Coverage Report
+        if: ${{ inputs.enable_tests && inputs.enable_coverage }}
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          vite-config-path: ./vitest.config.ts
+          working-directory: .
+
       - name: Upload coverage reports to Codecov
         if: ${{ inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage }}
         uses: codecov/codecov-action@v5

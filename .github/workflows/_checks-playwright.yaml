@@ -35,7 +35,7 @@ on:
       env_local:
         description: "Env local file to set environment variables (one export per line)"
         required: false
-  
+
 env:
   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
   HEAD_BRANCH_NAME: ${{ github.head_ref }}
@@ -91,7 +91,7 @@ jobs:
           # Environment variables for Next.js
           ${{ secrets.env_local }}
           EOL
-          
+
           # Show confirmation (only count lines for security)
           echo "Created .env.local file with $(grep -c "=" .env.local) environment variables"
 

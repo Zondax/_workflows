@@ -67,7 +67,7 @@ jobs:
       - name: Install dependencies
         run: |
           apk add --no-cache make wget tar
-          
+
       - name: Install kubeconform
         env:
           KUBECONFORM_VERSION: ${{ inputs.kubeconform_version }}

@@ -8,6 +8,7 @@
         "bunx",
         "covermode",
         "coverprofile",
+        "davelosert",
         "DOCKERHUB",
         "gitclean",
         "GOCMD",
@@ -26,6 +27,8 @@
         "SLSA",
         "tput",
         "Txterm",
+        "vite",
+        "vitest",
         "wordlist",
         "zondax"
     ]
