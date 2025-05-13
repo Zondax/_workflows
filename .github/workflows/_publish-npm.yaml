@@ -73,6 +73,9 @@ jobs:
 
       - run: bun install
 
+      - name: Build package
+        run: if grep -q '"build"' package.json; then bun run build; else echo "No build script found, skipping"; fi
+
       - name: Set version from Git
         run: npm version from-git --no-git-tag-version
 
