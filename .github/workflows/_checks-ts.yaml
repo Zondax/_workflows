@@ -32,7 +32,7 @@ on:
         description: "Node.js version to use"
         required: false
         type: string
-        default: "lts/*"
+        default: "22.15.0"
       package_manager:
         description: "Package manager to use (bun or pnpm)"
         required: false
@@ -52,7 +52,7 @@ on:
         description: "Docker image to use for bun"
         required: false
         type: string
-        default: "oven/bun:{0}-alpine"
+        default: "imbios/bun-node:{0}-{1}-alpine-git"
       node_image:
         description: "Docker image to use for node/pnpm"
         required: false
@@ -108,7 +108,7 @@ jobs:
   checks-ts:
     runs-on: zondax-runners
     container:
-      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.bun_version) || inputs.node_image }}
+      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.bun_version, inputs.node_version) || inputs.node_image }}
     timeout-minutes: 15
 
     env:
@@ -116,9 +116,6 @@ jobs:
       PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
 
     steps:
-      - name: Install git
-        run: apk add --no-cache git
-
       - name: Generate GitHub App Token
         id: app-token
         if: inputs.github_app_auth != false
@@ -139,11 +136,6 @@ jobs:
 
       - name: Patch git clone
         run: git config --system --add safe.directory '*'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
