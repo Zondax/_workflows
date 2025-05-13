@@ -73,6 +73,9 @@ jobs:
 
       - run: bun install
 
+      - name: Build package
+        run: bun run build
+
       - name: Set version from Git
         run: npm version from-git --no-git-tag-version
 
