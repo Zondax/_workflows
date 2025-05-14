@@ -1,0 +1,56 @@
+name: Build Docker Image (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+      gar_repository:
+        required: true
+        type: string
+      gar_location:
+        required: true
+        type: string
+      gcp_project_id:
+        required: true
+        type: string
+      workload_identity_provider:
+        required: true
+        type: string
+      service_account:
+        required: true
+        type: string
+    outputs:
+      image_tag:
+        description: "The full tag of the built image."
+        value: ${{ jobs.build.outputs.image_tag }}
+jobs:
+  build:
+    runs-on: zondax-runners
+    outputs:
+      image_tag: ${{ steps.build_image.outputs.image_tag }}
+    permissions:
+      id-token: write # Enables automatic ID token injection for google-github-actions/auth
+      contents: read # Required for actions/checkout and GitHub API access
+      pull-requests: write # Required for commenting on PRs
+    steps:
+      - uses: actions/checkout@v4
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Configure Docker to use gcloud (for Artifact Registry)
+        run: gcloud auth configure-docker ${{ inputs.gar_location }}-docker.pkg.dev
+      - name: Build Docker image
+        id: build_image
+        run: |
+          IMAGE_TAG_SHA="${{ inputs.gar_location }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.gar_repository }}/${{ inputs.image_name }}:${{ github.sha }}"
+          docker build --tag "$IMAGE_TAG_SHA" .
+          echo "image_tag=$IMAGE_TAG_SHA" >> $GITHUB_OUTPUT
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push "${{ steps.build_image.outputs.image_tag }}"

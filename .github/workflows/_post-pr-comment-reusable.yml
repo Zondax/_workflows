@@ -1,0 +1,42 @@
+name: Post PR Comment (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        required: true
+        type: string
+        description: "PR number to comment on"
+      comment_title:
+        required: false
+        type: string
+        default: "Preview Deployment"
+        description: "Title for the comment"
+      url:
+        required: true
+        type: string
+        description: "URL to include in the comment"
+      url_title:
+        required: false
+        type: string
+        default: "View Preview"
+        description: "Title for the URL link"
+      additional_message:
+        required: false
+        type: string
+        description: "Additional message to include in the comment"
+
+jobs:
+  post-comment:
+    runs-on: zondax-runners
+    steps:
+      - name: Comment PR with URL
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ inputs.issue_number }}
+          body: |
+            **🚀 ${{ inputs.comment_title }}**
+            
+            ${{ inputs.additional_message != '' && inputs.additional_message || 'Your PR preview has been deployed and is available at:' }}
+            
+            🔗 [${{ inputs.url_title }}](${{ inputs.url }})
