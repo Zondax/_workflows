@@ -126,10 +126,10 @@ jobs:
           repositories: |
             ${{ inputs.github_app_repos }}
       
-      - name: Install git
+      - name: Install needed packages
         run: |
           apt-get update
-          apt-get install -y git
+          apt-get install -y git unzip
       
       - name: Install node
         uses: actions/setup-node@v4
