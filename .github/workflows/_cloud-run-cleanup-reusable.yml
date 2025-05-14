@@ -29,6 +29,9 @@ on:
         description: "Workload identity provider"
       service_account:
         required: true
+        type: string
+        description: "Service account"
+
 jobs:
   cleanup:
     runs-on: zondax-runners
