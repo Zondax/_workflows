@@ -1,0 +1,63 @@
+name: Cloud Run Cleanup (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: false
+        type: string
+        description: "Exact name of the Cloud Run service to delete"
+      gcp_project_id:
+        required: true
+        type: string
+        description: "GCP project ID"
+      region:
+        required: true
+        type: string
+        description: "GCP region where the service is deployed"
+      image_name_prefix:
+        required: false
+        type: string
+        description: "Base name prefix for the service (used with branch_name)"
+      branch_name:
+        required: false
+        type: string
+        description: "Branch name to use for service name construction"
+      workload_identity_provider:
+        required: true
+        type: string
+        description: "Workload identity provider"
+      service_account:
+        required: true
+jobs:
+  cleanup:
+    runs-on: zondax-runners
+    permissions:
+      id-token: write # Enables automatic ID token injection for google-github-actions/auth
+      contents: read # Required for actions/checkout and GitHub API access
+      pull-requests: write # Required for commenting on PRs
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
+          
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        
+      - name: Delete Cloud Run Service (Direct Service Name)
+        if: inputs.service_name != ''
+        run: |
+          # Always sanitize the service name to ensure it follows Cloud Run naming conventions
+          SAFE_SERVICE_NAME=$(echo "${{ inputs.service_name }}" | tr '/' '-' | tr '_' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+          echo "Deleting Cloud Run service: $SAFE_SERVICE_NAME"
+          gcloud run services delete $SAFE_SERVICE_NAME --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --platform managed --quiet || true
+          
+      - name: Delete Cloud Run Service (Branch-based Service Name)
+        if: inputs.branch_name != '' && inputs.image_name_prefix != ''
+        run: |
+          # Always sanitize the service name to ensure it follows Cloud Run naming conventions
+          SAFE_SERVICE_NAME=$(echo "${{ inputs.image_name_prefix }}-${{ inputs.branch_name }}" | tr '/' '-' | tr '_' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+          echo "Deleting Cloud Run service: $SAFE_SERVICE_NAME"
+          gcloud run services delete $SAFE_SERVICE_NAME --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --platform managed --quiet || true
