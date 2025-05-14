@@ -32,7 +32,7 @@ on:
         description: "Node.js version to use"
         required: false
         type: string
-        default: "22.15.0"
+        default: "lts/*"
       package_manager:
         description: "Package manager to use (bun or pnpm)"
         required: false
@@ -108,7 +108,7 @@ jobs:
   checks-ts:
     runs-on: zondax-runners
     container:
-      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.bun_version, inputs.node_version) || inputs.node_image }}
+      image: "ubuntu:24.04"
     timeout-minutes: 15
 
     env:
@@ -125,6 +125,21 @@ jobs:
           private-key: ${{ secrets.app_pem }}
           repositories: |
             ${{ inputs.github_app_repos }}
+      
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y git
+      
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ inputs.bun_version }}
 
       - name: Checkout code
         uses: actions/checkout@v4
