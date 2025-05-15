@@ -21,6 +21,22 @@ on:
       service_account:
         required: true
         type: string
+      build_tool:
+        required: false
+        type: string
+        default: docker
+      workdir:
+        required: false
+        type: string
+        default: .
+      dockerfiles:
+        required: false
+        type: string
+        default: Dockerfile
+      bake_targets:
+        required: false
+        type: string
+        default: ''
     outputs:
       image_tag:
         description: "The full tag of the built image."
@@ -47,9 +63,28 @@ jobs:
         run: gcloud auth configure-docker ${{ inputs.gar_location }}-docker.pkg.dev
       - name: Build Docker image
         id: build_image
+        working-directory: ${{ inputs.workdir }}
         run: |
+          # Parse dockerfiles input into multiple -f flags
+          IFS=',' read -ra FILES <<< "${{ inputs.dockerfiles }}"
+          DOCKERFILE_FLAGS=""
+          for f in "${FILES[@]}"; do
+            DOCKERFILE_FLAGS+=" -f $f"
+          done
           IMAGE_TAG_SHA="${{ inputs.gar_location }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.gar_repository }}/${{ inputs.image_name }}:${{ github.sha }}"
-          docker build --tag "$IMAGE_TAG_SHA" .
+          if [ "${{ inputs.build_tool }}" = "bake" ]; then
+            # If bake_targets is set, add them as arguments
+            BAKE_TARGETS=""
+            if [ -n "${{ inputs.bake_targets }}" ]; then
+              IFS=',' read -ra TARGETS <<< "${{ inputs.bake_targets }}"
+              for t in "${TARGETS[@]}"; do
+                BAKE_TARGETS+=" $t"
+              done
+            fi
+            docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA"
+          else
+            docker build $DOCKERFILE_FLAGS --tag "$IMAGE_TAG_SHA" .
+          fi
           echo "image_tag=$IMAGE_TAG_SHA" >> $GITHUB_OUTPUT
       - name: Push Docker image to Artifact Registry
         run: |
