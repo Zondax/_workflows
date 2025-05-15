@@ -233,6 +233,11 @@ jobs:
               FLAGS="$FLAGS ${{ steps.read-config.outputs.liveness_probe_flag }}"
             fi
             
+            # Add port flag if specified in config
+            if [ "${{ steps.read-config.outputs.port }}" != "" ]; then
+              FLAGS="$FLAGS --port=${{ steps.read-config.outputs.port }}"
+            fi
+            
           else
             # Auth settings from input
             if [ "${{ inputs.allow_unauth }}" == "true" ]; then
