@@ -83,6 +83,7 @@ jobs:
             MAX_INSTANCES=$(yq '.service.max_instances' ${{ inputs.config_file }})
             ALLOW_UNAUTH=$(yq '.service.allow_unauthenticated' ${{ inputs.config_file }})
             VPC_CONNECTOR=$(yq '.service.vpc_connector' ${{ inputs.config_file }})
+            PORT=$(yq '.service.port // ""' ${{ inputs.config_file }})
             
             # Build environment variables flags
             ENV_VARS="--set-env-vars="
@@ -166,6 +167,7 @@ jobs:
             echo "env_vars=$ENV_VARS" >> $GITHUB_OUTPUT
             echo "command=$COMMAND" >> $GITHUB_OUTPUT
             echo "args=$ARGS" >> $GITHUB_OUTPUT
+            echo "port=$PORT" >> $GITHUB_OUTPUT
             echo "has_config=true" >> $GITHUB_OUTPUT
           else
             echo "Config file not found: ${{ inputs.config_file }}"
