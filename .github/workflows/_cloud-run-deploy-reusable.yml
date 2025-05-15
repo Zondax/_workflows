@@ -93,9 +93,9 @@ jobs:
 
             ENV_VARS=${ENV_VARS%,}
 
-            # Parse command and args as comma-separated strings
+            # Parse command and args as comma-separated and space-separated strings
             COMMAND=$(yq -o=json '.service.command // []' ${{ inputs.config_file }} | jq -r 'join(",")')
-            ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(",")')
+            ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(" ")')
 
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
             echo "memory=$MEMORY" >> $GITHUB_OUTPUT
@@ -156,7 +156,7 @@ jobs:
               FLAGS="$FLAGS --command=${{ steps.read-config.outputs.command }}"
             fi
             if [ "${{ steps.read-config.outputs.args }}" != "" ]; then
-              FLAGS="$FLAGS --args=${{ steps.read-config.outputs.args }}"
+              FLAGS="$FLAGS --args=\"${{ steps.read-config.outputs.args }}\""
             fi
             
           else
