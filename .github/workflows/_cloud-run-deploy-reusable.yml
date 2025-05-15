@@ -97,6 +97,13 @@ jobs:
             COMMAND=$(yq -o=json '.service.command // []' ${{ inputs.config_file }} | jq -r 'join(",")')
             ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(" ")')
 
+            # Parse app_config_file and base64 encode if present
+            APP_CONFIG_FILE=$(yq '.service.app_config_file // ""' ${{ inputs.config_file }})
+            if [ "$APP_CONFIG_FILE" != "" ]; then
+              APP_CONFIG_FILE_B64=$(echo "$APP_CONFIG_FILE" | base64 | tr -d '\n')
+              echo "app_config_file_b64=$APP_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
+            fi
+
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
             echo "memory=$MEMORY" >> $GITHUB_OUTPUT
             echo "cpu=$CPU" >> $GITHUB_OUTPUT
@@ -149,7 +156,16 @@ jobs:
             fi
 
             # Add environment variables
-            FLAGS="$FLAGS ${{ steps.read-config.outputs.env_vars }}"
+            ENV_VARS="${{ steps.read-config.outputs.env_vars }}"
+            # Add APP_CONFIG_FILE_B64 if present
+            if [ "${{ steps.read-config.outputs.app_config_file_b64 }}" != "" ]; then
+              if [ "$ENV_VARS" != "--set-env-vars=" ] && [ "$ENV_VARS" != "" ]; then
+                ENV_VARS="$ENV_VARS,APP_CONFIG_FILE_B64=${{ steps.read-config.outputs.app_config_file_b64 }}"
+              else
+                ENV_VARS="--set-env-vars=APP_CONFIG_FILE_B64=${{ steps.read-config.outputs.app_config_file_b64 }}"
+              fi
+            fi
+            FLAGS="$FLAGS $ENV_VARS"
 
             # Add custom command and args if present
             if [ "${{ steps.read-config.outputs.command }}" != "" ]; then
