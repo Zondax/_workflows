@@ -178,7 +178,7 @@ jobs:
         id: set-service-name
         run: |
           if [ "${{ inputs.config_file != '' }}" == "true" ] && [ "${{ steps.read-config.outputs.has_config }}" == "true" ]; then
-            echo "final_service_name=${{ steps.read-config.outputs.service_name }}" >> $GITHUB_OUTPUT
+            echo "final_service_name=${{ steps.read-config.outputs.service_name }}-${{ github.event.number }}" >> $GITHUB_OUTPUT
           else
             echo "final_service_name=${{ inputs.service_name }}" >> $GITHUB_OUTPUT
           fi
