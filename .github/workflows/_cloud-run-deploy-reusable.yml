@@ -108,7 +108,8 @@ jobs:
             STARTUP_PROBE_FLAG=""
             LIVENESS_PROBE_FLAG=""
             # Startup probe
-            if yq '.service.health_check.startup // empty' ${{ inputs.config_file }} > /dev/null; then
+            STARTUP=$(yq '.service.health_check.startup // ""' ${{ inputs.config_file }})
+            if [ "$STARTUP" != "" ]; then
               PROBE_TYPE=$(yq '.service.health_check.startup.type' ${{ inputs.config_file }})
               if [ "$PROBE_TYPE" = "grpc" ]; then
                 PROBE_PORT=$(yq '.service.health_check.startup.port' ${{ inputs.config_file }})
@@ -130,7 +131,8 @@ jobs:
               echo "startup_probe_flag=$STARTUP_PROBE_FLAG" >> $GITHUB_OUTPUT
             fi
             # Liveness probe
-            if yq '.service.health_check.liveness // empty' ${{ inputs.config_file }} > /dev/null; then
+            LIVENESS=$(yq '.service.health_check.liveness // ""' ${{ inputs.config_file }})
+            if [ "$LIVENESS" != "" ]; then
               PROBE_TYPE=$(yq '.service.health_check.liveness.type' ${{ inputs.config_file }})
               if [ "$PROBE_TYPE" = "grpc" ]; then
                 PROBE_PORT=$(yq '.service.health_check.liveness.port' ${{ inputs.config_file }})
@@ -239,33 +241,6 @@ jobs:
           fi
           
           echo "flags=$FLAGS" >> $GITHUB_OUTPUT
-
-      - name: Print raw config file
-        if: inputs.config_file != ''
-        run: cat "${{ inputs.config_file }}"
-
-      - name: Debug parsed config and flags
-        run: |
-          echo "service_name: ${{ steps.read-config.outputs.service_name }}"
-          echo "memory: ${{ steps.read-config.outputs.memory }}"
-          echo "cpu: ${{ steps.read-config.outputs.cpu }}"
-          echo "concurrency: ${{ steps.read-config.outputs.concurrency }}"
-          echo "timeout: ${{ steps.read-config.outputs.timeout }}"
-          echo "min_instances: ${{ steps.read-config.outputs.min_instances }}"
-          echo "max_instances: ${{ steps.read-config.outputs.max_instances }}"
-          echo "allow_unauth: ${{ steps.read-config.outputs.allow_unauth }}"
-          echo "vpc_connector: ${{ steps.read-config.outputs.vpc_connector }}"
-          echo "env_vars: ${{ steps.read-config.outputs.env_vars }}"
-          echo "command: ${{ steps.read-config.outputs.command }}"
-          echo "args: ${{ steps.read-config.outputs.args }}"
-          echo "app_config_file_b64: ${{ steps.read-config.outputs.app_config_file_b64 }}"
-          echo "startup_probe_flag: ${{ steps.read-config.outputs.startup_probe_flag }}"
-          echo "liveness_probe_flag: ${{ steps.read-config.outputs.liveness_probe_flag }}"
-          echo "has_config: ${{ steps.read-config.outputs.has_config }}"
-          echo "Final flags: ${{ steps.generate-flags.outputs.flags }}"
-
-      - name: Print environment variables
-        run: printenv | sort
 
       - name: Deploy to Cloud Run
         id: deploy
