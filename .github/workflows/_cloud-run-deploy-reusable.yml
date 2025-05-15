@@ -93,6 +93,10 @@ jobs:
 
             ENV_VARS=${ENV_VARS%,}
 
+            # Parse command and args as comma-separated strings
+            COMMAND=$(yq -o=json '.service.command // []' ${{ inputs.config_file }} | jq -r 'join(",")')
+            ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(",")')
+
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
             echo "memory=$MEMORY" >> $GITHUB_OUTPUT
             echo "cpu=$CPU" >> $GITHUB_OUTPUT
@@ -103,6 +107,8 @@ jobs:
             echo "allow_unauth=$ALLOW_UNAUTH" >> $GITHUB_OUTPUT
             echo "vpc_connector=$VPC_CONNECTOR" >> $GITHUB_OUTPUT
             echo "env_vars=$ENV_VARS" >> $GITHUB_OUTPUT
+            echo "command=$COMMAND" >> $GITHUB_OUTPUT
+            echo "args=$ARGS" >> $GITHUB_OUTPUT
             echo "has_config=true" >> $GITHUB_OUTPUT
           else
             echo "Config file not found: ${{ inputs.config_file }}"
@@ -144,6 +150,14 @@ jobs:
 
             # Add environment variables
             FLAGS="$FLAGS ${{ steps.read-config.outputs.env_vars }}"
+
+            # Add custom command and args if present
+            if [ "${{ steps.read-config.outputs.command }}" != "" ]; then
+              FLAGS="$FLAGS --command=${{ steps.read-config.outputs.command }}"
+            fi
+            if [ "${{ steps.read-config.outputs.args }}" != "" ]; then
+              FLAGS="$FLAGS --args=${{ steps.read-config.outputs.args }}"
+            fi
             
           else
             # Auth settings from input
