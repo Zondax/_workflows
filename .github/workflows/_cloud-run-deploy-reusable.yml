@@ -240,6 +240,33 @@ jobs:
           
           echo "flags=$FLAGS" >> $GITHUB_OUTPUT
 
+      - name: Print raw config file
+        if: inputs.config_file != ''
+        run: cat "${{ inputs.config_file }}"
+
+      - name: Debug parsed config and flags
+        run: |
+          echo "service_name: ${{ steps.read-config.outputs.service_name }}"
+          echo "memory: ${{ steps.read-config.outputs.memory }}"
+          echo "cpu: ${{ steps.read-config.outputs.cpu }}"
+          echo "concurrency: ${{ steps.read-config.outputs.concurrency }}"
+          echo "timeout: ${{ steps.read-config.outputs.timeout }}"
+          echo "min_instances: ${{ steps.read-config.outputs.min_instances }}"
+          echo "max_instances: ${{ steps.read-config.outputs.max_instances }}"
+          echo "allow_unauth: ${{ steps.read-config.outputs.allow_unauth }}"
+          echo "vpc_connector: ${{ steps.read-config.outputs.vpc_connector }}"
+          echo "env_vars: ${{ steps.read-config.outputs.env_vars }}"
+          echo "command: ${{ steps.read-config.outputs.command }}"
+          echo "args: ${{ steps.read-config.outputs.args }}"
+          echo "app_config_file_b64: ${{ steps.read-config.outputs.app_config_file_b64 }}"
+          echo "startup_probe_flag: ${{ steps.read-config.outputs.startup_probe_flag }}"
+          echo "liveness_probe_flag: ${{ steps.read-config.outputs.liveness_probe_flag }}"
+          echo "has_config: ${{ steps.read-config.outputs.has_config }}"
+          echo "Final flags: ${{ steps.generate-flags.outputs.flags }}"
+
+      - name: Print environment variables
+        run: printenv | sort
+
       - name: Deploy to Cloud Run
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v2
@@ -255,3 +282,7 @@ jobs:
         run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} --platform managed --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --format 'value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Print GITHUB_OUTPUT file
+        if: always()
+        run: cat $GITHUB_OUTPUT || true
