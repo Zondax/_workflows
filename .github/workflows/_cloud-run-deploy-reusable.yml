@@ -83,6 +83,7 @@ jobs:
             MAX_INSTANCES=$(yq '.service.max_instances' ${{ inputs.config_file }})
             ALLOW_UNAUTH=$(yq '.service.allow_unauthenticated' ${{ inputs.config_file }})
             VPC_CONNECTOR=$(yq '.service.vpc_connector' ${{ inputs.config_file }})
+            PORT=$(yq '.service.port // ""' ${{ inputs.config_file }})
             
             # Build environment variables flags
             ENV_VARS="--set-env-vars="
@@ -92,6 +93,69 @@ jobs:
             done
 
             ENV_VARS=${ENV_VARS%,}
+
+            # Parse command and args as comma-separated and space-separated strings
+            COMMAND=$(yq -o=json '.service.command // []' ${{ inputs.config_file }} | jq -r 'join(",")')
+            ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(" ")')
+
+            # Parse app_config_file and base64 encode if present
+            APP_CONFIG_FILE=$(yq '.service.app_config_file // ""' ${{ inputs.config_file }})
+            if [ "$APP_CONFIG_FILE" != "" ]; then
+              # Replace github_event_number with the actual value in the app config file
+              APP_CONFIG_FILE_REPLACED=$(echo "$APP_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
+              APP_CONFIG_FILE_B64=$(echo "$APP_CONFIG_FILE_REPLACED" | base64 | tr -d '\n')
+              echo "app_config_file_b64=$APP_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
+            fi
+
+            # Parse health check config for startup and liveness probes
+            STARTUP_PROBE_FLAG=""
+            LIVENESS_PROBE_FLAG=""
+            # Startup probe
+            STARTUP=$(yq '.service.health_check.startup // ""' ${{ inputs.config_file }})
+            if [ "$STARTUP" != "" ]; then
+              PROBE_TYPE=$(yq '.service.health_check.startup.type' ${{ inputs.config_file }})
+              if [ "$PROBE_TYPE" = "grpc" ]; then
+                PROBE_PORT=$(yq '.service.health_check.startup.port' ${{ inputs.config_file }})
+                PROBE_SERVICE=$(yq '.service.health_check.startup.service // ""' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq '.service.health_check.startup.initial_delay_seconds // 0' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq '.service.health_check.startup.period_seconds // 10' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq '.service.health_check.startup.timeout_seconds // 1' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq '.service.health_check.startup.failure_threshold // 3' ${{ inputs.config_file }})
+                STARTUP_PROBE_FLAG="--startup-probe grpc.port=$PROBE_PORT,grpc.service=$PROBE_SERVICE,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
+              elif [ "$PROBE_TYPE" = "http" ]; then
+                PROBE_PATH=$(yq '.service.health_check.startup.path' ${{ inputs.config_file }})
+                PROBE_PORT=$(yq '.service.health_check.startup.port' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq '.service.health_check.startup.initial_delay_seconds // 0' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq '.service.health_check.startup.period_seconds // 10' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq '.service.health_check.startup.timeout_seconds // 1' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq '.service.health_check.startup.failure_threshold // 3' ${{ inputs.config_file }})
+                STARTUP_PROBE_FLAG="--startup-probe httpGet.path=$PROBE_PATH,httpGet.port=$PROBE_PORT,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
+              fi
+              echo "startup_probe_flag=$STARTUP_PROBE_FLAG" >> $GITHUB_OUTPUT
+            fi
+            # Liveness probe
+            LIVENESS=$(yq '.service.health_check.liveness // ""' ${{ inputs.config_file }})
+            if [ "$LIVENESS" != "" ]; then
+              PROBE_TYPE=$(yq '.service.health_check.liveness.type' ${{ inputs.config_file }})
+              if [ "$PROBE_TYPE" = "grpc" ]; then
+                PROBE_PORT=$(yq '.service.health_check.liveness.port' ${{ inputs.config_file }})
+                PROBE_SERVICE=$(yq '.service.health_check.liveness.service // ""' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq '.service.health_check.liveness.initial_delay_seconds // 0' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq '.service.health_check.liveness.period_seconds // 10' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq '.service.health_check.liveness.timeout_seconds // 1' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq '.service.health_check.liveness.failure_threshold // 3' ${{ inputs.config_file }})
+                LIVENESS_PROBE_FLAG="--liveness-probe grpc.port=$PROBE_PORT,grpc.service=$PROBE_SERVICE,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
+              elif [ "$PROBE_TYPE" = "http" ]; then
+                PROBE_PATH=$(yq '.service.health_check.liveness.path' ${{ inputs.config_file }})
+                PROBE_PORT=$(yq '.service.health_check.liveness.port' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq '.service.health_check.liveness.initial_delay_seconds // 0' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq '.service.health_check.liveness.period_seconds // 10' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq '.service.health_check.liveness.timeout_seconds // 1' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq '.service.health_check.liveness.failure_threshold // 3' ${{ inputs.config_file }})
+                LIVENESS_PROBE_FLAG="--liveness-probe httpGet.path=$PROBE_PATH,httpGet.port=$PROBE_PORT,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
+              fi
+              echo "liveness_probe_flag=$LIVENESS_PROBE_FLAG" >> $GITHUB_OUTPUT
+            fi
 
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
             echo "memory=$MEMORY" >> $GITHUB_OUTPUT
@@ -103,6 +167,9 @@ jobs:
             echo "allow_unauth=$ALLOW_UNAUTH" >> $GITHUB_OUTPUT
             echo "vpc_connector=$VPC_CONNECTOR" >> $GITHUB_OUTPUT
             echo "env_vars=$ENV_VARS" >> $GITHUB_OUTPUT
+            echo "command=$COMMAND" >> $GITHUB_OUTPUT
+            echo "args=$ARGS" >> $GITHUB_OUTPUT
+            echo "port=$PORT" >> $GITHUB_OUTPUT
             echo "has_config=true" >> $GITHUB_OUTPUT
           else
             echo "Config file not found: ${{ inputs.config_file }}"
@@ -113,7 +180,11 @@ jobs:
         id: set-service-name
         run: |
           if [ "${{ inputs.config_file != '' }}" == "true" ] && [ "${{ steps.read-config.outputs.has_config }}" == "true" ]; then
-            echo "final_service_name=${{ steps.read-config.outputs.service_name }}" >> $GITHUB_OUTPUT
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "final_service_name=${{ steps.read-config.outputs.service_name }}-${{ github.event.number }}" >> $GITHUB_OUTPUT
+            else
+              echo "final_service_name=${{ steps.read-config.outputs.service_name }}" >> $GITHUB_OUTPUT
+            fi
           else
             echo "final_service_name=${{ inputs.service_name }}" >> $GITHUB_OUTPUT
           fi
@@ -143,7 +214,37 @@ jobs:
             fi
 
             # Add environment variables
-            FLAGS="$FLAGS ${{ steps.read-config.outputs.env_vars }}"
+            ENV_VARS="${{ steps.read-config.outputs.env_vars }}"
+            # Add APP_CONFIG_FILE_B64 if present
+            if [ "${{ steps.read-config.outputs.app_config_file_b64 }}" != "" ]; then
+              if [ "$ENV_VARS" != "--set-env-vars=" ] && [ "$ENV_VARS" != "" ]; then
+                ENV_VARS="$ENV_VARS,APP_CONFIG_FILE_B64=${{ steps.read-config.outputs.app_config_file_b64 }}"
+              else
+                ENV_VARS="--set-env-vars=APP_CONFIG_FILE_B64=${{ steps.read-config.outputs.app_config_file_b64 }}"
+              fi
+            fi
+            FLAGS="$FLAGS $ENV_VARS"
+
+            # Add custom command and args if present
+            if [ "${{ steps.read-config.outputs.command }}" != "" ]; then
+              FLAGS="$FLAGS --command=${{ steps.read-config.outputs.command }}"
+            fi
+            if [ "${{ steps.read-config.outputs.args }}" != "" ]; then
+              FLAGS="$FLAGS --args=\"${{ steps.read-config.outputs.args }}\""
+            fi
+            
+            # Add health check probe flags if present
+            if [ "${{ steps.read-config.outputs.startup_probe_flag }}" != "" ]; then
+              FLAGS="$FLAGS ${{ steps.read-config.outputs.startup_probe_flag }}"
+            fi
+            if [ "${{ steps.read-config.outputs.liveness_probe_flag }}" != "" ]; then
+              FLAGS="$FLAGS ${{ steps.read-config.outputs.liveness_probe_flag }}"
+            fi
+            
+            # Add port flag if specified in config
+            if [ "${{ steps.read-config.outputs.port }}" != "" ]; then
+              FLAGS="$FLAGS --port=${{ steps.read-config.outputs.port }}"
+            fi
             
           else
             # Auth settings from input
@@ -169,3 +270,7 @@ jobs:
         run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} --platform managed --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --format 'value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Print GITHUB_OUTPUT file
+        if: always()
+        run: cat $GITHUB_OUTPUT || true

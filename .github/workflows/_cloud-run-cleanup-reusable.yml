@@ -15,14 +15,6 @@ on:
         required: true
         type: string
         description: "GCP region where the service is deployed"
-      image_name_prefix:
-        required: false
-        type: string
-        description: "Base name prefix for the service (used with branch_name)"
-      branch_name:
-        required: false
-        type: string
-        description: "Branch name to use for service name construction"
       workload_identity_provider:
         required: true
         type: string
@@ -31,6 +23,10 @@ on:
         required: true
         type: string
         description: "Service account"
+      config_file:
+        required: false
+        type: string
+        description: "Path to the configuration file for this deployment"
 
 jobs:
   cleanup:
@@ -49,18 +45,35 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         
-      - name: Delete Cloud Run Service (Direct Service Name)
-        if: inputs.service_name != ''
+      - name: Read config file for service name
+        id: read-config
+        if: inputs.config_file != ''
         run: |
-          # Always sanitize the service name to ensure it follows Cloud Run naming conventions
-          SAFE_SERVICE_NAME=$(echo "${{ inputs.service_name }}" | tr '/' '-' | tr '_' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
-          echo "Deleting Cloud Run service: $SAFE_SERVICE_NAME"
-          gcloud run services delete $SAFE_SERVICE_NAME --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --platform managed --quiet || true
-          
-      - name: Delete Cloud Run Service (Branch-based Service Name)
-        if: inputs.branch_name != '' && inputs.image_name_prefix != ''
+          if [ -f "${{ inputs.config_file }}" ]; then
+            SERVICE_NAME=$(yq '.service.name' ${{ inputs.config_file }})
+            echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+          else
+            echo "Config file not found: ${{ inputs.config_file }}"
+            exit 1
+          fi
+
+      - name: Set final service name
+        id: set-service-name
         run: |
+          if [ "${{ inputs.config_file != '' }}" == "true" ] && [ "${{ steps.read-config.outputs.service_name }}" != "" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              FINAL_SERVICE_NAME="${{ steps.read-config.outputs.service_name }}-${{ github.event.number }}"
+            else
+              FINAL_SERVICE_NAME="${{ steps.read-config.outputs.service_name }}"
+            fi
+          else
+            FINAL_SERVICE_NAME="${{ inputs.service_name }}"
+          fi
           # Always sanitize the service name to ensure it follows Cloud Run naming conventions
-          SAFE_SERVICE_NAME=$(echo "${{ inputs.image_name_prefix }}-${{ inputs.branch_name }}" | tr '/' '-' | tr '_' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
-          echo "Deleting Cloud Run service: $SAFE_SERVICE_NAME"
-          gcloud run services delete $SAFE_SERVICE_NAME --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --platform managed --quiet || true
+          SAFE_SERVICE_NAME=$(echo "$FINAL_SERVICE_NAME" | tr '/' '-' | tr '_' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+          echo "safe_service_name=$SAFE_SERVICE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Delete Cloud Run Service (Final Name)
+        run: |
+          echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }}"
+          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ inputs.gcp_project_id }} --region ${{ inputs.region }} --platform managed --quiet || true
