@@ -259,6 +259,15 @@ jobs:
           flags: ${{ steps.generate-flags.outputs.flags }}
           project_id: ${{ inputs.gcp_project_id }}
 
+      - name: Ensure public access (allow unauthenticated)
+        if: steps.read-config.outputs.allow_unauth == 'true'
+        run: |
+          gcloud run services add-iam-policy-binding ${{ steps.set-service-name.outputs.final_service_name }} \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --region=${{ inputs.region }} \
+            --project=${{ inputs.gcp_project_id }}
+
       - name: Get Cloud Run Service URL
         id: get-url
         run: |
