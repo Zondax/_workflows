@@ -32,7 +32,7 @@ on:
         description: "Node.js version to use"
         required: false
         type: string
-        default: "22.15.0"
+        default: "lts/*"
       package_manager:
         description: "Package manager to use (bun or pnpm)"
         required: false
@@ -48,16 +48,11 @@ on:
         required: false
         type: string
         default: "10.4.1"
-      bun_image:
-        description: "Docker image to use for bun"
+      base_image:
+        description: "Docker image to use for base image"
         required: false
         type: string
-        default: "imbios/bun-node:{0}-{1}-alpine-git"
-      node_image:
-        description: "Docker image to use for node/pnpm"
-        required: false
-        type: string
-        default: "node:lts-alpine"
+        default: "ubuntu:24.04"
       test_command:
         description: "Test command to run from package.json"
         required: false
@@ -108,7 +103,7 @@ jobs:
   checks-ts:
     runs-on: zondax-runners
     container:
-      image: ${{ inputs.package_manager == 'bun' && format(inputs.bun_image, inputs.bun_version, inputs.node_version) || inputs.node_image }}
+      image: ${{ inputs.base_image }}
     timeout-minutes: 15
 
     env:
@@ -125,6 +120,21 @@ jobs:
           private-key: ${{ secrets.app_pem }}
           repositories: |
             ${{ inputs.github_app_repos }}
+      
+      - name: Install needed packages
+        run: |
+          apt-get update
+          apt-get install -y git unzip
+      
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ inputs.bun_version }}
 
       - name: Checkout code
         uses: actions/checkout@v4
