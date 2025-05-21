@@ -103,11 +103,15 @@ jobs:
             echo "[DEBUG] PORT='$PORT'"
             
             # Check if this is a multi-container configuration
-            HAS_CONTAINERS=$(yq '.service.containers // ""' ${{ inputs.config_file }})
+            if yq e '.service.containers | length > 0' ${{ inputs.config_file }} &>/dev/null; then
+              HAS_CONTAINERS="true"
+            else
+              HAS_CONTAINERS="false"
+            fi
             echo "has_containers=$HAS_CONTAINERS" >> $GITHUB_OUTPUT
             
             # If single container configuration
-            if [ "$HAS_CONTAINERS" = "" ]; then
+            if [ "$HAS_CONTAINERS" = "false" ]; then
               # Build environment variables flags
               ENV_VARS="--set-env-vars="
               for key in $(yq '.service.environment_variables | keys | .[]' ${{ inputs.config_file }}); do
