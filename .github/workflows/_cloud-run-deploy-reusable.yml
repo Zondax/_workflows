@@ -153,7 +153,9 @@ jobs:
                 # Process container args
                 CONTAINER_ARGS=$(yq -o=json ".service.containers[$i].args // []" ${{ inputs.config_file }} | jq -r 'join(" ")')
                 if [ "$CONTAINER_ARGS" != "" ]; then
-                  CONTAINERS_ARGS="${CONTAINERS_ARGS}${CONTAINER_NAME}=\"${CONTAINER_ARGS}\"," 
+                  # Properly escape container args 
+                  ESCAPED_ARGS=$(echo "$CONTAINER_ARGS" | sed 's/"/\\"/g')
+                  CONTAINERS_ARGS="${CONTAINERS_ARGS}${CONTAINER_NAME}=\"${ESCAPED_ARGS}\"," 
                 fi
                 # Process container environment variables
                 CONTAINER_ENV=""
@@ -182,13 +184,13 @@ jobs:
                 fi
                 CONTAINERS_IMAGE="${CONTAINERS_IMAGE}${CONTAINER_NAME}=${CONTAINER_IMAGE},"
                 # Process container memory
-                CONTAINER_MEMORY=$(yq ".service.containers[$i].memory" ${{ inputs.config_file }})
+                CONTAINER_MEMORY=$(yq ".service.containers[$i].memory" ${{ inputs.config_file }} | tr -d ' ')
                 CONTAINERS_MEMORY="${CONTAINERS_MEMORY}${CONTAINER_NAME}=${CONTAINER_MEMORY},"
                 # Process container cpu
-                CONTAINER_CPU=$(yq ".service.containers[$i].cpu" ${{ inputs.config_file }})
+                CONTAINER_CPU=$(yq ".service.containers[$i].cpu" ${{ inputs.config_file }} | tr -d ' ')
                 CONTAINERS_CPU="${CONTAINERS_CPU}${CONTAINER_NAME}=${CONTAINER_CPU},"
                 # Process container port
-                CONTAINER_PORT=$(yq ".service.containers[$i].port" ${{ inputs.config_file }})
+                CONTAINER_PORT=$(yq ".service.containers[$i].port" ${{ inputs.config_file }} | tr -d ' ')
                 CONTAINERS_PORT="${CONTAINERS_PORT}${CONTAINER_NAME}=${CONTAINER_PORT},"
               done
               
@@ -342,13 +344,29 @@ jobs:
             # Check if this is a multi-container deployment
             if [ "${{ steps.read-config.outputs.is_multi_container }}" == "true" ]; then
               # Add container configuration for multi-container
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_config }}"
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_args }}"
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_env }}"
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_image }}"
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_memory }}"
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_cpu }}"
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_port }}"
+              # Add each flag separately, properly escaped where needed
+              if [ -n "${{ steps.read-config.outputs.containers_config }}" ]; then
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_config }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.containers_args }}" ]; then
+                # Make sure args with spaces are properly quoted
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_args }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.containers_env }}" ]; then
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_env }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.containers_image }}" ]; then
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_image }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.containers_memory }}" ]; then
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_memory }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.containers_cpu }}" ]; then
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_cpu }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.containers_port }}" ]; then
+                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_port }}"
+              fi
             else
               # Add environment variables
               ENV_VARS="${{ steps.read-config.outputs.env_vars }}"
@@ -400,6 +418,15 @@ jobs:
           fi
           
           echo "flags=$FLAGS" >> $GITHUB_OUTPUT
+
+      - name: Print deployment flags
+        run: |
+          echo "Deploying with the following flags:"
+          echo "Service: ${{ steps.set-service-name.outputs.final_service_name }}"
+          echo "Region: ${{ inputs.region }}"
+          echo "Image: ${{ inputs.image_tag }}"
+          echo "Project ID: ${{ inputs.gcp_project_id }}"
+          echo "Flags: ${{ steps.generate-flags.outputs.flags }}"
 
       - name: Deploy to Cloud Run
         id: deploy
