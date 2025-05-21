@@ -89,6 +89,19 @@ jobs:
             VPC_CONNECTOR=$(yq e -r '(.service.vpc_connector // "")' ${{ inputs.config_file }})
             PORT=$(yq e -r '(.service.port // "")' ${{ inputs.config_file }})
             
+            # Debug service level values
+            echo "[DEBUG] Service level variables:"
+            echo "[DEBUG] SERVICE_NAME='$SERVICE_NAME'"
+            echo "[DEBUG] MEMORY='$MEMORY'"
+            echo "[DEBUG] CPU='$CPU'"
+            echo "[DEBUG] CONCURRENCY='$CONCURRENCY'"
+            echo "[DEBUG] TIMEOUT='$TIMEOUT'"
+            echo "[DEBUG] MIN_INSTANCES='$MIN_INSTANCES'"
+            echo "[DEBUG] MAX_INSTANCES='$MAX_INSTANCES'"
+            echo "[DEBUG] ALLOW_UNAUTH='$ALLOW_UNAUTH'"
+            echo "[DEBUG] VPC_CONNECTOR='$VPC_CONNECTOR'"
+            echo "[DEBUG] PORT='$PORT'"
+            
             # Check if this is a multi-container configuration
             HAS_CONTAINERS=$(yq '.service.containers // ""' ${{ inputs.config_file }})
             echo "has_containers=$HAS_CONTAINERS" >> $GITHUB_OUTPUT
@@ -144,23 +157,29 @@ jobs:
                 exit 1
               fi
               for i in $(seq 0 $(($CONTAINERS_COUNT-1))); do
-                CONTAINER_NAME=$(yq ".service.containers[$i].name" ${{ inputs.config_file }})
+                CONTAINER_NAME=$(yq e -r ".service.containers[$i].name // \"\"" ${{ inputs.config_file }})
+                echo "[DEBUG] Processing container: $CONTAINER_NAME"
+
                 # Process container command
                 CONTAINER_COMMAND=$(yq -o=json ".service.containers[$i].command // []" ${{ inputs.config_file }} | jq -r 'join(",")')
+                echo "[DEBUG] CONTAINER_COMMAND='$CONTAINER_COMMAND'"
                 if [ "$CONTAINER_COMMAND" != "" ]; then
                   CONTAINERS_CONFIG="${CONTAINERS_CONFIG}${CONTAINER_NAME}=${CONTAINER_COMMAND},"
                 fi
+                
                 # Process container args
                 CONTAINER_ARGS=$(yq -o=json ".service.containers[$i].args // []" ${{ inputs.config_file }} | jq -r 'join(" ")')
+                echo "[DEBUG] CONTAINER_ARGS='$CONTAINER_ARGS'"
                 if [ "$CONTAINER_ARGS" != "" ]; then
                   # Properly escape container args 
                   ESCAPED_ARGS=$(echo "$CONTAINER_ARGS" | sed 's/"/\\"/g')
                   CONTAINERS_ARGS="${CONTAINERS_ARGS}${CONTAINER_NAME}=\"${ESCAPED_ARGS}\"," 
                 fi
+                
                 # Process container environment variables
                 CONTAINER_ENV=""
-                for key in $(yq ".service.containers[$i].environment_variables | keys | .[]" ${{ inputs.config_file }}); do
-                  value=$(yq ".service.containers[$i].environment_variables.$key" ${{ inputs.config_file }})
+                for key in $(yq e -r ".service.containers[$i].environment_variables | keys | .[]" ${{ inputs.config_file }}); do
+                  value=$(yq e -r ".service.containers[$i].environment_variables.${key} // \"\"" ${{ inputs.config_file }})
                   # Special handling for variables that need to be replaced
                   if [ "$value" = "\${API_CONFIG_B64}" ] && [ "$APP_CONFIG_FILE_B64" != "" ]; then
                     value="$APP_CONFIG_FILE_B64"
@@ -184,13 +203,19 @@ jobs:
                 fi
                 CONTAINERS_IMAGE="${CONTAINERS_IMAGE}${CONTAINER_NAME}=${CONTAINER_IMAGE},"
                 # Process container memory
-                CONTAINER_MEMORY=$(yq ".service.containers[$i].memory" ${{ inputs.config_file }} | tr -d ' ')
+                CONTAINER_MEMORY=$(yq e -r ".service.containers[$i].memory // \"\"" ${{ inputs.config_file }} | tr -d ' ' | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
+                # Check for problem format of memory: 212Mi (YAML snippet) - common issue
+                if echo "$CONTAINER_MEMORY" | grep -q "memory:" || echo "$CONTAINER_MEMORY" | grep -q ":"; then
+                  echo "[WARN] Found problematic YAML format in memory value: $CONTAINER_MEMORY" >&2
+                  CONTAINER_MEMORY=$(echo "$CONTAINER_MEMORY" | sed 's/.*://g' | tr -d ' ')
+                  echo "[WARN] Cleaned to: $CONTAINER_MEMORY" >&2
+                fi
                 CONTAINERS_MEMORY="${CONTAINERS_MEMORY}${CONTAINER_NAME}=${CONTAINER_MEMORY},"
                 # Process container cpu
-                CONTAINER_CPU=$(yq ".service.containers[$i].cpu" ${{ inputs.config_file }} | tr -d ' ')
+                CONTAINER_CPU=$(yq e -r ".service.containers[$i].cpu // \"\"" ${{ inputs.config_file }} | tr -d ' ')
                 CONTAINERS_CPU="${CONTAINERS_CPU}${CONTAINER_NAME}=${CONTAINER_CPU},"
                 # Process container port
-                CONTAINER_PORT=$(yq ".service.containers[$i].port" ${{ inputs.config_file }} | tr -d ' ')
+                CONTAINER_PORT=$(yq e -r ".service.containers[$i].port // \"\"" ${{ inputs.config_file }} | tr -d ' ')
                 CONTAINERS_PORT="${CONTAINERS_PORT}${CONTAINER_NAME}=${CONTAINER_PORT},"
               done
               
@@ -323,6 +348,11 @@ jobs:
             write_to_output "allow_unauth" "$ALLOW_UNAUTH"
             write_to_output "vpc_connector" "$VPC_CONNECTOR"
             write_to_output "has_config" "true"
+
+            # Print the content of $GITHUB_OUTPUT for debugging
+            echo "----- BEGIN GITHUB_OUTPUT CONTENTS -----"
+            cat $GITHUB_OUTPUT || echo "Failed to read GITHUB_OUTPUT"
+            echo "----- END GITHUB_OUTPUT CONTENTS -----"
           else
             echo "Config file not found: ${{ inputs.config_file }}"
             exit 1
