@@ -295,16 +295,34 @@ jobs:
               if [ -n "$LIVENESS_PROBE_FLAG" ]; then echo "liveness_probe_flag=$LIVENESS_PROBE_FLAG" >> $GITHUB_OUTPUT; fi
             fi
 
-            echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
-            echo "memory=$MEMORY" >> $GITHUB_OUTPUT
-            echo "cpu=$CPU" >> $GITHUB_OUTPUT
-            echo "concurrency=$CONCURRENCY" >> $GITHUB_OUTPUT
-            echo "timeout=$TIMEOUT" >> $GITHUB_OUTPUT
-            echo "min_instances=$MIN_INSTANCES" >> $GITHUB_OUTPUT
-            echo "max_instances=$MAX_INSTANCES" >> $GITHUB_OUTPUT
-            echo "allow_unauth=$ALLOW_UNAUTH" >> $GITHUB_OUTPUT
-            echo "vpc_connector=$VPC_CONNECTOR" >> $GITHUB_OUTPUT
-            echo "has_config=true" >> $GITHUB_OUTPUT
+            # Write all service-level config values to GITHUB_OUTPUT with sanitization
+            # to prevent any invalid format issues
+            write_to_output() {
+              local key=$1
+              local value=$2
+              # Clean value: remove leading/trailing spaces, carriage returns, and newlines
+              value=$(echo "$value" | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
+              echo "[DEBUG] About to write to GITHUB_OUTPUT: $key='$value'"
+              if [ -n "$value" ]; then
+                # Skip if value contains '='
+                if echo "$value" | grep -q '='; then
+                  echo "[ERROR] Value for $key contains '=': $value" >&2
+                else
+                  echo "$key=$value" >> $GITHUB_OUTPUT
+                fi
+              fi
+            }
+            
+            write_to_output "service_name" "$SERVICE_NAME"
+            write_to_output "memory" "$MEMORY"
+            write_to_output "cpu" "$CPU"
+            write_to_output "concurrency" "$CONCURRENCY"
+            write_to_output "timeout" "$TIMEOUT"
+            write_to_output "min_instances" "$MIN_INSTANCES"
+            write_to_output "max_instances" "$MAX_INSTANCES"
+            write_to_output "allow_unauth" "$ALLOW_UNAUTH"
+            write_to_output "vpc_connector" "$VPC_CONNECTOR"
+            write_to_output "has_config" "true"
           else
             echo "Config file not found: ${{ inputs.config_file }}"
             exit 1
