@@ -164,7 +164,7 @@ jobs:
                   # Special handling for variables that need to be replaced
                   if [ "$value" = "\${API_CONFIG_B64}" ] && [ "$APP_CONFIG_FILE_B64" != "" ]; then
                     value="$APP_CONFIG_FILE_B64"
-                  elif [ "$value" = "\${ENVOY_CONFIG_B64}" ] && [ "$SIDECAR_CONFIG_FILE_B64" != "" ]; then
+                  elif [ "$value" = "\${SIDECAR_CONFIG_B64}" ] && [ "$SIDECAR_CONFIG_FILE_B64" != "" ]; then
                     value="$SIDECAR_CONFIG_FILE_B64"
                   fi
                   if [ "$CONTAINER_ENV" != "" ]; then
@@ -381,9 +381,9 @@ jobs:
               # Add SIDECAR_CONFIG_FILE_B64 if present
               if [ "${{ steps.read-config.outputs.sidecar_config_file_b64 }}" != "" ]; then
                 if [ "$ENV_VARS" != "--set-env-vars=" ] && [ "$ENV_VARS" != "" ]; then
-                  ENV_VARS="$ENV_VARS,ENVOY_CONFIG_B64=${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
+                  ENV_VARS="$ENV_VARS,SIDECAR_CONFIG_B64=${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
                 else
-                  ENV_VARS="--set-env-vars=ENVOY_CONFIG_B64=${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
+                  ENV_VARS="--set-env-vars=SIDECAR_CONFIG_B64=${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
                 fi
               fi
               FLAGS="$FLAGS $ENV_VARS"
