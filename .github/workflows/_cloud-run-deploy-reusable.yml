@@ -185,9 +185,11 @@ jobs:
                 for key in $(yq e -r ".service.containers[$i].environment_variables | keys | .[]" ${{ inputs.config_file }}); do
                   value=$(yq e -r ".service.containers[$i].environment_variables.${key} // \"\"" ${{ inputs.config_file }})
                   # Special handling for variables that need to be replaced
-                  if [ "$value" = "\${API_CONFIG_B64}" ] && [ "$APP_CONFIG_FILE_B64" != "" ]; then
+                  if [ "$value" = "\${API_CONFIG_B64}" ] && [ -n "$APP_CONFIG_FILE_B64" ]; then
                     value="$APP_CONFIG_FILE_B64"
-                  elif [ "$value" = "\${SIDECAR_CONFIG_B64}" ] && [ "$SIDECAR_CONFIG_FILE_B64" != "" ]; then
+                  elif [ "$value" = "\${ENVOY_CONFIG_B64}" ] && [ -n "$SIDECAR_CONFIG_FILE_B64" ]; then
+                    value="$SIDECAR_CONFIG_FILE_B64"
+                  elif [ "$value" = "\${SIDECAR_CONFIG_B64}" ] && [ -n "$SIDECAR_CONFIG_FILE_B64" ]; then
                     value="$SIDECAR_CONFIG_FILE_B64"
                   fi
                   if [ "$CONTAINER_ENV" != "" ]; then
@@ -241,19 +243,36 @@ jobs:
               echo "[DEBUG] containers_cpu: '$CONTAINERS_CPU'"
               echo "[DEBUG] containers_port: '$CONTAINERS_PORT'"
 
-              # Only write non-empty, trimmed, single-line values to $GITHUB_OUTPUT
-              for var in containers_config containers_args containers_env containers_image containers_memory containers_cpu containers_port; do
-                value=$(eval echo \$$var | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
-                echo "[DEBUG] About to write to GITHUB_OUTPUT: $var='$value'"
-                if [ -n "$value" ]; then
-                  # Ensure value does not contain '=' or newlines
-                  if echo "$value" | grep -q '='; then
-                    echo "[ERROR] Value for $var contains '=': $value" >&2
-                    continue
-                  fi
-                  echo "$var=$value" >> $GITHUB_OUTPUT
-                fi
-              done
+              # Safely write values to GITHUB_OUTPUT - need special handling since values contain '='
+              # Use delimiter-based approach to handle values with special characters
+              echo "containers_config<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_CONFIG" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
+              echo "containers_args<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_ARGS" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
+              echo "containers_env<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_ENV" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
+              echo "containers_image<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_IMAGE" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
+              echo "containers_memory<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_MEMORY" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
+              echo "containers_cpu<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_CPU" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
+              echo "containers_port<<EOF" >> $GITHUB_OUTPUT
+              echo "$CONTAINERS_PORT" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+
               echo "is_multi_container=true" >> $GITHUB_OUTPUT
 
             # Process app_config_file and sidecar_config_file for both single and multi-container
@@ -333,12 +352,10 @@ jobs:
               value=$(echo "$value" | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
               echo "[DEBUG] About to write to GITHUB_OUTPUT: $key='$value'"
               if [ -n "$value" ]; then
-                # Skip if value contains '='
-                if echo "$value" | grep -q '='; then
-                  echo "[ERROR] Value for $key contains '=': $value" >&2
-                else
-                  echo "$key=$value" >> $GITHUB_OUTPUT
-                fi
+                # Use delimiter-based approach for all values to be consistent
+                echo "$key<<EOF" >> $GITHUB_OUTPUT
+                echo "$value" >> $GITHUB_OUTPUT
+                echo "EOF" >> $GITHUB_OUTPUT
               fi
             }
             
@@ -382,12 +399,31 @@ jobs:
           
           # Add resource flags if config file is used
           if [ "${{ inputs.config_file != '' }}" == "true" ] && [ "${{ steps.read-config.outputs.has_config }}" == "true" ]; then
-            FLAGS="$FLAGS --memory=${{ steps.read-config.outputs.memory }}"
-            FLAGS="$FLAGS --cpu=${{ steps.read-config.outputs.cpu }}"
-            FLAGS="$FLAGS --concurrency=${{ steps.read-config.outputs.concurrency }}"
-            FLAGS="$FLAGS --timeout=${{ steps.read-config.outputs.timeout }}s"
-            FLAGS="$FLAGS --min-instances=${{ steps.read-config.outputs.min_instances }}"
-            FLAGS="$FLAGS --max-instances=${{ steps.read-config.outputs.max_instances }}"
+            # Memory and CPU should only be added for single container deployments
+            # For multi-container, these are specified per container
+            if [ "${{ steps.read-config.outputs.is_multi_container }}" != "true" ]; then
+              # Only add flags if they have a value
+              if [ -n "${{ steps.read-config.outputs.memory }}" ]; then
+                FLAGS="$FLAGS --memory=${{ steps.read-config.outputs.memory }}"
+              fi
+              if [ -n "${{ steps.read-config.outputs.cpu }}" ]; then
+                FLAGS="$FLAGS --cpu=${{ steps.read-config.outputs.cpu }}"
+              fi
+            fi
+            
+            # Add other service-level settings
+            if [ -n "${{ steps.read-config.outputs.concurrency }}" ]; then
+              FLAGS="$FLAGS --concurrency=${{ steps.read-config.outputs.concurrency }}"
+            fi
+            if [ -n "${{ steps.read-config.outputs.timeout }}" ]; then
+              FLAGS="$FLAGS --timeout=${{ steps.read-config.outputs.timeout }}s"
+            fi
+            if [ -n "${{ steps.read-config.outputs.min_instances }}" ]; then
+              FLAGS="$FLAGS --min-instances=${{ steps.read-config.outputs.min_instances }}"
+            fi
+            if [ -n "${{ steps.read-config.outputs.max_instances }}" ]; then
+              FLAGS="$FLAGS --max-instances=${{ steps.read-config.outputs.max_instances }}"
+            fi
             
             # Add VPC connector if specified
             if [ "${{ steps.read-config.outputs.vpc_connector }}" != "" ]; then
@@ -402,12 +438,11 @@ jobs:
             # Check if this is a multi-container deployment
             if [ "${{ steps.read-config.outputs.is_multi_container }}" == "true" ]; then
               # Add container configuration for multi-container
-              # Add each flag separately, properly escaped where needed
+              # The values from GITHUB_OUTPUT need to be used directly
               if [ -n "${{ steps.read-config.outputs.containers_config }}" ]; then
                 FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_config }}"
               fi
               if [ -n "${{ steps.read-config.outputs.containers_args }}" ]; then
-                # Make sure args with spaces are properly quoted
                 FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_args }}"
               fi
               if [ -n "${{ steps.read-config.outputs.containers_env }}" ]; then
