@@ -108,18 +108,18 @@ jobs:
               COMMAND=$(yq -o=json '.service.command // []' ${{ inputs.config_file }} | jq -r 'join(",")')
               ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(" ")')
   
-              # Parse app_config_file and base64 encode if present
-              APP_CONFIG_FILE=$(yq '.service.app_config_file // ""' ${{ inputs.config_file }})
-              if [ "$APP_CONFIG_FILE" != "" ]; then
-                # Replace github_event_number with the actual value in the app config file
-                APP_CONFIG_FILE_REPLACED=$(echo "$APP_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
-                APP_CONFIG_FILE_B64=$(echo "$APP_CONFIG_FILE_REPLACED" | base64 | tr -d '\n')
-                echo "app_config_file_b64=$APP_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
-              fi
+              # Debug: print values before writing to output
+              echo "[DEBUG] env_vars: '$ENV_VARS'"
+              echo "[DEBUG] command: '$COMMAND'"
+              echo "[DEBUG] args: '$ARGS'"
   
-              echo "env_vars=$ENV_VARS" >> $GITHUB_OUTPUT
-              echo "command=$COMMAND" >> $GITHUB_OUTPUT
-              echo "args=$ARGS" >> $GITHUB_OUTPUT
+              # Only write non-empty, trimmed values to $GITHUB_OUTPUT
+              for var in env_vars command args; do
+                value=$(eval echo \$$var | sed 's/^ *//;s/ *$//')
+                if [ -n "$value" ]; then
+                  echo "$var=$value" >> $GITHUB_OUTPUT
+                fi
+              done
               echo "is_multi_container=false" >> $GITHUB_OUTPUT
             else
               # Multi-container configuration
