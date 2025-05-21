@@ -145,58 +145,48 @@ jobs:
               fi
               for i in $(seq 0 $(($CONTAINERS_COUNT-1))); do
                 CONTAINER_NAME=$(yq ".service.containers[$i].name" ${{ inputs.config_file }})
-                
                 # Process container command
                 CONTAINER_COMMAND=$(yq -o=json ".service.containers[$i].command // []" ${{ inputs.config_file }} | jq -r 'join(",")')
                 if [ "$CONTAINER_COMMAND" != "" ]; then
                   CONTAINERS_CONFIG="${CONTAINERS_CONFIG}${CONTAINER_NAME}=${CONTAINER_COMMAND},"
                 fi
-                
                 # Process container args
                 CONTAINER_ARGS=$(yq -o=json ".service.containers[$i].args // []" ${{ inputs.config_file }} | jq -r 'join(" ")')
                 if [ "$CONTAINER_ARGS" != "" ]; then
-                  CONTAINERS_ARGS="${CONTAINERS_ARGS}${CONTAINER_NAME}=\"${CONTAINER_ARGS}\","
+                  CONTAINERS_ARGS="${CONTAINERS_ARGS}${CONTAINER_NAME}=\"${CONTAINER_ARGS}\"," 
                 fi
-                
                 # Process container environment variables
                 CONTAINER_ENV=""
                 for key in $(yq ".service.containers[$i].environment_variables | keys | .[]" ${{ inputs.config_file }}); do
                   value=$(yq ".service.containers[$i].environment_variables.$key" ${{ inputs.config_file }})
-                  
                   # Special handling for variables that need to be replaced
                   if [ "$value" = "\${API_CONFIG_B64}" ] && [ "$APP_CONFIG_FILE_B64" != "" ]; then
                     value="$APP_CONFIG_FILE_B64"
                   elif [ "$value" = "\${ENVOY_CONFIG_B64}" ] && [ "$SIDECAR_CONFIG_FILE_B64" != "" ]; then
                     value="$SIDECAR_CONFIG_FILE_B64"
                   fi
-                  
                   if [ "$CONTAINER_ENV" != "" ]; then
                     CONTAINER_ENV="${CONTAINER_ENV},$key=$value"
                   else
                     CONTAINER_ENV="$key=$value"
                   fi
                 done
-                
                 if [ "$CONTAINER_ENV" != "" ]; then
                   CONTAINERS_ENV="${CONTAINERS_ENV}${CONTAINER_NAME}=${CONTAINER_ENV},"
                 fi
-                
-                # Process container image from input
+                # Image always comes from the input 'container_images', never from the config file
                 CONTAINER_IMAGE=$(echo "$CONTAINER_IMAGES_JSON" | jq -r ".[\"$CONTAINER_NAME\"]")
                 if [ "$CONTAINER_IMAGE" = "null" ] || [ -z "$CONTAINER_IMAGE" ]; then
                   echo "Error: No image provided for container $CONTAINER_NAME in container_images input" >&2
                   exit 1
                 fi
                 CONTAINERS_IMAGE="${CONTAINERS_IMAGE}${CONTAINER_NAME}=${CONTAINER_IMAGE},"
-                
                 # Process container memory
                 CONTAINER_MEMORY=$(yq ".service.containers[$i].memory" ${{ inputs.config_file }})
                 CONTAINERS_MEMORY="${CONTAINERS_MEMORY}${CONTAINER_NAME}=${CONTAINER_MEMORY},"
-                
                 # Process container cpu
                 CONTAINER_CPU=$(yq ".service.containers[$i].cpu" ${{ inputs.config_file }})
                 CONTAINERS_CPU="${CONTAINERS_CPU}${CONTAINER_NAME}=${CONTAINER_CPU},"
-                
                 # Process container port
                 CONTAINER_PORT=$(yq ".service.containers[$i].port" ${{ inputs.config_file }})
                 CONTAINERS_PORT="${CONTAINERS_PORT}${CONTAINER_NAME}=${CONTAINER_PORT},"
@@ -210,14 +200,23 @@ jobs:
               CONTAINERS_MEMORY=${CONTAINERS_MEMORY%,}
               CONTAINERS_CPU=${CONTAINERS_CPU%,}
               CONTAINERS_PORT=${CONTAINERS_PORT%,}
-              
-              echo "containers_config=$CONTAINERS_CONFIG" >> $GITHUB_OUTPUT
-              echo "containers_args=$CONTAINERS_ARGS" >> $GITHUB_OUTPUT
-              echo "containers_env=$CONTAINERS_ENV" >> $GITHUB_OUTPUT
-              echo "containers_image=$CONTAINERS_IMAGE" >> $GITHUB_OUTPUT
-              echo "containers_memory=$CONTAINERS_MEMORY" >> $GITHUB_OUTPUT
-              echo "containers_cpu=$CONTAINERS_CPU" >> $GITHUB_OUTPUT
-              echo "containers_port=$CONTAINERS_PORT" >> $GITHUB_OUTPUT
+
+              # Debug: print values before writing to output
+              echo "[DEBUG] containers_config: '$CONTAINERS_CONFIG'"
+              echo "[DEBUG] containers_args: '$CONTAINERS_ARGS'"
+              echo "[DEBUG] containers_env: '$CONTAINERS_ENV'"
+              echo "[DEBUG] containers_image: '$CONTAINERS_IMAGE'"
+              echo "[DEBUG] containers_memory: '$CONTAINERS_MEMORY'"
+              echo "[DEBUG] containers_cpu: '$CONTAINERS_CPU'"
+              echo "[DEBUG] containers_port: '$CONTAINERS_PORT'"
+
+              # Only write non-empty, trimmed values to $GITHUB_OUTPUT
+              for var in containers_config containers_args containers_env containers_image containers_memory containers_cpu containers_port; do
+                value=$(eval echo \$$var | sed 's/^ *//;s/ *$//')
+                if [ -n "$value" ]; then
+                  echo "$var=$value" >> $GITHUB_OUTPUT
+                fi
+              done
               echo "is_multi_container=true" >> $GITHUB_OUTPUT
 
             # Process app_config_file and sidecar_config_file for both single and multi-container
