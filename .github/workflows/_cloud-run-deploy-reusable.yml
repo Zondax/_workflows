@@ -208,15 +208,18 @@ jobs:
               echo "containers_port=$CONTAINERS_PORT" >> $GITHUB_OUTPUT
               echo "is_multi_container=true" >> $GITHUB_OUTPUT
 
-              # Parse app_config_file and sidecar_config_file and base64 encode if present (solo en multi-contenedor)
+            # Process app_config_file and sidecar_config_file for both single and multi-container
               APP_CONFIG_FILE=$(yq '.service.app_config_file // ""' ${{ inputs.config_file }})
               if [ "$APP_CONFIG_FILE" != "" ]; then
+              # Replace github_event_number with the actual value in the app config file
                 APP_CONFIG_FILE_REPLACED=$(echo "$APP_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
                 APP_CONFIG_FILE_B64=$(echo "$APP_CONFIG_FILE_REPLACED" | base64 | tr -d '\n')
                 echo "app_config_file_b64=$APP_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
               fi
+
               SIDECAR_CONFIG_FILE=$(yq '.service.sidecar_config_file // ""' ${{ inputs.config_file }})
               if [ "$SIDECAR_CONFIG_FILE" != "" ]; then
+              # Replace github_event_number with the actual value in the sidecar config file
                 SIDECAR_CONFIG_FILE_REPLACED=$(echo "$SIDECAR_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
                 SIDECAR_CONFIG_FILE_B64=$(echo "$SIDECAR_CONFIG_FILE_REPLACED" | base64 | tr -d '\n')
                 echo "sidecar_config_file_b64=$SIDECAR_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
