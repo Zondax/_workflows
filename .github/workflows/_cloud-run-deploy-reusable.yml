@@ -212,10 +212,16 @@ jobs:
               echo "[DEBUG] containers_cpu: '$CONTAINERS_CPU'"
               echo "[DEBUG] containers_port: '$CONTAINERS_PORT'"
 
-              # Only write non-empty, trimmed values to $GITHUB_OUTPUT
+              # Only write non-empty, trimmed, single-line values to $GITHUB_OUTPUT
               for var in containers_config containers_args containers_env containers_image containers_memory containers_cpu containers_port; do
-                value=$(eval echo \$$var | sed 's/^ *//;s/ *$//')
+                value=$(eval echo \$$var | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
+                echo "[DEBUG] About to write to GITHUB_OUTPUT: $var='$value'"
                 if [ -n "$value" ]; then
+                  # Ensure value does not contain '=' or newlines
+                  if echo "$value" | grep -q '='; then
+                    echo "[ERROR] Value for $var contains '=': $value" >&2
+                    continue
+                  fi
                   echo "$var=$value" >> $GITHUB_OUTPUT
                 fi
               done
