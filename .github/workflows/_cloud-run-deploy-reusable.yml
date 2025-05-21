@@ -173,7 +173,7 @@ jobs:
                 # Process container image
                 CONTAINER_IMAGE=$(yq ".service.containers[$i].image" ${{ inputs.config_file }})
                 if [[ "$CONTAINER_IMAGE" == *"\${IMAGE_TAG}"* ]]; then
-                  CONTAINER_IMAGE=$(echo "$CONTAINER_IMAGE" | sed "s/\${IMAGE_TAG}/${{ inputs.image_tag }}/g")
+                  CONTAINER_IMAGE=$(echo "$CONTAINER_IMAGE" | sed "s|\${IMAGE_TAG}|${{ inputs.image_tag }}|g")
                 fi
                 CONTAINERS_IMAGE="${CONTAINERS_IMAGE}${CONTAINER_NAME}=${CONTAINER_IMAGE},"
                 
