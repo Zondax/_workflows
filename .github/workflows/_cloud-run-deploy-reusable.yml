@@ -78,16 +78,16 @@ jobs:
         run: |
           echo "Reading configuration from ${{ inputs.config_file }}"
           if [ -f "${{ inputs.config_file }}" ]; then
-            SERVICE_NAME=$(yq '.service.name' ${{ inputs.config_file }})
-            MEMORY=$(yq '.service.memory' ${{ inputs.config_file }})
-            CPU=$(yq '.service.cpu' ${{ inputs.config_file }})
-            CONCURRENCY=$(yq '.service.concurrency' ${{ inputs.config_file }})
-            TIMEOUT=$(yq '.service.timeout' ${{ inputs.config_file }})
-            MIN_INSTANCES=$(yq '.service.min_instances' ${{ inputs.config_file }})
-            MAX_INSTANCES=$(yq '.service.max_instances' ${{ inputs.config_file }})
-            ALLOW_UNAUTH=$(yq '.service.allow_unauthenticated' ${{ inputs.config_file }})
-            VPC_CONNECTOR=$(yq '.service.vpc_connector' ${{ inputs.config_file }})
-            PORT=$(yq '.service.port // ""' ${{ inputs.config_file }})
+            SERVICE_NAME=$(yq e -r '(.service.name // "")' ${{ inputs.config_file }})
+            MEMORY=$(yq e -r '(.service.memory // "")' ${{ inputs.config_file }})
+            CPU=$(yq e -r '(.service.cpu // "")' ${{ inputs.config_file }})
+            CONCURRENCY=$(yq e -r '(.service.concurrency // "")' ${{ inputs.config_file }})
+            TIMEOUT=$(yq e -r '(.service.timeout // "")' ${{ inputs.config_file }})
+            MIN_INSTANCES=$(yq e -r '(.service.min_instances // "")' ${{ inputs.config_file }})
+            MAX_INSTANCES=$(yq e -r '(.service.max_instances // "")' ${{ inputs.config_file }})
+            ALLOW_UNAUTH=$(yq e -r '(.service.allow_unauthenticated // "true")' ${{ inputs.config_file }})
+            VPC_CONNECTOR=$(yq e -r '(.service.vpc_connector // "")' ${{ inputs.config_file }})
+            PORT=$(yq e -r '(.service.port // "")' ${{ inputs.config_file }})
             
             # Check if this is a multi-container configuration
             HAS_CONTAINERS=$(yq '.service.containers // ""' ${{ inputs.config_file }})
@@ -222,7 +222,7 @@ jobs:
               echo "is_multi_container=true" >> $GITHUB_OUTPUT
 
             # Process app_config_file and sidecar_config_file for both single and multi-container
-              APP_CONFIG_FILE=$(yq '.service.app_config_file // ""' ${{ inputs.config_file }})
+              APP_CONFIG_FILE=$(yq e -r '(.service.app_config_file // "")' ${{ inputs.config_file }})
               if [ "$APP_CONFIG_FILE" != "" ]; then
               # Replace github_event_number with the actual value in the app config file
                 APP_CONFIG_FILE_REPLACED=$(echo "$APP_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
@@ -230,7 +230,7 @@ jobs:
                 echo "app_config_file_b64=$APP_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
               fi
 
-              SIDECAR_CONFIG_FILE=$(yq '.service.sidecar_config_file // ""' ${{ inputs.config_file }})
+              SIDECAR_CONFIG_FILE=$(yq e -r '(.service.sidecar_config_file // "")' ${{ inputs.config_file }})
               if [ "$SIDECAR_CONFIG_FILE" != "" ]; then
               # Replace github_event_number with the actual value in the sidecar config file
                 SIDECAR_CONFIG_FILE_REPLACED=$(echo "$SIDECAR_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
@@ -243,50 +243,50 @@ jobs:
             STARTUP_PROBE_FLAG=""
             LIVENESS_PROBE_FLAG=""
             # Startup probe
-            STARTUP=$(yq '.service.health_check.startup // ""' ${{ inputs.config_file }})
+            STARTUP=$(yq e -r '(.service.health_check.startup // "")' ${{ inputs.config_file }})
             if [ "$STARTUP" != "" ]; then
-              PROBE_TYPE=$(yq '.service.health_check.startup.type' ${{ inputs.config_file }})
+              PROBE_TYPE=$(yq e -r '(.service.health_check.startup.type // "")' ${{ inputs.config_file }})
               if [ "$PROBE_TYPE" = "grpc" ]; then
-                PROBE_PORT=$(yq '.service.health_check.startup.port' ${{ inputs.config_file }})
-                PROBE_SERVICE=$(yq '.service.health_check.startup.service // ""' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq '.service.health_check.startup.initial_delay_seconds // 0' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq '.service.health_check.startup.period_seconds // 10' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq '.service.health_check.startup.timeout_seconds // 1' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq '.service.health_check.startup.failure_threshold // 3' ${{ inputs.config_file }})
+                PROBE_PORT=$(yq e -r '(.service.health_check.startup.port // "")' ${{ inputs.config_file }})
+                PROBE_SERVICE=$(yq e -r '(.service.health_check.startup.service // "")' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq e -r '(.service.health_check.startup.initial_delay_seconds // "0")' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq e -r '(.service.health_check.startup.period_seconds // "10")' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.startup.timeout_seconds // "1")' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq e -r '(.service.health_check.startup.failure_threshold // "3")' ${{ inputs.config_file }})
                 STARTUP_PROBE_FLAG="--startup-probe grpc.port=$PROBE_PORT,grpc.service=$PROBE_SERVICE,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
               elif [ "$PROBE_TYPE" = "http" ]; then
-                PROBE_PATH=$(yq '.service.health_check.startup.path' ${{ inputs.config_file }})
-                PROBE_PORT=$(yq '.service.health_check.startup.port' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq '.service.health_check.startup.initial_delay_seconds // 0' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq '.service.health_check.startup.period_seconds // 10' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq '.service.health_check.startup.timeout_seconds // 1' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq '.service.health_check.startup.failure_threshold // 3' ${{ inputs.config_file }})
+                PROBE_PATH=$(yq e -r '(.service.health_check.startup.path // "")' ${{ inputs.config_file }})
+                PROBE_PORT=$(yq e -r '(.service.health_check.startup.port // "")' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq e -r '(.service.health_check.startup.initial_delay_seconds // "0")' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq e -r '(.service.health_check.startup.period_seconds // "10")' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.startup.timeout_seconds // "1")' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq e -r '(.service.health_check.startup.failure_threshold // "3")' ${{ inputs.config_file }})
                 STARTUP_PROBE_FLAG="--startup-probe httpGet.path=$PROBE_PATH,httpGet.port=$PROBE_PORT,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
               fi
-              echo "startup_probe_flag=$STARTUP_PROBE_FLAG" >> $GITHUB_OUTPUT
+              if [ -n "$STARTUP_PROBE_FLAG" ]; then echo "startup_probe_flag=$STARTUP_PROBE_FLAG" >> $GITHUB_OUTPUT; fi
             fi
             # Liveness probe
-            LIVENESS=$(yq '.service.health_check.liveness // ""' ${{ inputs.config_file }})
+            LIVENESS=$(yq e -r '(.service.health_check.liveness // "")' ${{ inputs.config_file }})
             if [ "$LIVENESS" != "" ]; then
-              PROBE_TYPE=$(yq '.service.health_check.liveness.type' ${{ inputs.config_file }})
+              PROBE_TYPE=$(yq e -r '(.service.health_check.liveness.type // "")' ${{ inputs.config_file }})
               if [ "$PROBE_TYPE" = "grpc" ]; then
-                PROBE_PORT=$(yq '.service.health_check.liveness.port' ${{ inputs.config_file }})
-                PROBE_SERVICE=$(yq '.service.health_check.liveness.service // ""' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq '.service.health_check.liveness.initial_delay_seconds // 0' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq '.service.health_check.liveness.period_seconds // 10' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq '.service.health_check.liveness.timeout_seconds // 1' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq '.service.health_check.liveness.failure_threshold // 3' ${{ inputs.config_file }})
+                PROBE_PORT=$(yq e -r '(.service.health_check.liveness.port // "")' ${{ inputs.config_file }})
+                PROBE_SERVICE=$(yq e -r '(.service.health_check.liveness.service // "")' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq e -r '(.service.health_check.liveness.initial_delay_seconds // "0")' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq e -r '(.service.health_check.liveness.period_seconds // "10")' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.liveness.timeout_seconds // "1")' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq e -r '(.service.health_check.liveness.failure_threshold // "3")' ${{ inputs.config_file }})
                 LIVENESS_PROBE_FLAG="--liveness-probe grpc.port=$PROBE_PORT,grpc.service=$PROBE_SERVICE,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
               elif [ "$PROBE_TYPE" = "http" ]; then
-                PROBE_PATH=$(yq '.service.health_check.liveness.path' ${{ inputs.config_file }})
-                PROBE_PORT=$(yq '.service.health_check.liveness.port' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq '.service.health_check.liveness.initial_delay_seconds // 0' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq '.service.health_check.liveness.period_seconds // 10' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq '.service.health_check.liveness.timeout_seconds // 1' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq '.service.health_check.liveness.failure_threshold // 3' ${{ inputs.config_file }})
+                PROBE_PATH=$(yq e -r '(.service.health_check.liveness.path // "")' ${{ inputs.config_file }})
+                PROBE_PORT=$(yq e -r '(.service.health_check.liveness.port // "")' ${{ inputs.config_file }})
+                PROBE_DELAY=$(yq e -r '(.service.health_check.liveness.initial_delay_seconds // "0")' ${{ inputs.config_file }})
+                PROBE_PERIOD=$(yq e -r '(.service.health_check.liveness.period_seconds // "10")' ${{ inputs.config_file }})
+                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.liveness.timeout_seconds // "1")' ${{ inputs.config_file }})
+                PROBE_FAILURE=$(yq e -r '(.service.health_check.liveness.failure_threshold // "3")' ${{ inputs.config_file }})
                 LIVENESS_PROBE_FLAG="--liveness-probe httpGet.path=$PROBE_PATH,httpGet.port=$PROBE_PORT,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
               fi
-              echo "liveness_probe_flag=$LIVENESS_PROBE_FLAG" >> $GITHUB_OUTPUT
+              if [ -n "$LIVENESS_PROBE_FLAG" ]; then echo "liveness_probe_flag=$LIVENESS_PROBE_FLAG" >> $GITHUB_OUTPUT; fi
             fi
 
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
