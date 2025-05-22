@@ -14,7 +14,7 @@ on:
       region:
         required: true
         type: string
-        description: GCP region for Cloud Run
+        description: GCP region(s) for Cloud Run. JSON list for multi-region deploy (e.g. '["us-central1","europe-west1"]').
       workload_identity_provider:
         required: true
         type: string
@@ -41,6 +41,9 @@ on:
 jobs:
   deploy:
     runs-on: zondax-runners
+    strategy:
+      matrix:
+        region: ${{ fromJson(inputs.region) }}
     outputs:
       url: ${{ steps.get-url.outputs.url }}
     permissions:
@@ -77,6 +80,8 @@ jobs:
 
           # Replace PR_NUMBER placeholder if present
           sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
+          # Replace <REGION> placeholder if present
+          sed -i "s#<REGION>#${{ matrix.region }}#g" service.deploy.yaml
 
           # Process container images if specified
           if [ -n "${{ inputs.container_images }}" ]; then
@@ -153,7 +158,7 @@ jobs:
         run: |
           # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
-            --region=${{ inputs.region }} \
+            --region=${{ matrix.region }} \
             --project=${{ inputs.gcp_project_id }}
             
           echo "Service deployed successfully!"
@@ -163,7 +168,7 @@ jobs:
         run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
-            --region=${{ inputs.region }} \
+            --region=${{ matrix.region }} \
             --project=${{ inputs.gcp_project_id }} \
             --format='value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
