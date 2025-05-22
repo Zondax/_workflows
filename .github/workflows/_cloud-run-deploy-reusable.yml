@@ -418,6 +418,11 @@ jobs:
           # Copy the Knative YAML config
           cp ${{ inputs.config_file }} service.deploy.yaml
 
+          # Replace PR_NUMBER with the actual PR number if present
+          if grep -q '\${PR_NUMBER}' service.deploy.yaml; then
+            sed -i "s/\\${PR_NUMBER}/${{ github.event.number }}/g" service.deploy.yaml
+          fi
+
           # Replace the image for the 'api' container using mikefarah/yq v4+ syntax
           yq e '(.spec.template.spec.containers[] | select(.name == "api")).image = "${{ inputs.image_tag }}"' -i service.deploy.yaml
 
@@ -436,7 +441,7 @@ jobs:
         id: deploy-multicontainer
         if: steps.check-knative.outputs.is_knative == 'true'
         run: |
-          # Deploy the Knative YAML using gcloud (public access must be managed separately)
+          # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
             --region=${{ inputs.region }} \
             --project=${{ inputs.gcp_project_id }}
