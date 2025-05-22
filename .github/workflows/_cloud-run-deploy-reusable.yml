@@ -420,7 +420,7 @@ jobs:
 
           # Replace PR_NUMBER with the actual PR number if present
           if grep -q '\${PR_NUMBER}' service.deploy.yaml; then
-            sed -i "s/\\${PR_NUMBER}/${{ github.event.number }}/g" service.deploy.yaml
+            sed -i "s#\${PR_NUMBER}#${{ github.event.number }}#g" service.deploy.yaml
           fi
 
           # Replace the image for the 'api' container using mikefarah/yq v4+ syntax
