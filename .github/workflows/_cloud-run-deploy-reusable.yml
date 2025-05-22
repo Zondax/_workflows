@@ -417,18 +417,16 @@ jobs:
             sed -i "s#\${PR_NUMBER}#${{ github.event.number }}#g" service.deploy.yaml
           fi
 
-          # Replace the image for the 'api' container using mikefarah/yq v4+ syntax
-          yq e '(.spec.template.spec.containers[] | select(.name == "api")).image = "${{ inputs.image_tag }}"' -i service.deploy.yaml
+          # Debug: print the YAML after replacement
+          echo '--- DEBUG: service.deploy.yaml after PR_NUMBER replacement ---'
+          cat service.deploy.yaml
+          echo '--- END DEBUG ---'
 
-          # Inject config files as base64 env vars if present
-          if [ -n "${{ inputs.app_config_file_b64 }}" ]; then
-            export API_CONFIG_FILE_B64="${{ inputs.app_config_file_b64 }}"
-            yq e '(.spec.template.spec.containers[] | select(.name == "api")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(API_CONFIG_FILE_B64)' -i service.deploy.yaml
-          fi
-          if [ -n "${{ inputs.sidecar_config_file_b64 }}" ]; then
-            export SIDECAR_CONFIG_FILE_B64="${{ inputs.sidecar_config_file_b64 }}"
-            yq e '(.spec.template.spec.containers[] | select(.name == "envoy")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(SIDECAR_CONFIG_FILE_B64)' -i service.deploy.yaml
-          fi
+      - name: Debug print extracted service name
+        if: steps.check-knative.outputs.is_knative == 'true'
+        run: |
+          SERVICE_NAME=$(yq e -r '.metadata.name' service.deploy.yaml)
+          echo "Extracted service name: '$SERVICE_NAME'"
 
       # Deploy using gcloud run services replace for multi-container
       - name: Deploy to Cloud Run (Multi-container)
