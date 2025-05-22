@@ -387,18 +387,12 @@ jobs:
             exit 1
           fi
 
-      - name: Set service name
+      - name: Set service name from Knative YAML
         id: set-service-name
+        if: steps.check-knative.outputs.is_knative == 'true'
         run: |
-          if [ "${{ inputs.config_file != '' }}" == "true" ] && [ "${{ steps.read-config.outputs.has_config }}" == "true" ]; then
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              echo "final_service_name=${{ steps.read-config.outputs.service_name }}-${{ github.event.number }}" >> $GITHUB_OUTPUT
-            else
-              echo "final_service_name=${{ steps.read-config.outputs.service_name }}" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "final_service_name=${{ inputs.service_name }}" >> $GITHUB_OUTPUT
-          fi
+          SERVICE_NAME=$(yq e -r '.metadata.name' service.deploy.yaml)
+          echo "final_service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
 
       # Multi-container (Knative YAML) deploy if config_file is present and is a Knative Service
       - name: Check if config_file is Knative YAML
