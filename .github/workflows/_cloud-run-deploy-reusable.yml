@@ -392,283 +392,58 @@ jobs:
             echo "final_service_name=${{ inputs.service_name }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Generate deployment flags
-        id: generate-flags
+      # Multi-container (Knative YAML) deploy if config_file is present and is a Knative Service
+      - name: Check if config_file is Knative YAML
+        id: check-knative
         run: |
-          FLAGS=""
-          
-          # Add resource flags if config file is used
-          if [ "${{ inputs.config_file != '' }}" == "true" ] && [ "${{ steps.read-config.outputs.has_config }}" == "true" ]; then
-            # Memory and CPU should only be added for single container deployments
-            # For multi-container, these are specified per container
-            if [ "${{ steps.read-config.outputs.is_multi_container }}" != "true" ]; then
-              # Only add flags if they have a value
-              if [ -n "${{ steps.read-config.outputs.memory }}" ]; then
-                FLAGS="$FLAGS --memory=${{ steps.read-config.outputs.memory }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.cpu }}" ]; then
-                FLAGS="$FLAGS --cpu=${{ steps.read-config.outputs.cpu }}"
-              fi
-            fi
-            
-            # Add other service-level settings
-            if [ -n "${{ steps.read-config.outputs.concurrency }}" ]; then
-              FLAGS="$FLAGS --concurrency=${{ steps.read-config.outputs.concurrency }}"
-            fi
-            if [ -n "${{ steps.read-config.outputs.timeout }}" ]; then
-              FLAGS="$FLAGS --timeout=${{ steps.read-config.outputs.timeout }}s"
-            fi
-            if [ -n "${{ steps.read-config.outputs.min_instances }}" ]; then
-              FLAGS="$FLAGS --min-instances=${{ steps.read-config.outputs.min_instances }}"
-            fi
-            if [ -n "${{ steps.read-config.outputs.max_instances }}" ]; then
-              FLAGS="$FLAGS --max-instances=${{ steps.read-config.outputs.max_instances }}"
-            fi
-            
-            # Add VPC connector if specified
-            if [ "${{ steps.read-config.outputs.vpc_connector }}" != "" ]; then
-              FLAGS="$FLAGS --vpc-connector=${{ steps.read-config.outputs.vpc_connector }}"
-            fi
-            
-            # Auth settings from config
-            if [ "${{ steps.read-config.outputs.allow_unauth }}" == "true" ]; then
-              FLAGS="$FLAGS --allow-unauthenticated"
-            fi
-
-            # Check if this is a multi-container deployment
-            if [ "${{ steps.read-config.outputs.is_multi_container }}" == "true" ]; then
-              # Add container configuration for multi-container
-              # The values from GITHUB_OUTPUT need to be used directly
-              if [ -n "${{ steps.read-config.outputs.containers_config }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_config }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.containers_args }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_args }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.containers_env }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_env }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.containers_image }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_image }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.containers_memory }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_memory }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.containers_cpu }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_cpu }}"
-              fi
-              if [ -n "${{ steps.read-config.outputs.containers_port }}" ]; then
-                FLAGS="$FLAGS ${{ steps.read-config.outputs.containers_port }}"
-              fi
-            else
-              # Add environment variables
-              ENV_VARS="${{ steps.read-config.outputs.env_vars }}"
-              # Add APP_CONFIG_FILE_B64 if present
-              if [ "${{ steps.read-config.outputs.app_config_file_b64 }}" != "" ]; then
-                if [ "$ENV_VARS" != "--set-env-vars=" ] && [ "$ENV_VARS" != "" ]; then
-                  ENV_VARS="$ENV_VARS,APP_CONFIG_FILE_B64=${{ steps.read-config.outputs.app_config_file_b64 }}"
-                else
-                  ENV_VARS="--set-env-vars=APP_CONFIG_FILE_B64=${{ steps.read-config.outputs.app_config_file_b64 }}"
-                fi
-              fi
-              # Add SIDECAR_CONFIG_FILE_B64 if present
-              if [ "${{ steps.read-config.outputs.sidecar_config_file_b64 }}" != "" ]; then
-                if [ "$ENV_VARS" != "--set-env-vars=" ] && [ "$ENV_VARS" != "" ]; then
-                  ENV_VARS="$ENV_VARS,SIDECAR_CONFIG_B64=${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
-                else
-                  ENV_VARS="--set-env-vars=SIDECAR_CONFIG_B64=${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
-                fi
-              fi
-              FLAGS="$FLAGS $ENV_VARS"
-
-              # Add custom command and args if present
-              if [ "${{ steps.read-config.outputs.command }}" != "" ]; then
-                FLAGS="$FLAGS --command=${{ steps.read-config.outputs.command }}"
-              fi
-              if [ "${{ steps.read-config.outputs.args }}" != "" ]; then
-                FLAGS="$FLAGS --args=\"${{ steps.read-config.outputs.args }}\""
-              fi
-            fi
-            
-            # Add health check probe flags if present
-            if [ "${{ steps.read-config.outputs.startup_probe_flag }}" != "" ]; then
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.startup_probe_flag }}"
-            fi
-            if [ "${{ steps.read-config.outputs.liveness_probe_flag }}" != "" ]; then
-              FLAGS="$FLAGS ${{ steps.read-config.outputs.liveness_probe_flag }}"
-            fi
-            
-            # Add port flag if specified in config
-            if [ "${{ steps.read-config.outputs.port }}" != "" ]; then
-              FLAGS="$FLAGS --port=${{ steps.read-config.outputs.port }}"
-            fi
-            
+          if [ -f "${{ inputs.config_file }}" ] && grep -q 'apiVersion: serving.knative.dev' "${{ inputs.config_file }}"; then
+            echo "is_knative=true" >> $GITHUB_OUTPUT
           else
-            # Auth settings from input
-            if [ "${{ inputs.allow_unauth }}" == "true" ]; then
-              FLAGS="$FLAGS --allow-unauthenticated"
-            fi
+            echo "is_knative=false" >> $GITHUB_OUTPUT
           fi
-          
-          echo "flags=$FLAGS" >> $GITHUB_OUTPUT
 
-      - name: Print deployment flags
+      # Prepare Knative YAML for deploy (only if Knative multi-container)
+      - name: Prepare Knative YAML for deploy
+        id: prepare-yaml
+        if: steps.check-knative.outputs.is_knative == 'true'
         run: |
-          echo "Deploying with the following flags:"
-          echo "Service: ${{ steps.set-service-name.outputs.final_service_name }}"
-          echo "Region: ${{ inputs.region }}"
-          echo "Image: ${{ inputs.image_tag }}"
-          echo "Project ID: ${{ inputs.gcp_project_id }}"
-          echo "Flags: ${{ steps.generate-flags.outputs.flags }}"
+          # Copy the Knative YAML config
+          cp ${{ inputs.config_file }} service.deploy.yaml
 
-      - name: Generate deployment YAML for multi-container
-        id: generate-deployment-yaml
-        if: inputs.config_file != '' && steps.read-config.outputs.is_multi_container == 'true'
-        run: |
-          echo "Preparing YAML configuration for multi-container deployment"
-          
-          # Create a temporary YAML file based on the config file
-          cp ${{ inputs.config_file }} deployment_config.yaml
-          
-          # Parse container_images input as JSON
-          if [ -n "${{ inputs.container_images }}" ]; then
-            CONTAINER_IMAGES_JSON='${{ inputs.container_images }}'
-            
-            # Get the number of containers
-            CONTAINERS_COUNT=$(yq '.service.containers | length' deployment_config.yaml)
-            
-            # Update each container's image in the YAML
-            for i in $(seq 0 $(($CONTAINERS_COUNT-1))); do
-              CONTAINER_NAME=$(yq e -r ".service.containers[$i].name // \"\"" deployment_config.yaml)
-              echo "[DEBUG] Processing container: $CONTAINER_NAME"
-              
-              CONTAINER_IMAGE=$(echo "$CONTAINER_IMAGES_JSON" | jq -r ".[\"$CONTAINER_NAME\"]")
-              
-              if [ "$CONTAINER_IMAGE" = "null" ] || [ -z "$CONTAINER_IMAGE" ]; then
-                echo "[ERROR] No image provided for container $CONTAINER_NAME in container_images input" >&2
-                exit 1
-              fi
-              
-              echo "[DEBUG] Setting image for container $CONTAINER_NAME to: $CONTAINER_IMAGE"
-              yq e -i ".service.containers[$i].image = \"$CONTAINER_IMAGE\"" deployment_config.yaml
-            done
-          fi
-          
-          # Create the final Cloud Run YAML file
-          cat > cloud_run_config.yaml << EOF
-          apiVersion: serving.knative.dev/v1
-          kind: Service
-          metadata:
-            name: ${{ steps.set-service-name.outputs.final_service_name }}
-            annotations:
-              run.googleapis.com/launch-stage: BETA
-            labels:
-              cloud.googleapis.com/location: "${{ inputs.region }}"
-          spec:
-            template:
-              spec:
-          EOF
-          
-          # Add containers from the deployment config
-          yq e '.service.containers' deployment_config.yaml > containers.yaml
-          sed 's/^/    /' containers.yaml >> cloud_run_config.yaml
-          
-          # Add volumes if they exist
-          if yq e '.service.volumes' deployment_config.yaml > /dev/null 2>&1; then
-            echo "    volumes:" >> cloud_run_config.yaml
-            yq e '.service.volumes' deployment_config.yaml | sed 's/^/      /' >> cloud_run_config.yaml
-          fi
-          
-          # Add global service configurations
-          if [ -n "${{ steps.read-config.outputs.concurrency }}" ]; then
-            yq e -i '.spec.template.spec.containerConcurrency = ${{ steps.read-config.outputs.concurrency }}' cloud_run_config.yaml
-          fi
-          
-          if [ -n "${{ steps.read-config.outputs.timeout }}" ]; then
-            yq e -i '.spec.template.spec.timeoutSeconds = ${{ steps.read-config.outputs.timeout }}' cloud_run_config.yaml
-          fi
-          
-          if [ -n "${{ steps.read-config.outputs.min_instances }}" ]; then
-            yq e -i '.spec.template.metadata.annotations."autoscaling.knative.dev/minScale" = "${{ steps.read-config.outputs.min_instances }}"' cloud_run_config.yaml
-          fi
-          
-          if [ -n "${{ steps.read-config.outputs.max_instances }}" ]; then
-            yq e -i '.spec.template.metadata.annotations."autoscaling.knative.dev/maxScale" = "${{ steps.read-config.outputs.max_instances }}"' cloud_run_config.yaml
-          fi
-          
-          # Add health check configurations if they exist
-          if [ -n "${{ steps.read-config.outputs.startup_probe_flag }}" ] || [ -n "${{ steps.read-config.outputs.liveness_probe_flag }}" ]; then
-            if [ -n "${{ steps.read-config.outputs.startup_probe_flag }}" ]; then
-              # Process startup probe configuration
-              PROBE_TYPE=$(yq e -r '(.service.health_check.startup.type // "")' ${{ inputs.config_file }})
-              if [ "$PROBE_TYPE" = "http" ]; then
-                yq e -i '.spec.template.spec.containers[0].startupProbe.httpGet.path = "'"$(yq e -r '.service.health_check.startup.path // ""' ${{ inputs.config_file }})"'"' cloud_run_config.yaml
-                yq e -i '.spec.template.spec.containers[0].startupProbe.httpGet.port = '"$(yq e -r '.service.health_check.startup.port // ""' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              elif [ "$PROBE_TYPE" = "grpc" ]; then
-                yq e -i '.spec.template.spec.containers[0].startupProbe.grpc.port = '"$(yq e -r '.service.health_check.startup.port // ""' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-                yq e -i '.spec.template.spec.containers[0].startupProbe.grpc.service = "'"$(yq e -r '.service.health_check.startup.service // ""' ${{ inputs.config_file }})"'"' cloud_run_config.yaml
-              fi
-              
-              yq e -i '.spec.template.spec.containers[0].startupProbe.initialDelaySeconds = '"$(yq e -r '.service.health_check.startup.initial_delay_seconds // "0"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              yq e -i '.spec.template.spec.containers[0].startupProbe.periodSeconds = '"$(yq e -r '.service.health_check.startup.period_seconds // "10"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              yq e -i '.spec.template.spec.containers[0].startupProbe.timeoutSeconds = '"$(yq e -r '.service.health_check.startup.timeout_seconds // "1"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              yq e -i '.spec.template.spec.containers[0].startupProbe.failureThreshold = '"$(yq e -r '.service.health_check.startup.failure_threshold // "3"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-            fi
-            
-            if [ -n "${{ steps.read-config.outputs.liveness_probe_flag }}" ]; then
-              # Process liveness probe configuration
-              PROBE_TYPE=$(yq e -r '(.service.health_check.liveness.type // "")' ${{ inputs.config_file }})
-              if [ "$PROBE_TYPE" = "http" ]; then
-                yq e -i '.spec.template.spec.containers[0].livenessProbe.httpGet.path = "'"$(yq e -r '.service.health_check.liveness.path // ""' ${{ inputs.config_file }})"'"' cloud_run_config.yaml
-                yq e -i '.spec.template.spec.containers[0].livenessProbe.httpGet.port = '"$(yq e -r '.service.health_check.liveness.port // ""' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              elif [ "$PROBE_TYPE" = "grpc" ]; then
-                yq e -i '.spec.template.spec.containers[0].livenessProbe.grpc.port = '"$(yq e -r '.service.health_check.liveness.port // ""' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-                yq e -i '.spec.template.spec.containers[0].livenessProbe.grpc.service = "'"$(yq e -r '.service.health_check.liveness.service // ""' ${{ inputs.config_file }})"'"' cloud_run_config.yaml
-              fi
-              
-              yq e -i '.spec.template.spec.containers[0].livenessProbe.initialDelaySeconds = '"$(yq e -r '.service.health_check.liveness.initial_delay_seconds // "0"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              yq e -i '.spec.template.spec.containers[0].livenessProbe.periodSeconds = '"$(yq e -r '.service.health_check.liveness.period_seconds // "10"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              yq e -i '.spec.template.spec.containers[0].livenessProbe.timeoutSeconds = '"$(yq e -r '.service.health_check.liveness.timeout_seconds // "1"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-              yq e -i '.spec.template.spec.containers[0].livenessProbe.failureThreshold = '"$(yq e -r '.service.health_check.liveness.failure_threshold // "3"' ${{ inputs.config_file }})"'' cloud_run_config.yaml
-            fi
-          fi
-          
-          # Print the final YAML for debugging
-          echo "Final Cloud Run configuration:"
-          cat cloud_run_config.yaml
-          
-          echo "yaml_file=cloud_run_config.yaml" >> $GITHUB_OUTPUT
+          # Replace the image for the 'api' container
+          yq -i '.spec.template.spec.containers[] |= if .name == "api" then .image = "${{ inputs.image_tag }}" else . end' service.deploy.yaml
 
+          # Inject config files as base64 env vars if present
+          if [ -n "${{ steps.read-config.outputs.app_config_file_b64 }}" ]; then
+            yq -i '.spec.template.spec.containers[] |= if .name == "api" then .env[] |= if .name == "APP_CONFIG_FILE_B64" then .value = "${{ steps.read-config.outputs.app_config_file_b64 }}" else . end else . end' service.deploy.yaml
+          fi
+          if [ -n "${{ steps.read-config.outputs.sidecar_config_file_b64 }}" ]; then
+            yq -i '.spec.template.spec.containers[] |= if .name == "envoy" then .env[] |= if .name == "APP_CONFIG_FILE_B64" then .value = "${{ steps.read-config.outputs.sidecar_config_file_b64 }}" else . end else . end' service.deploy.yaml
+          fi
+
+      # Deploy using gcloud run services replace for multi-container
       - name: Deploy to Cloud Run (Multi-container)
         id: deploy-multicontainer
-        if: inputs.config_file != '' && steps.read-config.outputs.is_multi_container == 'true'
+        if: steps.check-knative.outputs.is_knative == 'true'
         run: |
-          # Set allow-unauthenticated flag if specified
-          AUTH_FLAG=""
-          if [ "${{ steps.read-config.outputs.allow_unauth }}" == "true" ]; then
-            AUTH_FLAG="--allow-unauthenticated"
-          else
-            AUTH_FLAG="--no-allow-unauthenticated"
-          fi
-          
-          # Deploy using gcloud run services replace
-          gcloud run services replace ${{ steps.generate-deployment-yaml.outputs.yaml_file }} \
+          # Deploy the Knative YAML using gcloud
+          gcloud run services replace service.deploy.yaml \
             --region=${{ inputs.region }} \
             --project=${{ inputs.gcp_project_id }} \
-            $AUTH_FLAG
-          
-          # This will print the service URL after deployment
+            --allow-unauthenticated
+
+          # Get the service URL
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
             --region=${{ inputs.region }} \
             --project=${{ inputs.gcp_project_id }} \
             --format='value(status.url)')
-          
           echo "url=$URL" >> $GITHUB_OUTPUT
 
+      # Single-container deploy using classic action if not Knative
       - name: Deploy to Cloud Run (Single Container)
         id: deploy-singlecontainer
-        if: inputs.config_file == '' || steps.read-config.outputs.is_multi_container != 'true'
+        if: steps.check-knative.outputs.is_knative != 'true'
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ steps.set-service-name.outputs.final_service_name }}
@@ -677,6 +452,7 @@ jobs:
           flags: ${{ steps.generate-flags.outputs.flags }}
           project_id: ${{ inputs.gcp_project_id }}
 
+      # Output the correct service URL
       - name: Get Cloud Run Service URL
         id: get-url
         run: |
