@@ -428,11 +428,10 @@ jobs:
         id: deploy-multicontainer
         if: steps.check-knative.outputs.is_knative == 'true'
         run: |
-          # Deploy the Knative YAML using gcloud
+          # Deploy the Knative YAML using gcloud (public access must be managed separately)
           gcloud run services replace service.deploy.yaml \
             --region=${{ inputs.region }} \
-            --project=${{ inputs.gcp_project_id }} \
-            --allow-unauthenticated
+            --project=${{ inputs.gcp_project_id }}
 
           # Get the service URL
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
