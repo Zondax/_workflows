@@ -102,12 +102,23 @@ jobs:
           if [ -n "${{ inputs.container_configs }}" ]; then
             echo "Processing container configurations..."
             
-            # For debugging, let's see what container_configs contains
-            echo "Container configs content (truncated):"
-            echo "${{ inputs.container_configs }}" | jq '.'
+            # Save the container_configs to a file to avoid issues with special characters
+            echo '${{ inputs.container_configs }}' > container_configs.json
+            
+            # Validate that the input is valid JSON
+            if ! jq '.' container_configs.json > /dev/null 2>&1; then
+              echo "ERROR: container_configs is not a valid JSON"
+              echo "Container configs content (raw):"
+              cat container_configs.json
+              exit 1
+            fi
+            
+            # For debugging, show a preview of the content
+            echo "Container configs preview:"
+            jq '.' container_configs.json | head -20
             
             # Iterate through each container config in the JSON
-            echo "${{ inputs.container_configs }}" | jq -r 'to_entries[] | (.key + ":" + .value)' | while IFS=':' read -r container_name config_b64; do
+            jq -r 'to_entries[] | .key + ":" + .value' container_configs.json | while IFS=':' read -r container_name config_b64; do
               echo "Setting APP_CONFIG_FILE_B64 for container: $container_name"
               
               # Check if the container exists in the YAML
@@ -124,8 +135,11 @@ jobs:
                 exit 1
               fi
               
-              # Export the config value
-              export CONFIG_VALUE="$config_b64"
+              # Save the config to a file to avoid any escaping issues
+              echo "$config_b64" > "${container_name}_config.b64"
+              
+              # Export the config value from the file
+              export CONFIG_VALUE=$(cat "${container_name}_config.b64")
               
               # Update the value
               yq '.spec.template.spec.containers[] |= select(.name == "'$container_name'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = env(CONFIG_VALUE)' -i service.deploy.yaml
