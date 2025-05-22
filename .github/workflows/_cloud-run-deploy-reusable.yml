@@ -402,7 +402,7 @@ jobs:
             echo "is_knative=false" >> $GITHUB_OUTPUT
           fi
 
-      # Prepare Knative YAML for deploy (only if Knative multi-container)
+      # Prepare Knative YAML for deploy
       - name: Prepare Knative YAML for deploy
         id: prepare-yaml
         if: steps.check-knative.outputs.is_knative == 'true'
@@ -410,15 +410,17 @@ jobs:
           # Copy the Knative YAML config
           cp ${{ inputs.config_file }} service.deploy.yaml
 
-          # Replace the image for the 'api' container
-          yq -i '.spec.template.spec.containers[] |= if .name == "api" then .image = "${{ inputs.image_tag }}" else . end' service.deploy.yaml
+          # Replace the image for the 'api' container using mikefarah/yq v4+ syntax
+          yq e '(.spec.template.spec.containers[] | select(.name == "api")).image = "${{ inputs.image_tag }}"' -i service.deploy.yaml
 
           # Inject config files as base64 env vars if present
           if [ -n "${{ steps.read-config.outputs.app_config_file_b64 }}" ]; then
-            yq -i '.spec.template.spec.containers[] |= if .name == "api" then .env[] |= if .name == "APP_CONFIG_FILE_B64" then .value = "${{ steps.read-config.outputs.app_config_file_b64 }}" else . end else . end' service.deploy.yaml
+            export API_CONFIG_FILE_B64="${{ steps.read-config.outputs.app_config_file_b64 }}"
+            yq e '(.spec.template.spec.containers[] | select(.name == "api")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(API_CONFIG_FILE_B64)' -i service.deploy.yaml
           fi
           if [ -n "${{ steps.read-config.outputs.sidecar_config_file_b64 }}" ]; then
-            yq -i '.spec.template.spec.containers[] |= if .name == "envoy" then .env[] |= if .name == "APP_CONFIG_FILE_B64" then .value = "${{ steps.read-config.outputs.sidecar_config_file_b64 }}" else . end else . end' service.deploy.yaml
+            export SIDECAR_CONFIG_FILE_B64="${{ steps.read-config.outputs.sidecar_config_file_b64 }}"
+            yq e '(.spec.template.spec.containers[] | select(.name == "envoy")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(SIDECAR_CONFIG_FILE_B64)' -i service.deploy.yaml
           fi
 
       # Deploy using gcloud run services replace for multi-container
