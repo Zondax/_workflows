@@ -83,8 +83,23 @@ jobs:
 
           # Replace additional container images if specified
           if [ -n "${{ inputs.container_images }}" ]; then
-            # Parse the JSON container_images input and set each image
-            echo "${{ inputs.container_images }}" | jq -r 'to_entries[] | "yq \".spec.template.spec.containers[] |= select(.name == \\\"" + .key + "\\").image = \\\"" + .value + "\\\"\"" + " -i service.deploy.yaml"' | sh
+            # First, save container_images to a file to parse it
+            echo '${{ inputs.container_images }}' > container_images.json
+            
+            # Parse the JSON container_images input and handle replacements
+            jq -r 'to_entries[] | .key + ":" + .value' container_images.json | while IFS=':' read -r container_name image_url; do
+              echo "Processing image for container: $container_name"
+              
+              # Handle <CONTAINER_NAME_IMAGE> format (like <API_IMAGE>)
+              placeholder="<${container_name^^}_IMAGE>"  # Convert to uppercase
+              if grep -q "$placeholder" service.deploy.yaml; then
+                echo "Replacing $placeholder with $image_url"
+                sed -i "s#$placeholder#$image_url#g" service.deploy.yaml
+              fi
+              
+              # Also try direct container name match using yq
+              yq ".spec.template.spec.containers[] |= select(.name == \"$container_name\").image = \"$image_url\"" -i service.deploy.yaml
+            done
           fi
 
           # Process container configs - inject base64-encoded configs into container env vars
@@ -141,6 +156,10 @@ jobs:
           # Print the final service name for verification
           SERVICE_NAME=$(yq -r '.metadata.name' service.deploy.yaml)
           echo "Will deploy service: $SERVICE_NAME"
+          
+          # Print the final container images for verification
+          echo "Final container images:"
+          yq '.spec.template.spec.containers[] | [.name, .image] | join(": ")' service.deploy.yaml
 
       - name: Extract service name from YAML
         id: set-service-name
