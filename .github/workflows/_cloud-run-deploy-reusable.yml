@@ -76,10 +76,11 @@ jobs:
           cp ${{ inputs.knative_yaml }} service.deploy.yaml
 
           # Replace PR_NUMBER with the actual PR number if present
-          if grep -q '\${PR_NUMBER}' service.deploy.yaml; then
-            sed -i "s#\${PR_NUMBER}#${{ github.event.number }}#g" service.deploy.yaml
+          # Also handle <PR_NUMBER> format
+          if grep -q '<PR_NUMBER>' service.deploy.yaml; then
+            sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
           fi
-          
+
           # Replace additional container images if specified
           if [ -n "${{ inputs.container_images }}" ]; then
             # Parse the JSON container_images input and set each image
@@ -89,7 +90,11 @@ jobs:
           # Process container configs - inject base64-encoded configs into container env vars
           if [ -n "${{ inputs.container_configs }}" ]; then
             echo "Processing container configurations..."
+             
+            # Save the container_configs to a file to avoid issues with special characters
             echo '${{ inputs.container_configs }}' > container_configs.json
+             
+            # Validate that the input is valid JSON
             if ! jq '.' container_configs.json > /dev/null 2>&1; then
               echo "ERROR: container_configs is not a valid JSON"
               echo "Container configs content (raw):"
@@ -98,27 +103,44 @@ jobs:
             fi
             jq -r 'to_entries[] | .key + ":" + .value' container_configs.json | while IFS=':' read -r container_name config_b64; do
               echo "Setting APP_CONFIG_FILE_B64 for container: $container_name"
+               
+              # Check if the container exists in the YAML
               CONTAINER_COUNT=$(yq '.spec.template.spec.containers[] | select(.name == "'$container_name'") | .name' service.deploy.yaml | wc -l)
               if [ "$CONTAINER_COUNT" -eq "0" ]; then
                 echo "ERROR: The container '$container_name' does not exist in the YAML"
                 exit 1
               fi
+               
+              # Check if the APP_CONFIG_FILE_B64 variable exists in the container
               ENV_COUNT=$(yq '.spec.template.spec.containers[] | select(.name == "'$container_name'") | .env[] | select(.name == "APP_CONFIG_FILE_B64") | .name' service.deploy.yaml | wc -l)
               if [ "$ENV_COUNT" -eq "0" ]; then
                 echo "ERROR: The variable 'APP_CONFIG_FILE_B64' does not exist in the container '$container_name'"
                 exit 1
               fi
+               
+              # Save the config to a file to avoid any escaping issues
               echo "$config_b64" > "${container_name}_config.b64"
+               
+              # Export the config value from the file
               export CONFIG_VALUE=$(cat "${container_name}_config.b64")
+               
+              # Update the value
               yq '.spec.template.spec.containers[] |= select(.name == "'$container_name'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = env(CONFIG_VALUE)' -i service.deploy.yaml
+               
+              # Check that the value was updated correctly
               UPDATED_VALUE=$(yq '.spec.template.spec.containers[] | select(.name == "'$container_name'") | .env[] | select(.name == "APP_CONFIG_FILE_B64") | .value' service.deploy.yaml)
               if [ "$UPDATED_VALUE" = "<INJECTED_BY_WORKFLOW>" ]; then
                 echo "ERROR: The value was not updated correctly for '$container_name'"
                 exit 1
               fi
+               
               echo "Configuration updated successfully for container: $container_name"
             done
           fi
+          
+          # Print the final service name for verification
+          SERVICE_NAME=$(yq -r '.metadata.name' service.deploy.yaml)
+          echo "Will deploy service: $SERVICE_NAME"
 
       - name: Extract service name from YAML
         id: set-service-name
