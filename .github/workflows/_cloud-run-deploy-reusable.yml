@@ -119,6 +119,14 @@ jobs:
                 exit 1
               fi
               
+              # Replace <github_event_number> with PR number in base64-encoded configs
+              if [ -n "${{ github.event.number }}" ]; then
+                # Decode, perform replacement, and re-encode
+                echo "$config_b64" | base64 -d | sed "s/<github_event_number>/${{ github.event.number }}/g" | base64 -w 0 > config_replaced.b64
+                config_b64=$(cat config_replaced.b64)
+                echo "✓ Replaced <github_event_number> with PR number ${{ github.event.number }} in '$container_name' config"
+              fi
+              
               # Update config
               yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config_b64"'"' -i service.deploy.yaml && \
               echo "✓ Updated config for '$container_name'" || { echo "❌ Failed updating '$container_name'"; exit 1; }
