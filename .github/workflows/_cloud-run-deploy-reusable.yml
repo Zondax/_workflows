@@ -1,12 +1,12 @@
-name: Cloud Run Deploy (Reusable)
+name: Cloud Run Deploy Knative YAML (Reusable)
 
 on:
   workflow_call:
     inputs:
-      service_name:
-        required: false
+      config_file:
+        required: true
         type: string
-        description: Name of the Cloud Run service
+        description: Path to the Knative YAML configuration file for deployment
       gcp_project_id:
         required: true
         type: string
@@ -14,20 +14,11 @@ on:
       image_tag:
         required: true
         type: string
-        description: Full image tag to deploy
+        description: Full image tag to deploy (for the 'api' container)
       region:
         required: true
         type: string
         description: GCP region for Cloud Run
-      allow_unauth:
-        required: false
-        type: boolean
-        default: true
-        description: Whether to allow unauthenticated access
-      config_file:
-        required: false
-        type: string
-        description: Path to the configuration file for this deployment
       workload_identity_provider:
         required: true
         type: string
@@ -35,18 +26,18 @@ on:
       service_account:
         required: true
         type: string
+        description: GCP service account
       container_images:
         required: false
         type: string
         description: JSON map of container name to image (for multi-container deploys)
-      app_config_file_b64:
+      container_configs:
         required: false
         type: string
-        description: Base64-encoded app config file to inject as env var
-      sidecar_config_file_b64:
-        required: false
-        type: string
-        description: Base64-encoded sidecar config file to inject as env var
+        description: >-
+          JSON map of container name to base64-encoded config content.
+          Example: {"api":"base64content","envoy":"base64content","other-sidecar":"base64content"}
+          The workflow will find the APP_CONFIG_FILE_B64 env var in each container and inject the config.
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
@@ -62,7 +53,9 @@ jobs:
       pull-requests: write # Required for commenting on PRs
     steps:
       - uses: actions/checkout@v4
-      - id: auth
+
+      - name: Authenticate with GCP
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ inputs.workload_identity_provider }}
@@ -71,336 +64,12 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         
-      - name: Install go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.24
-
       - name: Install yq
         run: |
           go install github.com/mikefarah/yq/v4@latest
           
-      - name: Read config file
-        id: read-config
-        if: inputs.config_file != ''
-        run: |
-          echo "Reading configuration from ${{ inputs.config_file }}"
-          if [ -f "${{ inputs.config_file }}" ]; then
-            SERVICE_NAME=$(yq e -r '(.service.name // "")' ${{ inputs.config_file }})
-            MEMORY=$(yq e -r '(.service.memory // "")' ${{ inputs.config_file }})
-            CPU=$(yq e -r '(.service.cpu // "")' ${{ inputs.config_file }})
-            CONCURRENCY=$(yq e -r '(.service.concurrency // "")' ${{ inputs.config_file }})
-            TIMEOUT=$(yq e -r '(.service.timeout // "")' ${{ inputs.config_file }})
-            MIN_INSTANCES=$(yq e -r '(.service.min_instances // "")' ${{ inputs.config_file }})
-            MAX_INSTANCES=$(yq e -r '(.service.max_instances // "")' ${{ inputs.config_file }})
-            ALLOW_UNAUTH=$(yq e -r '(.service.allow_unauthenticated // "true")' ${{ inputs.config_file }})
-            VPC_CONNECTOR=$(yq e -r '(.service.vpc_connector // "")' ${{ inputs.config_file }})
-            PORT=$(yq e -r '(.service.port // "")' ${{ inputs.config_file }})
-            
-            # Debug service level values
-            echo "[DEBUG] Service level variables:"
-            echo "[DEBUG] SERVICE_NAME='$SERVICE_NAME'"
-            echo "[DEBUG] MEMORY='$MEMORY'"
-            echo "[DEBUG] CPU='$CPU'"
-            echo "[DEBUG] CONCURRENCY='$CONCURRENCY'"
-            echo "[DEBUG] TIMEOUT='$TIMEOUT'"
-            echo "[DEBUG] MIN_INSTANCES='$MIN_INSTANCES'"
-            echo "[DEBUG] MAX_INSTANCES='$MAX_INSTANCES'"
-            echo "[DEBUG] ALLOW_UNAUTH='$ALLOW_UNAUTH'"
-            echo "[DEBUG] VPC_CONNECTOR='$VPC_CONNECTOR'"
-            echo "[DEBUG] PORT='$PORT'"
-            
-            # Check if this is a multi-container configuration
-            if yq e '.service.containers | length > 0' ${{ inputs.config_file }} &>/dev/null; then
-              HAS_CONTAINERS="true"
-            else
-              HAS_CONTAINERS="false"
-            fi
-            echo "has_containers=$HAS_CONTAINERS" >> $GITHUB_OUTPUT
-            
-            # If single container configuration
-            if [ "$HAS_CONTAINERS" = "false" ]; then
-              # Build environment variables flags
-              ENV_VARS="--set-env-vars="
-              for key in $(yq '.service.environment_variables | keys | .[]' ${{ inputs.config_file }}); do
-                value=$(yq ".service.environment_variables.$key" ${{ inputs.config_file }})
-                ENV_VARS="$ENV_VARS$key=$value,"
-              done
-  
-              ENV_VARS=${ENV_VARS%,}
-  
-              # Parse command and args as comma-separated and space-separated strings
-              COMMAND=$(yq -o=json '.service.command // []' ${{ inputs.config_file }} | jq -r 'join(",")')
-              ARGS=$(yq -o=json '.service.args // []' ${{ inputs.config_file }} | jq -r 'join(" ")')
-  
-              # Debug: print values before writing to output
-              echo "[DEBUG] env_vars: '$ENV_VARS'"
-              echo "[DEBUG] command: '$COMMAND'"
-              echo "[DEBUG] args: '$ARGS'"
-  
-              # Only write non-empty, trimmed values to $GITHUB_OUTPUT
-              for var in env_vars command args; do
-                value=$(eval echo \$$var | sed 's/^ *//;s/ *$//')
-                if [ -n "$value" ]; then
-                  echo "$var=$value" >> $GITHUB_OUTPUT
-                fi
-              done
-              echo "is_multi_container=false" >> $GITHUB_OUTPUT
-            else
-              # Multi-container configuration
-              echo "Detected multi-container configuration"
-              
-              # Build container configuration for gcloud
-              CONTAINERS_CONFIG="--container-command="
-              CONTAINERS_ARGS="--container-arg="
-              CONTAINERS_ENV="--container-env-vars="
-              CONTAINERS_IMAGE="--container-image="
-              CONTAINERS_MEMORY="--container-memory="
-              CONTAINERS_CPU="--container-cpu="
-              CONTAINERS_PORT="--container-port="
-
-              # Process each container
-              CONTAINERS_COUNT=$(yq '.service.containers | length' ${{ inputs.config_file }})
-              # Parse container_images input as JSON
-              if [ -n "${{ inputs.container_images }}" ]; then
-                CONTAINER_IMAGES_JSON='${{ inputs.container_images }}'
-              else
-                echo "Error: container_images input is required for multi-container deployments" >&2
-                exit 1
-              fi
-              for i in $(seq 0 $(($CONTAINERS_COUNT-1))); do
-                CONTAINER_NAME=$(yq e -r ".service.containers[$i].name // \"\"" ${{ inputs.config_file }})
-                echo "[DEBUG] Processing container: $CONTAINER_NAME"
-
-                # Process container command
-                CONTAINER_COMMAND=$(yq -o=json ".service.containers[$i].command // []" ${{ inputs.config_file }} | jq -r 'join(",")')
-                echo "[DEBUG] CONTAINER_COMMAND='$CONTAINER_COMMAND'"
-                if [ "$CONTAINER_COMMAND" != "" ]; then
-                  CONTAINERS_CONFIG="${CONTAINERS_CONFIG}${CONTAINER_NAME}=${CONTAINER_COMMAND},"
-                fi
-                
-                # Process container args
-                CONTAINER_ARGS=$(yq -o=json ".service.containers[$i].args // []" ${{ inputs.config_file }} | jq -r 'join(" ")')
-                echo "[DEBUG] CONTAINER_ARGS='$CONTAINER_ARGS'"
-                if [ "$CONTAINER_ARGS" != "" ]; then
-                  # Properly escape container args 
-                  ESCAPED_ARGS=$(echo "$CONTAINER_ARGS" | sed 's/"/\\"/g')
-                  CONTAINERS_ARGS="${CONTAINERS_ARGS}${CONTAINER_NAME}=\"${ESCAPED_ARGS}\"," 
-                fi
-                
-                # Process container environment variables
-                CONTAINER_ENV=""
-                for key in $(yq e -r ".service.containers[$i].environment_variables | keys | .[]" ${{ inputs.config_file }}); do
-                  value=$(yq e -r ".service.containers[$i].environment_variables.${key} // \"\"" ${{ inputs.config_file }})
-                  # Special handling for variables that need to be replaced
-                  if [ "$value" = "\${API_CONFIG_B64}" ] && [ -n "$APP_CONFIG_FILE_B64" ]; then
-                    value="$APP_CONFIG_FILE_B64"
-                  elif [ "$value" = "\${ENVOY_CONFIG_B64}" ] && [ -n "$SIDECAR_CONFIG_FILE_B64" ]; then
-                    value="$SIDECAR_CONFIG_FILE_B64"
-                  elif [ "$value" = "\${SIDECAR_CONFIG_B64}" ] && [ -n "$SIDECAR_CONFIG_FILE_B64" ]; then
-                    value="$SIDECAR_CONFIG_FILE_B64"
-                  fi
-                  if [ "$CONTAINER_ENV" != "" ]; then
-                    CONTAINER_ENV="${CONTAINER_ENV},$key=$value"
-                  else
-                    CONTAINER_ENV="$key=$value"
-                  fi
-                done
-                if [ "$CONTAINER_ENV" != "" ]; then
-                  CONTAINERS_ENV="${CONTAINERS_ENV}${CONTAINER_NAME}=${CONTAINER_ENV},"
-                fi
-                # Image always comes from the input 'container_images', never from the config file
-                CONTAINER_IMAGE=$(echo "$CONTAINER_IMAGES_JSON" | jq -r ".[\"$CONTAINER_NAME\"]")
-                if [ "$CONTAINER_IMAGE" = "null" ] || [ -z "$CONTAINER_IMAGE" ]; then
-                  echo "[ERROR] No image provided for container $CONTAINER_NAME in container_images input" >&2
-                  exit 1
-                fi
-                CONTAINERS_IMAGE="${CONTAINERS_IMAGE}${CONTAINER_NAME}=${CONTAINER_IMAGE},"
-                # Process container memory
-                CONTAINER_MEMORY=$(yq e -r ".service.containers[$i].memory // \"\"" ${{ inputs.config_file }} | tr -d ' ' | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
-                # Check for problem format of memory: 212Mi (YAML snippet) - common issue
-                if echo "$CONTAINER_MEMORY" | grep -q "memory:" || echo "$CONTAINER_MEMORY" | grep -q ":"; then
-                  echo "[WARN] Found problematic YAML format in memory value: $CONTAINER_MEMORY" >&2
-                  CONTAINER_MEMORY=$(echo "$CONTAINER_MEMORY" | sed 's/.*://g' | tr -d ' ')
-                  echo "[WARN] Cleaned to: $CONTAINER_MEMORY" >&2
-                fi
-                CONTAINERS_MEMORY="${CONTAINERS_MEMORY}${CONTAINER_NAME}=${CONTAINER_MEMORY},"
-                # Process container cpu
-                CONTAINER_CPU=$(yq e -r ".service.containers[$i].cpu // \"\"" ${{ inputs.config_file }} | tr -d ' ')
-                CONTAINERS_CPU="${CONTAINERS_CPU}${CONTAINER_NAME}=${CONTAINER_CPU},"
-                # Process container port
-                CONTAINER_PORT=$(yq e -r ".service.containers[$i].port // \"\"" ${{ inputs.config_file }} | tr -d ' ')
-                CONTAINERS_PORT="${CONTAINERS_PORT}${CONTAINER_NAME}=${CONTAINER_PORT},"
-              done
-              
-              # Trim trailing commas
-              CONTAINERS_CONFIG=${CONTAINERS_CONFIG%,}
-              CONTAINERS_ARGS=${CONTAINERS_ARGS%,}
-              CONTAINERS_ENV=${CONTAINERS_ENV%,}
-              CONTAINERS_IMAGE=${CONTAINERS_IMAGE%,}
-              CONTAINERS_MEMORY=${CONTAINERS_MEMORY%,}
-              CONTAINERS_CPU=${CONTAINERS_CPU%,}
-              CONTAINERS_PORT=${CONTAINERS_PORT%,}
-
-              # Debug: print values before writing to output
-              echo "[DEBUG] containers_config: '$CONTAINERS_CONFIG'"
-              echo "[DEBUG] containers_args: '$CONTAINERS_ARGS'"
-              echo "[DEBUG] containers_env: '$CONTAINERS_ENV'"
-              echo "[DEBUG] containers_image: '$CONTAINERS_IMAGE'"
-              echo "[DEBUG] containers_memory: '$CONTAINERS_MEMORY'"
-              echo "[DEBUG] containers_cpu: '$CONTAINERS_CPU'"
-              echo "[DEBUG] containers_port: '$CONTAINERS_PORT'"
-
-              # Safely write values to GITHUB_OUTPUT - need special handling since values contain '='
-              # Use delimiter-based approach to handle values with special characters
-              echo "containers_config<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_CONFIG" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "containers_args<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_ARGS" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "containers_env<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_ENV" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "containers_image<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_IMAGE" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "containers_memory<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_MEMORY" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "containers_cpu<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_CPU" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "containers_port<<EOF" >> $GITHUB_OUTPUT
-              echo "$CONTAINERS_PORT" >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-
-              echo "is_multi_container=true" >> $GITHUB_OUTPUT
-
-            # Process app_config_file and sidecar_config_file for both single and multi-container
-              APP_CONFIG_FILE=$(yq e -r '(.service.app_config_file // "")' ${{ inputs.config_file }})
-              if [ "$APP_CONFIG_FILE" != "" ]; then
-              # Replace github_event_number with the actual value in the app config file
-                APP_CONFIG_FILE_REPLACED=$(echo "$APP_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
-                APP_CONFIG_FILE_B64=$(echo "$APP_CONFIG_FILE_REPLACED" | base64 | tr -d '\n')
-                echo "app_config_file_b64=$APP_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
-              fi
-
-              SIDECAR_CONFIG_FILE=$(yq e -r '(.service.sidecar_config_file // "")' ${{ inputs.config_file }})
-              if [ "$SIDECAR_CONFIG_FILE" != "" ]; then
-              # Replace github_event_number with the actual value in the sidecar config file
-                SIDECAR_CONFIG_FILE_REPLACED=$(echo "$SIDECAR_CONFIG_FILE" | sed "s/github_event_number/${{ github.event.number }}/g")
-                SIDECAR_CONFIG_FILE_B64=$(echo "$SIDECAR_CONFIG_FILE_REPLACED" | base64 | tr -d '\n')
-                echo "sidecar_config_file_b64=$SIDECAR_CONFIG_FILE_B64" >> $GITHUB_OUTPUT
-              fi
-            fi
-
-            # Parse health check config for startup and liveness probes
-            STARTUP_PROBE_FLAG=""
-            LIVENESS_PROBE_FLAG=""
-            # Startup probe
-            STARTUP=$(yq e -r '(.service.health_check.startup // "")' ${{ inputs.config_file }})
-            if [ "$STARTUP" != "" ]; then
-              PROBE_TYPE=$(yq e -r '(.service.health_check.startup.type // "")' ${{ inputs.config_file }})
-              if [ "$PROBE_TYPE" = "grpc" ]; then
-                PROBE_PORT=$(yq e -r '(.service.health_check.startup.port // "")' ${{ inputs.config_file }})
-                PROBE_SERVICE=$(yq e -r '(.service.health_check.startup.service // "")' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq e -r '(.service.health_check.startup.initial_delay_seconds // "0")' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq e -r '(.service.health_check.startup.period_seconds // "10")' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.startup.timeout_seconds // "1")' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq e -r '(.service.health_check.startup.failure_threshold // "3")' ${{ inputs.config_file }})
-                STARTUP_PROBE_FLAG="--startup-probe grpc.port=$PROBE_PORT,grpc.service=$PROBE_SERVICE,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
-              elif [ "$PROBE_TYPE" = "http" ]; then
-                PROBE_PATH=$(yq e -r '(.service.health_check.startup.path // "")' ${{ inputs.config_file }})
-                PROBE_PORT=$(yq e -r '(.service.health_check.startup.port // "")' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq e -r '(.service.health_check.startup.initial_delay_seconds // "0")' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq e -r '(.service.health_check.startup.period_seconds // "10")' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.startup.timeout_seconds // "1")' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq e -r '(.service.health_check.startup.failure_threshold // "3")' ${{ inputs.config_file }})
-                STARTUP_PROBE_FLAG="--startup-probe httpGet.path=$PROBE_PATH,httpGet.port=$PROBE_PORT,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
-              fi
-              if [ -n "$STARTUP_PROBE_FLAG" ]; then echo "startup_probe_flag=$STARTUP_PROBE_FLAG" >> $GITHUB_OUTPUT; fi
-            fi
-            # Liveness probe
-            LIVENESS=$(yq e -r '(.service.health_check.liveness // "")' ${{ inputs.config_file }})
-            if [ "$LIVENESS" != "" ]; then
-              PROBE_TYPE=$(yq e -r '(.service.health_check.liveness.type // "")' ${{ inputs.config_file }})
-              if [ "$PROBE_TYPE" = "grpc" ]; then
-                PROBE_PORT=$(yq e -r '(.service.health_check.liveness.port // "")' ${{ inputs.config_file }})
-                PROBE_SERVICE=$(yq e -r '(.service.health_check.liveness.service // "")' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq e -r '(.service.health_check.liveness.initial_delay_seconds // "0")' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq e -r '(.service.health_check.liveness.period_seconds // "10")' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.liveness.timeout_seconds // "1")' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq e -r '(.service.health_check.liveness.failure_threshold // "3")' ${{ inputs.config_file }})
-                LIVENESS_PROBE_FLAG="--liveness-probe grpc.port=$PROBE_PORT,grpc.service=$PROBE_SERVICE,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
-              elif [ "$PROBE_TYPE" = "http" ]; then
-                PROBE_PATH=$(yq e -r '(.service.health_check.liveness.path // "")' ${{ inputs.config_file }})
-                PROBE_PORT=$(yq e -r '(.service.health_check.liveness.port // "")' ${{ inputs.config_file }})
-                PROBE_DELAY=$(yq e -r '(.service.health_check.liveness.initial_delay_seconds // "0")' ${{ inputs.config_file }})
-                PROBE_PERIOD=$(yq e -r '(.service.health_check.liveness.period_seconds // "10")' ${{ inputs.config_file }})
-                PROBE_TIMEOUT=$(yq e -r '(.service.health_check.liveness.timeout_seconds // "1")' ${{ inputs.config_file }})
-                PROBE_FAILURE=$(yq e -r '(.service.health_check.liveness.failure_threshold // "3")' ${{ inputs.config_file }})
-                LIVENESS_PROBE_FLAG="--liveness-probe httpGet.path=$PROBE_PATH,httpGet.port=$PROBE_PORT,initialDelaySeconds=$PROBE_DELAY,periodSeconds=$PROBE_PERIOD,timeoutSeconds=$PROBE_TIMEOUT,failureThreshold=$PROBE_FAILURE"
-              fi
-              if [ -n "$LIVENESS_PROBE_FLAG" ]; then echo "liveness_probe_flag=$LIVENESS_PROBE_FLAG" >> $GITHUB_OUTPUT; fi
-            fi
-
-            # Write all service-level config values to GITHUB_OUTPUT with sanitization
-            # to prevent any invalid format issues
-            write_to_output() {
-              local key=$1
-              local value=$2
-              # Clean value: remove leading/trailing spaces, carriage returns, and newlines
-              value=$(echo "$value" | sed 's/^ *//;s/ *$//;s/\r//g' | tr -d '\n')
-              echo "[DEBUG] About to write to GITHUB_OUTPUT: $key='$value'"
-              if [ -n "$value" ]; then
-                # Use delimiter-based approach for all values to be consistent
-                echo "$key<<EOF" >> $GITHUB_OUTPUT
-                echo "$value" >> $GITHUB_OUTPUT
-                echo "EOF" >> $GITHUB_OUTPUT
-              fi
-            }
-            
-            write_to_output "service_name" "$SERVICE_NAME"
-            write_to_output "memory" "$MEMORY"
-            write_to_output "cpu" "$CPU"
-            write_to_output "concurrency" "$CONCURRENCY"
-            write_to_output "timeout" "$TIMEOUT"
-            write_to_output "min_instances" "$MIN_INSTANCES"
-            write_to_output "max_instances" "$MAX_INSTANCES"
-            write_to_output "allow_unauth" "$ALLOW_UNAUTH"
-            write_to_output "vpc_connector" "$VPC_CONNECTOR"
-            write_to_output "has_config" "true"
-
-            # Print the content of $GITHUB_OUTPUT for debugging
-            echo "----- BEGIN GITHUB_OUTPUT CONTENTS -----"
-            cat $GITHUB_OUTPUT || echo "Failed to read GITHUB_OUTPUT"
-            echo "----- END GITHUB_OUTPUT CONTENTS -----"
-          else
-            echo "Config file not found: ${{ inputs.config_file }}"
-            exit 1
-          fi
-
-      # Multi-container (Knative YAML) deploy if config_file is present and is a Knative Service
-      - name: Check if config_file is Knative YAML
-        id: check-knative
-        run: |
-          if [ -f "${{ inputs.config_file }}" ] && grep -q 'apiVersion: serving.knative.dev' "${{ inputs.config_file }}"; then
-            echo "is_knative=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_knative=false" >> $GITHUB_OUTPUT
-          fi
-
-      # Prepare Knative YAML for deploy
       - name: Prepare Knative YAML for deploy
         id: prepare-yaml
-        if: steps.check-knative.outputs.is_knative == 'true'
         run: |
           # Copy the Knative YAML config
           cp ${{ inputs.config_file }} service.deploy.yaml
@@ -409,74 +78,65 @@ jobs:
           if grep -q '\${PR_NUMBER}' service.deploy.yaml; then
             sed -i "s#\${PR_NUMBER}#${{ github.event.number }}#g" service.deploy.yaml
           fi
-
-          # Replace the image for the 'api' container using mikefarah/yq v4+ syntax
-          yq e '(.spec.template.spec.containers[] | select(.name == "api")).image = "${{ inputs.image_tag }}"' -i service.deploy.yaml
-
-          # Inject config files as base64 env vars if present
-          if [ -n "${{ inputs.app_config_file_b64 }}" ]; then
-            export API_CONFIG_FILE_B64="${{ inputs.app_config_file_b64 }}"
-            yq e '(.spec.template.spec.containers[] | select(.name == "api")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(API_CONFIG_FILE_B64)' -i service.deploy.yaml
+          
+          # Replace API_IMAGE or other container image placeholders using sed
+          if grep -q '\${API_IMAGE}' service.deploy.yaml; then
+            sed -i "s#\${API_IMAGE}#${{ inputs.image_tag }}#g" service.deploy.yaml
+          else
+            # If no variable placeholder, use yq to set the image for the 'api' container
+            yq e '(.spec.template.spec.containers[] | select(.name == "api")).image = "${{ inputs.image_tag }}"' -i service.deploy.yaml
           fi
-          if [ -n "${{ inputs.sidecar_config_file_b64 }}" ]; then
-            export SIDECAR_CONFIG_FILE_B64="${{ inputs.sidecar_config_file_b64 }}"
-            yq e '(.spec.template.spec.containers[] | select(.name == "envoy")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(SIDECAR_CONFIG_FILE_B64)' -i service.deploy.yaml
+          
+          # Replace additional container images if specified
+          if [ -n "${{ inputs.container_images }}" ]; then
+            # Parse the JSON container_images input and set each image
+            echo "${{ inputs.container_images }}" | jq -r 'to_entries[] | "yq e \"(.spec.template.spec.containers[] | select(.name == \\"" + .key + "\\")).image = \\"" + .value + "\\"\" -i service.deploy.yaml"' | sh
           fi
 
-          # Debug: print the YAML after replacement
-          echo '--- DEBUG: service.deploy.yaml after PR_NUMBER replacement ---'
+          # Process container configs - inject base64-encoded configs into container env vars
+          if [ -n "${{ inputs.container_configs }}" ]; then
+            echo "Processing container configurations..."
+            
+            # Iterate through each container configuration in the JSON
+            # For each container named in container_configs, 
+            # find the APP_CONFIG_FILE_B64 env var and inject the base64 content
+            echo "${{ inputs.container_configs }}" | jq -r 'to_entries[] | (.key + ":" + .value)' | while IFS=':' read -r container_name config_b64; do
+              echo "Setting APP_CONFIG_FILE_B64 for container: $container_name"
+              export CONFIG_VALUE="$config_b64"
+              # This expects the APP_CONFIG_FILE_B64 env var to already exist in the container definition
+              # It will update its value with the provided base64 encoded config
+              yq e '(.spec.template.spec.containers[] | select(.name == "'"$container_name"'")).env[] |= select(.name == "APP_CONFIG_FILE_B64").value = strenv(CONFIG_VALUE)' -i service.deploy.yaml
+            done
+          fi
+
+          # Print the final YAML for debugging
+          echo "--- Final Knative YAML ready for deployment ---"
           cat service.deploy.yaml
-          echo '--- END DEBUG ---'
 
-      # Set service name after YAML is prepared
-      - name: Set service name from Knative YAML
+      - name: Extract service name from YAML
         id: set-service-name
-        if: steps.check-knative.outputs.is_knative == 'true'
         run: |
           SERVICE_NAME=$(yq e -r '.metadata.name' service.deploy.yaml)
           echo "final_service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
-          echo "Extracted service name: '$SERVICE_NAME'"
+          echo "Deploying service: $SERVICE_NAME"
 
-      # Deploy using gcloud run services replace for multi-container
-      - name: Deploy to Cloud Run (Multi-container)
-        id: deploy-multicontainer
-        if: steps.check-knative.outputs.is_knative == 'true'
+      - name: Deploy to Cloud Run
+        id: deploy
         run: |
           # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
             --region=${{ inputs.region }} \
             --project=${{ inputs.gcp_project_id }}
+            
+          echo "Service deployed successfully!"
 
-          # Get the service URL
+      - name: Get service URL
+        id: get-url
+        run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
             --region=${{ inputs.region }} \
             --project=${{ inputs.gcp_project_id }} \
             --format='value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
-
-      # Single-container deploy using classic action if not Knative
-      - name: Deploy to Cloud Run (Single Container)
-        id: deploy-singlecontainer
-        if: steps.check-knative.outputs.is_knative != 'true'
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ steps.set-service-name.outputs.final_service_name }}
-          region: ${{ inputs.region }}
-          image: ${{ inputs.image_tag }}
-          flags: ${{ steps.generate-flags.outputs.flags }}
-          project_id: ${{ inputs.gcp_project_id }}
-
-      # Output the correct service URL
-      - name: Get Cloud Run Service URL
-        id: get-url
-        run: |
-          if [ "${{ steps.deploy-multicontainer.outputs.url }}" != "" ]; then
-            echo "url=${{ steps.deploy-multicontainer.outputs.url }}" >> $GITHUB_OUTPUT
-          else
-            echo "url=${{ steps.deploy-singlecontainer.outputs.url }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Print GITHUB_OUTPUT file
-        if: always()
-        run: cat $GITHUB_OUTPUT || true
+          echo "Service URL: $URL"
