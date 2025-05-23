@@ -78,7 +78,7 @@ jobs:
           # 1. Copy the Knative YAML manifest
           cp ${{ inputs.knative_yaml }} service.deploy.yaml
 
-          # Replace PR_NUMBER placeholder if present
+          # Replace PR_NUMBER placeholder if present (only for knative.yaml file, not config)
           sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
           # Replace <REGION> placeholder if present
           sed -i "s#<REGION>#${{ matrix.region }}#g" service.deploy.yaml
