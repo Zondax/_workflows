@@ -1,4 +1,4 @@
-name: Cloud Run Deploy Knative YAML (Reusable)
+name: Cloud Run Deploy Advanced (Reusable)
 
 on:
   workflow_call:

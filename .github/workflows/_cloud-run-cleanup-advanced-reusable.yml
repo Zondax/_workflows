@@ -1,4 +1,4 @@
-name: Cloud Run Cleanup (Reusable)
+name: Cloud Run Cleanup Advanced (Reusable)
 
 on:
   workflow_call:
