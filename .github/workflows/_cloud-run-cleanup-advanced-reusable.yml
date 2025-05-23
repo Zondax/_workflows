@@ -1,0 +1,73 @@
+name: Cloud Run Cleanup Advanced (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      gcp_project_id:
+        required: true
+        type: string
+        description: "GCP project ID"
+      region:
+        required: true
+        type: string
+        description: "GCP region(s) for Cloud Run. JSON list for multi-region cleanup (e.g. '[\"us-central1\",\"europe-west1\"]')."
+      workload_identity_provider:
+        required: true
+        type: string
+        description: "Workload identity provider"
+      service_account:
+        required: true
+        type: string
+        description: "Service account"
+      knative_yaml:
+        required: true
+        type: string
+        description: "Path to the Knative YAML file for this deployment"
+
+jobs:
+  cleanup:
+    runs-on: zondax-runners
+    strategy:
+      matrix:
+        region: ${{ fromJson(inputs.region) }}
+    permissions:
+      id-token: write # Enables automatic ID token injection for google-github-actions/auth
+      contents: read # Required for actions/checkout and GitHub API access
+      pull-requests: write # Required for commenting on PRs
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
+          
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        
+      - name: Read knative yaml for service name
+        id: read-config
+        run: |
+          if [ -f "${{ inputs.knative_yaml }}" ]; then
+            SERVICE_NAME=$(yq '.metadata.name' ${{ inputs.knative_yaml }})
+            echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+          else
+            echo "Knative yaml file not found: ${{ inputs.knative_yaml }}"
+            exit 1
+          fi
+
+      - name: Set final service name
+        id: set-service-name
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FINAL_SERVICE_NAME="${{ steps.read-config.outputs.service_name }}-${{ github.event.number }}"
+          else
+            FINAL_SERVICE_NAME="${{ steps.read-config.outputs.service_name }}"
+          fi
+          # Always sanitize the service name to ensure it follows Cloud Run naming conventions
+          SAFE_SERVICE_NAME=$(echo "$FINAL_SERVICE_NAME" | tr '/' '-' | tr '_' '-' | tr '.' '-' | tr '[:upper:]' '[:lower:]')
+          echo "safe_service_name=$SAFE_SERVICE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Delete Cloud Run Service (Final Name)
+        run: |
+          echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ matrix.region }}"
+          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ inputs.gcp_project_id }} --region ${{ matrix.region }} --platform managed --quiet || true
