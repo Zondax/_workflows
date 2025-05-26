@@ -118,59 +118,27 @@ jobs:
           if [ -n "${{ inputs.container_configs }}" ]; then
             echo "Processing container configs..."
             echo '${{ inputs.container_configs }}' > container_configs.json
-            
-            # Validate JSON format
             jq empty container_configs.json 2>/dev/null || { echo "ERROR: Invalid container_configs JSON format"; exit 1; }
             
-            # Helper function to replace PR number in base64 config
-            replace_pr_number() {
-              local config_b64="$1"
-              local config_type="$2"
-              
-              if [ -n "${{ github.event.number }}" ]; then
-                echo "$config_b64" | base64 -d | sed "s/<github_event_number>/${{ github.event.number }}/g" | base64 -w 0 > config_replaced.b64
-                config_b64=$(cat config_replaced.b64)
-                echo "✓ Replaced <github_event_number> with PR number ${{ github.event.number }} in $config_type"
-              fi
-              echo "$config_b64"
-            }
-            
-            # Helper function to update environment variable in container
-            update_container_env() {
-              local container_name="$1"
-              local env_var_name="$2"
-              local config_b64="$3"
-              local config_type="$4"
-              
-              yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "'"$env_var_name"'").value = "'"$config_b64"'"' -i service.deploy.yaml && \
-              echo "✓ Updated $config_type for $container_name container" || { echo "❌ Failed updating $config_type"; exit 1; }
-            }
-            
             # Process each configuration entry
-            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r container_name config_b64; do
-              case "$container_name" in
-                "rbac_model")
-                  echo "Processing RBAC model configuration..."
-                  config_b64=$(replace_pr_number "$config_b64" "RBAC model config")
-                  update_container_env "api" "RBAC_MODEL_FILE_B64" "$config_b64" "RBAC model config"
+            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r name config; do
+              # Replace PR number if needed
+              [ -n "${{ github.event.number }}" ] && config=$(echo "$config" | base64 -d | sed "s/<github_event_number>/${{ github.event.number }}/g" | base64 -w 0)
+              
+              case "$name" in
+                rbac_model)
+                  yq e '.spec.template.spec.containers[] |= select(.name == "api").env[] |= select(.name == "RBAC_MODEL_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                  echo "✓ Updated RBAC model config"
                   ;;
-                "rbac_policy")
-                  echo "Processing RBAC policy configuration..."
-                  config_b64=$(replace_pr_number "$config_b64" "RBAC policy config")
-                  update_container_env "api" "RBAC_POLICY_FILE_B64" "$config_b64" "RBAC policy config"
+                rbac_policy)
+                  yq e '.spec.template.spec.containers[] |= select(.name == "api").env[] |= select(.name == "RBAC_POLICY_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                  echo "✓ Updated RBAC policy config"
                   ;;
                 *)
-                  # Handle regular container configs
-                  echo "Processing config for container: $container_name"
-                  
-                  # Check container and env var existence
-                  if ! yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.deploy.yaml &>/dev/null; then
-                    echo "❌ Container '$container_name' or APP_CONFIG_FILE_B64 env var not found"
-                    exit 1
-                  fi
-                  
-                  config_b64=$(replace_pr_number "$config_b64" "'$container_name' config")
-                  update_container_env "$container_name" "APP_CONFIG_FILE_B64" "$config_b64" "config"
+                  # Validate container exists
+                  yq e '.spec.template.spec.containers[] | select(.name == "'"$name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.deploy.yaml &>/dev/null || { echo "❌ Container '$name' or APP_CONFIG_FILE_B64 not found"; exit 1; }
+                  yq e '.spec.template.spec.containers[] |= select(.name == "'"$name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                  echo "✓ Updated config for $name"
                   ;;
               esac
             done
