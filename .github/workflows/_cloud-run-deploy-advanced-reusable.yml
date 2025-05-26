@@ -36,10 +36,17 @@ on:
           The workflow will find the APP_CONFIG_FILE_B64 env var in each container and inject the config.
           
           Special keys for RBAC configuration:
-          - "rbac_model": Injects into RBAC_MODEL_FILE_B64 env var in the "api" container
-          - "rbac_policy": Injects into RBAC_POLICY_FILE_B64 env var in the "api" container
+          - "rbac_model": Injects into RBAC_MODEL_FILE_B64 env var in containers specified by rbac_containers input
+          - "rbac_policy": Injects into RBAC_POLICY_FILE_B64 env var in containers specified by rbac_containers input
           
           Example with RBAC: {"api":"base64content","envoy":"base64content","rbac_model":"base64content","rbac_policy":"base64content"}
+      rbac_containers:
+        required: false
+        type: string
+        description: >-
+          JSON array of container names that need RBAC configuration injection.
+          Example: ["api", "store", "custom-service"]
+          Required when using rbac_model or rbac_policy in container_configs.
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
@@ -127,12 +134,34 @@ jobs:
               
               case "$name" in
                 rbac_model)
-                  yq e '.spec.template.spec.containers[] |= select(.name == "api").env[] |= select(.name == "RBAC_MODEL_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
-                  echo "✓ Updated RBAC model config"
+                  # Inject RBAC model into specified containers
+                  if [ -z "${{ inputs.rbac_containers }}" ]; then
+                    echo "ERROR: rbac_containers input is required when using rbac_model"
+                    exit 1
+                  fi
+                  echo '${{ inputs.rbac_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "RBAC_MODEL_FILE_B64")' service.deploy.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "RBAC_MODEL_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                      echo "✓ Updated RBAC model config for container: $container_name"
+                    else
+                      echo "⚠️  Container '$container_name' does not have RBAC_MODEL_FILE_B64 env var, skipping"
+                    fi
+                  done
                   ;;
                 rbac_policy)
-                  yq e '.spec.template.spec.containers[] |= select(.name == "api").env[] |= select(.name == "RBAC_POLICY_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
-                  echo "✓ Updated RBAC policy config"
+                  # Inject RBAC policy into specified containers
+                  if [ -z "${{ inputs.rbac_containers }}" ]; then
+                    echo "ERROR: rbac_containers input is required when using rbac_policy"
+                    exit 1
+                  fi
+                  echo '${{ inputs.rbac_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "RBAC_POLICY_FILE_B64")' service.deploy.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "RBAC_POLICY_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                      echo "✓ Updated RBAC policy config for container: $container_name"
+                    else
+                      echo "⚠️  Container '$container_name' does not have RBAC_POLICY_FILE_B64 env var, skipping"
+                    fi
+                  done
                   ;;
                 *)
                   # Validate container exists
