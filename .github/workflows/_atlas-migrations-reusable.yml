@@ -7,6 +7,7 @@
 # TODO: Implement proper cloud provider backup integration (AWS RDS, GCP SQL, Azure)
 # TODO: Add migration impact analysis (breaking changes detection)
 # TODO: Add database health checks and performance monitoring post-migration
+# TODO: Add validation when you change the models but you forget to generate the migrations
 # TODO: Implement migration timeout protection
 # TODO: Add Slack notifications for prod
 # TODO: Add deployment window validation (maintenance hours only)
