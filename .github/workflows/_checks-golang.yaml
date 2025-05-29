@@ -30,6 +30,11 @@ on:
         required: false
         type: boolean
         default: true
+      upload_coverage:
+        description: "Upload coverage report as artifact"
+        required: false
+        type: boolean
+        default: true
       coverage_threshold:
         description: "Minimum coverage percentage required"
         required: false
@@ -88,6 +93,14 @@ jobs:
         run: |
           cd ${{ inputs.package_path }}
           make go-coverage
+
+      - name: Upload coverage report
+        if: inputs.upload_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.run_number }}
+          path: ${{ inputs.package_path }}/profile.cov
+          retention-days: 30
 
       - name: Quality Gate - Test coverage shall be above threshold
         if: inputs.enable_coverage
