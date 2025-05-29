@@ -25,6 +25,30 @@ on:
         required: false
         type: string
         default: ""
+      enable_coverage:
+        description: "Enable coverage checks and reporting"
+        required: false
+        type: boolean
+        default: true
+      upload_coverage:
+        description: "Upload coverage reports to Codecov"
+        required: false
+        type: boolean
+        default: false
+      coverage_threshold:
+        description: "Minimum coverage percentage required"
+        required: false
+        type: number
+        default: 75
+      codecov_flags:
+        description: "Flags to pass to Codecov"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      codecov_token:
+        description: "Codecov token for private repositories"
+        required: false
 
 jobs:
   checks:
@@ -50,21 +74,40 @@ jobs:
         with:
           submodules: true
           token: ${{ steps.app-token.outputs.token || github.token }}
+
       - name: Build
         run: |
           git config --global --add safe.directory "*"
           cd ${{ inputs.package_path }}
           make go-build
+
       - name: ModTidy check
         run: |
           cd ${{ inputs.package_path }}
           make go-mod-check
+
       - name: Lint check
         run: |
           cd ${{ inputs.package_path }}
           make go-lint-install
           make go-lint
+
       - name: Run tests
         run: |
           cd ${{ inputs.package_path }}
           make go-test
+
+      - name: Run coverage
+        if: inputs.enable_coverage
+        run: |
+          cd ${{ inputs.package_path }}
+          make go-coverage
+
+      - name: Upload to Codecov and enforce threshold
+        if: inputs.enable_coverage && inputs.upload_coverage
+        run: |
+          bash <(curl -s https://codecov.io/bash) \
+            -t "${{ secrets.codecov_token }}" \
+            -f "${{ inputs.package_path }}/profile.cov" \
+            -F "${{ inputs.codecov_flags }}" \
+            --fail-under="${{ inputs.coverage_threshold }}"
