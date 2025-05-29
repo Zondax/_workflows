@@ -91,6 +91,7 @@ jobs:
 
       - name: Quality Gate - Test coverage shall be above threshold
         if: inputs.enable_coverage
+        shell: bash
         env:
           TESTCOVERAGE_THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
@@ -115,7 +116,7 @@ jobs:
           coverage=$(echo "$total_line" | awk '{print $3}' | sed 's/%//')
           echo "Current coverage: ${coverage}%"
           
-          # Validate coverage is a number
+          # Validate coverage is a number using bash regex
           if ! [[ "$coverage" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             echo "❌ Invalid coverage value: $coverage"
             exit 1
