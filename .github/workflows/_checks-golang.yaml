@@ -105,9 +105,9 @@ jobs:
 
       - name: Upload to Codecov and enforce threshold
         if: inputs.enable_coverage && inputs.upload_coverage
-        run: |
-          bash <(curl -s https://codecov.io/bash) \
-            -t "${{ secrets.codecov_token }}" \
-            -f "${{ inputs.package_path }}/profile.cov" \
-            -F "${{ inputs.codecov_flags }}" \
-            --fail-under="${{ inputs.coverage_threshold }}"
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.codecov_token }}
+          file: ${{ inputs.package_path }}/profile.cov
+          flags: ${{ inputs.codecov_flags }}
+          fail_ci_if_error: true
