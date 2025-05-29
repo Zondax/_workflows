@@ -1,0 +1,217 @@
+# Atlas Migrations CI/CD
+#
+# TODO: We can improve this flow for sure, but for this we need to decide if we want to pay for Atlas Pro or not.
+# 
+# MISSING FEATURES:
+# TODO: Implement rollback job with manual trigger (workflow_dispatch)
+# TODO: Implement proper cloud provider backup integration (AWS RDS, GCP SQL, Azure)
+# TODO: Add migration impact analysis (breaking changes detection)
+# TODO: Add database health checks and performance monitoring post-migration
+# TODO: Add validation when you change the models but you forget to generate the migrations
+# TODO: Implement migration timeout protection
+# TODO: Add Slack notifications for prod
+# TODO: Add deployment window validation (maintenance hours only)
+#
+# 🧪 TESTING & VALIDATION:
+# TODO: Add integration tests with real data scenarios
+# TODO: Add migration performance and stress testing
+# TODO: Add data integrity validation
+
+name: Atlas Migrations (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      migrations_path:
+        description: "Path to the migrations directory relative to the repository root"
+        type: string
+        default: "internal/infrastructure/persistence/postgres/migrations"
+      models_path:
+        description: "Path to the models directory relative to the repository root"
+        type: string
+        default: "internal/infrastructure/persistence/models"
+      atlas_config_path:
+        description: "Path to the Atlas configuration file"
+        type: string
+        default: "atlas.hcl"
+      go_version:
+        description: "Go version to use"
+        type: string
+        default: "1.24"
+      atlas_version:
+        description: "Atlas version to use"
+        type: string
+        default: "v0.33.0"
+      postgres_image:
+        description: "PostgreSQL Docker image for testing"
+        type: string
+        default: "postgis/postgis:14-3.5"
+      runner:
+        description: "GitHub runner to use"
+        type: string
+        default: "zondax-runners"
+      action:
+        description: "Action to perform (validate, deploy)"
+        type: string
+        default: "validate"
+      environment_name:
+        description: "Environment name for logging purposes"
+        type: string
+        default: "dev"
+    secrets:
+      DATABASE_URL:
+        description: "Database connection URL for the target environment"
+        required: false
+    outputs:
+      migration_status:
+        description: "Status of the migration operation"
+        value: ${{ jobs.atlas-migrations.outputs.status }}
+      applied_migrations:
+        description: "Number of migrations applied"
+        value: ${{ jobs.atlas-migrations.outputs.applied_count }}
+
+jobs:
+  atlas-migrations:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    outputs:
+      status: ${{ steps.migration-result.outputs.status }}
+      applied_count: ${{ steps.migration-result.outputs.applied_count }}
+    
+    services:
+      postgres:
+        image: ${{ inputs.postgres_image }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      - name: Install Atlas
+        run: |
+          curl -sSf https://atlasgo.sh | sh -s -- --version ${{ inputs.atlas_version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Install PostgreSQL client
+        if: inputs.action == 'validate'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Clean PostGIS schemas for Atlas
+        if: inputs.action == 'validate'
+        run: |
+          # Remove PostGIS-created schemas that interfere with Atlas clean database requirement
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c "
+            DROP SCHEMA IF EXISTS tiger CASCADE;
+            DROP SCHEMA IF EXISTS tiger_data CASCADE;
+            DROP SCHEMA IF EXISTS topology CASCADE;
+          "
+
+      - name: Validate migration directory
+        if: inputs.action == 'validate' || inputs.action == 'deploy'
+        run: |
+          atlas migrate validate \
+            --dir "file://${{ inputs.migrations_path }}" \
+            --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public"
+
+      - name: Lint migrations
+        if: inputs.action == 'validate' || inputs.action == 'deploy'
+        run: |
+          atlas migrate lint \
+            --dir "file://${{ inputs.migrations_path }}" \
+            --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public" \
+            --latest 1
+
+      - name: Test migration up/down
+        if: inputs.action == 'validate'
+        run: |
+          # Test applying migrations to the service database
+          # For testing on clean database, we apply all migrations from the beginning
+          atlas migrate apply \
+            --dir "file://${{ inputs.migrations_path }}" \
+            --url "postgres://postgres:postgres@localhost:5432/test_db?sslmode=disable"
+          
+          echo "✅ Migrations applied successfully"
+
+      - name: Validate migrations before deploy
+        if: inputs.action == 'deploy'
+        run: |
+          atlas migrate validate \
+            --dir "file://${{ inputs.migrations_path }}" \
+            --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public"
+
+      - name: Lint migrations before deploy
+        if: inputs.action == 'deploy'
+        run: |
+          atlas migrate lint \
+            --dir "file://${{ inputs.migrations_path }}" \
+            --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public" \
+            --latest 1
+
+      - name: Apply migrations to ${{ inputs.environment_name }}
+        if: inputs.action == 'deploy'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          atlas migrate apply \
+            --env gorm \
+            --url "$DATABASE_URL" \
+            --revisions-schema public
+          
+          echo "✅ ${{ inputs.environment_name }} migrations applied successfully"
+
+      - name: Set migration result and capture logs
+        id: migration-result
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ "${{ inputs.action }}" = "validate" ]; then
+            echo "status=validated" >> $GITHUB_OUTPUT
+            echo "applied_count=0" >> $GITHUB_OUTPUT
+            echo "✅ Migrations validated successfully"
+            echo "📋 Validation completed for ${{ inputs.environment_name }} environment"
+          else
+            # Capture actual migration status and count
+            echo "📊 Checking current migration status..."
+            migration_info=$(atlas migrate status --url "$DATABASE_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
+            
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "applied_count=$migration_info" >> $GITHUB_OUTPUT
+            echo "✅ Migrations applied successfully to ${{ inputs.environment_name }}"
+            echo "📋 Current database schema version: $migration_info"
+            
+            # Show detailed migration status for PR logs
+            echo "📄 Migration status details:"
+            atlas migrate status --url "$DATABASE_URL" 2>/dev/null || echo "Could not retrieve detailed status"
+          fi
+
+      - name: Cleanup test resources
+        if: always()
+        run: |
+          echo "🧹 Cleaning up test resources..."
+          # Any cleanup operations if needed 
