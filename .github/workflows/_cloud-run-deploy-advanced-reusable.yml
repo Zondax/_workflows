@@ -34,6 +34,19 @@ on:
           JSON map of container name to base64-encoded config content.
           Example: {"api":"base64content","envoy":"base64content","other-sidecar":"base64content"}
           The workflow will find the APP_CONFIG_FILE_B64 env var in each container and inject the config.
+          
+          Special keys for RBAC configuration:
+          - "rbac_model": Injects into RBAC_MODEL_FILE_B64 env var in containers specified by rbac_containers input
+          - "rbac_policy": Injects into RBAC_POLICY_FILE_B64 env var in containers specified by rbac_containers input
+          
+          Example with RBAC: {"api":"base64content","envoy":"base64content","rbac_model":"base64content","rbac_policy":"base64content"}
+      rbac_containers:
+        required: false
+        type: string
+        description: >-
+          JSON array of container names that need RBAC configuration injection.
+          Example: ["api", "store", "custom-service"]
+          Required when using rbac_model or rbac_policy in container_configs.
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
@@ -112,29 +125,51 @@ jobs:
           if [ -n "${{ inputs.container_configs }}" ]; then
             echo "Processing container configs..."
             echo '${{ inputs.container_configs }}' > container_configs.json
-            
-            # Validate JSON format
             jq empty container_configs.json 2>/dev/null || { echo "ERROR: Invalid container_configs JSON format"; exit 1; }
             
-            # Apply configs to containers
-            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r container_name config_b64; do
-              # Check container and env var existence in one command
-              if ! yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.deploy.yaml &>/dev/null; then
-                echo "❌ Container '$container_name' or APP_CONFIG_FILE_B64 env var not found"
-                exit 1
-              fi
+            # Process each configuration entry
+            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r name config; do
+              # Replace PR number if needed
+              [ -n "${{ github.event.number }}" ] && config=$(echo "$config" | base64 -d | sed "s/<github_event_number>/${{ github.event.number }}/g" | base64 -w 0)
               
-              # Replace <github_event_number> with PR number in base64-encoded configs
-              if [ -n "${{ github.event.number }}" ]; then
-                # Decode, perform replacement, and re-encode
-                echo "$config_b64" | base64 -d | sed "s/<github_event_number>/${{ github.event.number }}/g" | base64 -w 0 > config_replaced.b64
-                config_b64=$(cat config_replaced.b64)
-                echo "✓ Replaced <github_event_number> with PR number ${{ github.event.number }} in '$container_name' config"
-              fi
-              
-              # Update config
-              yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config_b64"'"' -i service.deploy.yaml && \
-              echo "✓ Updated config for '$container_name'" || { echo "❌ Failed updating '$container_name'"; exit 1; }
+              case "$name" in
+                rbac_model)
+                  # Inject RBAC model into specified containers
+                  if [ -z "${{ inputs.rbac_containers }}" ]; then
+                    echo "ERROR: rbac_containers input is required when using rbac_model"
+                    exit 1
+                  fi
+                  echo '${{ inputs.rbac_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "RBAC_MODEL_FILE_B64")' service.deploy.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "RBAC_MODEL_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                      echo "✓ Updated RBAC model config for container: $container_name"
+                    else
+                      echo "⚠️  Container '$container_name' does not have RBAC_MODEL_FILE_B64 env var, skipping"
+                    fi
+                  done
+                  ;;
+                rbac_policy)
+                  # Inject RBAC policy into specified containers
+                  if [ -z "${{ inputs.rbac_containers }}" ]; then
+                    echo "ERROR: rbac_containers input is required when using rbac_policy"
+                    exit 1
+                  fi
+                  echo '${{ inputs.rbac_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "RBAC_POLICY_FILE_B64")' service.deploy.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "RBAC_POLICY_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                      echo "✓ Updated RBAC policy config for container: $container_name"
+                    else
+                      echo "⚠️  Container '$container_name' does not have RBAC_POLICY_FILE_B64 env var, skipping"
+                    fi
+                  done
+                  ;;
+                *)
+                  # Validate container exists
+                  yq e '.spec.template.spec.containers[] | select(.name == "'"$name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.deploy.yaml &>/dev/null || { echo "❌ Container '$name' or APP_CONFIG_FILE_B64 not found"; exit 1; }
+                  yq e '.spec.template.spec.containers[] |= select(.name == "'"$name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                  echo "✓ Updated config for $name"
+                  ;;
+              esac
             done
           fi
 
