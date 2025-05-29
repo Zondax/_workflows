@@ -1,3 +1,21 @@
+# Atlas Migrations CI/CD
+#
+# TODO: We can improve this flow for sure, but for this we need to decide if we want to pay for Atlas Pro or not.
+# 
+# MISSING FEATURES:
+# TODO: Implement rollback job with manual trigger (workflow_dispatch)
+# TODO: Implement proper cloud provider backup integration (AWS RDS, GCP SQL, Azure)
+# TODO: Add migration impact analysis (breaking changes detection)
+# TODO: Add database health checks and performance monitoring post-migration
+# TODO: Implement migration timeout protection
+# TODO: Add Slack notifications for prod
+# TODO: Add deployment window validation (maintenance hours only)
+#
+# 🧪 TESTING & VALIDATION:
+# TODO: Add integration tests with real data scenarios
+# TODO: Add migration performance and stress testing
+# TODO: Add data integrity validation
+
 name: Atlas Migrations (Reusable)
 
 on:
