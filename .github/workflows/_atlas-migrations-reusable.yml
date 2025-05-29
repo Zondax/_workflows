@@ -185,15 +185,29 @@ jobs:
           
           echo "✅ ${{ inputs.environment_name }} migrations applied successfully"
 
-      - name: Set migration result
+      - name: Set migration result and capture logs
         id: migration-result
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           if [ "${{ inputs.action }}" = "validate" ]; then
             echo "status=validated" >> $GITHUB_OUTPUT
             echo "applied_count=0" >> $GITHUB_OUTPUT
+            echo "✅ Migrations validated successfully"
+            echo "📋 Validation completed for ${{ inputs.environment_name }} environment"
           else
+            # Capture actual migration status and count
+            echo "📊 Checking current migration status..."
+            migration_info=$(atlas migrate status --url "$DATABASE_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
+            
             echo "status=success" >> $GITHUB_OUTPUT
-            echo "applied_count=1" >> $GITHUB_OUTPUT
+            echo "applied_count=$migration_info" >> $GITHUB_OUTPUT
+            echo "✅ Migrations applied successfully to ${{ inputs.environment_name }}"
+            echo "📋 Current database schema version: $migration_info"
+            
+            # Show detailed migration status for PR logs
+            echo "📄 Migration status details:"
+            atlas migrate status --url "$DATABASE_URL" 2>/dev/null || echo "Could not retrieve detailed status"
           fi
 
       - name: Cleanup test resources
