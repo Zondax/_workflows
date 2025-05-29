@@ -103,25 +103,12 @@ jobs:
           cd ${{ inputs.package_path }}
           make go-coverage
 
-      - name: Debug coverage file
-        if: inputs.enable_coverage
-        run: |
-          cd ${{ inputs.package_path }}
-          echo "=== Checking if profile.cov exists ==="
-          ls -la profile.cov || echo "profile.cov not found"
-          echo "=== Current directory contents ==="
-          ls -la
-          echo "=== Looking for any .cov files ==="
-          find . -name "*.cov" -type f || echo "No .cov files found"
-          echo "=== Coverage file content (first 10 lines) ==="
-          head -10 profile.cov || echo "Cannot read profile.cov"
-
       - name: Upload to Codecov and enforce threshold
         if: inputs.enable_coverage && inputs.upload_coverage
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.codecov_token }}
-          file: ${{ inputs.package_path }}/profile.cov
+          files: ${{ inputs.package_path }}/profile.cov
           flags: ${{ inputs.codecov_flags }}
           fail_ci_if_error: true
           verbose: true
