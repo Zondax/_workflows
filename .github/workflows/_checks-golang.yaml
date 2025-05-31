@@ -175,34 +175,6 @@ jobs:
             exit 1
           fi
 
-      - name: Debug coverage outputs and conditions
-        if: inputs.enable_coverage
-        run: |
-          echo "=== DEBUG: Coverage Check Outputs ==="
-          echo "Coverage percentage: '${{ steps.coverage-check.outputs.coverage_percentage }}'"
-          echo "Coverage status: '${{ steps.coverage-check.outputs.coverage_status }}'"
-          echo "Coverage message: '${{ steps.coverage-check.outputs.coverage_message }}'"
-          echo ""
-          echo "=== DEBUG: Workflow Inputs ==="
-          echo "enable_coverage: ${{ inputs.enable_coverage }}"
-          echo "post_pr_comment: ${{ inputs.post_pr_comment }}"
-          echo "coverage_threshold: ${{ inputs.coverage_threshold }}"
-          echo ""
-          echo "=== DEBUG: GitHub Context ==="
-          echo "Event name: ${{ github.event_name }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Actor: ${{ github.actor }}"
-          echo ""
-          echo "=== DEBUG: PR Context ==="
-          echo "PR number (issue): ${{ github.event.number }}"
-          echo "PR number (pull_request): ${{ github.event.pull_request.number }}"
-          echo ""
-          echo "=== DEBUG: Condition Check ==="
-          echo "enable_coverage && post_pr_comment: ${{ inputs.enable_coverage && inputs.post_pr_comment }}"
-          echo "Event is PR: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}"
-          echo "Full condition: ${{ inputs.enable_coverage && inputs.post_pr_comment && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') }}"
-
       - name: Fail workflow if coverage check failed
         if: inputs.enable_coverage && steps.coverage-check.outputs.coverage_status == 'failed'
         run: |
