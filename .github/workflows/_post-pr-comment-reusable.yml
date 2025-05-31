@@ -13,7 +13,7 @@ on:
         default: "Preview Deployment"
         description: "Title for the comment"
       url:
-        required: true
+        required: false
         type: string
         description: "URL to include in the comment"
       url_title:
@@ -25,18 +25,38 @@ on:
         required: false
         type: string
         description: "Additional message to include in the comment"
+      comment_body:
+        required: false
+        type: string
+        description: "Full comment body (overrides other fields if provided)"
+      comment_identifier:
+        required: false
+        type: string
+        default: "automated-comment"
+        description: "Unique identifier to find and update existing comments"
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   post-comment:
     runs-on: zondax-runners
     steps:
-      - name: Comment PR with URL
+      - name: Post or update PR comment
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ inputs.issue_number }}
+          comment-id: ${{ inputs.comment_identifier }}
           body: |
-            **🚀 ${{ inputs.comment_title }}**
-            
-            ${{ inputs.additional_message != '' && inputs.additional_message || 'Your PR preview has been deployed and is available at:' }}
-            
-            🔗 [${{ inputs.url_title }}](${{ inputs.url }})
+            ${{ 
+              inputs.comment_body != '' && inputs.comment_body ||
+              (inputs.url != '' && format('**🚀 {0}**
+
+            {1}
+
+            🔗 [{2}]({3})', inputs.comment_title, inputs.additional_message != '' && inputs.additional_message || 'Your PR preview has been deployed and is available at:', inputs.url_title, inputs.url)) ||
+              format('**{0}**
+
+            {1}', inputs.comment_title, inputs.additional_message)
+            }}
