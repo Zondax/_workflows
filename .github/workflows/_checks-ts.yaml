@@ -114,12 +114,11 @@ jobs:
       - name: Generate GitHub App Token
         id: app-token
         if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.app_id }}
           private-key: ${{ secrets.app_pem }}
-          repositories: |
-            ${{ inputs.github_app_repos }}
+          repositories: ${{ inputs.github_app_repos }}
       
       - name: Install needed packages
         run: |
