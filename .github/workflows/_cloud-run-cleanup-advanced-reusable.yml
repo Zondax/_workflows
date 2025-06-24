@@ -35,6 +35,8 @@ jobs:
       contents: read # Required for actions/checkout and GitHub API access
       pull-requests: write # Required for commenting on PRs
     steps:
+      - uses: actions/checkout@v4
+
       - id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -43,6 +45,15 @@ jobs:
           
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+        
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+        
+      - name: Install yq
+        run: |
+          go install github.com/mikefarah/yq/v4@latest
         
       - name: Read knative yaml for service name
         id: read-config
