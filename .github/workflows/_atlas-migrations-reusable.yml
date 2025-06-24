@@ -179,6 +179,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           atlas migrate apply \
+            --config "file://${{ inputs.atlas_config_path }}" \
             --env gorm \
             --url "$DATABASE_URL" \
             --revisions-schema public
@@ -198,7 +199,7 @@ jobs:
           else
             # Capture actual migration status and count
             echo "📊 Checking current migration status..."
-            migration_info=$(atlas migrate status --url "$DATABASE_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
+            migration_info=$(atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DATABASE_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
             
             echo "status=success" >> $GITHUB_OUTPUT
             echo "applied_count=$migration_info" >> $GITHUB_OUTPUT
@@ -207,7 +208,7 @@ jobs:
             
             # Show detailed migration status for PR logs
             echo "📄 Migration status details:"
-            atlas migrate status --url "$DATABASE_URL" 2>/dev/null || echo "Could not retrieve detailed status"
+            atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DATABASE_URL" 2>/dev/null || echo "Could not retrieve detailed status"
           fi
 
       - name: Cleanup test resources
