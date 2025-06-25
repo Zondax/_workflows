@@ -54,6 +54,15 @@ jobs:
       contents: read # Required for actions/checkout and GitHub API access
       pull-requests: write # Required for commenting on PRs
     steps:
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Region: ${{ matrix.region }}"
+          echo "WIF Provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}"
+          echo "Service Account: ${{ vars.PULUMI_SA_CLOUDRUN }}"
+          echo "GCP Project ID: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "GAR Location: ${{ vars.PULUMI_GAR_LOCATION }}"
+
       - uses: actions/checkout@v4
 
       - name: Authenticate with GCP
