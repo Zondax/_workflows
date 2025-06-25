@@ -3,33 +3,22 @@ name: Cloud Run Cleanup Advanced (Reusable)
 on:
   workflow_call:
     inputs:
-      gcp_project_id:
+      environment:
         required: true
         type: string
-        description: "GCP project ID"
-      region:
-        required: true
-        type: string
-        description: "GCP region(s) for Cloud Run. JSON list for multi-region cleanup (e.g. '[\"us-central1\",\"europe-west1\"]')."
-      workload_identity_provider:
-        required: true
-        type: string
-        description: "Workload identity provider"
-      service_account:
-        required: true
-        type: string
-        description: "Service account"
+        description: "Environment name"
       knative_yaml:
         required: true
         type: string
         description: "Path to the Knative YAML file for this deployment"
-
+  
 jobs:
   cleanup:
     runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
     strategy:
       matrix:
-        region: ${{ fromJson(inputs.region) }}
+        region: ["${{ vars.PULUMI_GAR_LOCATION }}"]
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
       contents: read # Required for actions/checkout and GitHub API access
@@ -40,8 +29,8 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ inputs.workload_identity_provider }}
-          service_account: ${{ inputs.service_account }}
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          service_account: ${{ vars.PULUMI_SA_CLOUDRUN }}
           
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -85,4 +74,4 @@ jobs:
       - name: Delete Cloud Run Service (Final Name)
         run: |
           echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ matrix.region }}"
-          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ inputs.gcp_project_id }} --region ${{ matrix.region }} --platform managed --quiet || true
+          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ vars.PULUMI_PROJECT_ID }} --region ${{ matrix.region }} --platform managed --quiet || true

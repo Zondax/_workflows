@@ -3,26 +3,14 @@ name: Cloud Run Deploy Advanced (Reusable)
 on:
   workflow_call:
     inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name"
       knative_yaml:
         required: true
         type: string
         description: Path to the Knative YAML manifest for deployment
-      gcp_project_id:
-        required: true
-        type: string
-        description: GCP project ID
-      region:
-        required: true
-        type: string
-        description: GCP region(s) for Cloud Run. JSON list for multi-region deploy (e.g. '["us-central1","europe-west1"]').
-      workload_identity_provider:
-        required: true
-        type: string
-        description: Workload identity provider
-      service_account:
-        required: true
-        type: string
-        description: GCP service account
       container_images:
         required: false
         type: string
@@ -54,9 +42,10 @@ on:
 jobs:
   deploy:
     runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
     strategy:
       matrix:
-        region: ${{ fromJson(inputs.region) }}
+        region: ["${{ vars.PULUMI_GAR_LOCATION }}"]
     outputs:
       url: ${{ steps.get-url.outputs.url }}
     permissions:
@@ -70,9 +59,9 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ inputs.workload_identity_provider }}
-          service_account: ${{ inputs.service_account }}
-          
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          service_account: ${{ vars.PULUMI_SA_CLOUDRUN }}
+    
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         
@@ -194,7 +183,7 @@ jobs:
           # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
             --region=${{ matrix.region }} \
-            --project=${{ inputs.gcp_project_id }}
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
           echo "Service deployed successfully!"
 
@@ -204,7 +193,7 @@ jobs:
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
             --region=${{ matrix.region }} \
-            --project=${{ inputs.gcp_project_id }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "Service URL: $URL"
