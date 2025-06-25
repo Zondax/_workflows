@@ -13,15 +13,23 @@ COVERFILE       := profile.cov
 COVERFILE_TMP   := $(COVERFILE).tmp
 EXCLUDE_PATTERN := (_test\.go|_mock\.go|\.pb\.go|mock\.go|/testdata/|/vendor/)
 
-# Get all directories under cmd that contain a file main.go, but only 1 level deep
-CMDS=$(shell find cmd -maxdepth 1 -type d -exec test -e '{}/main.go' \; -print)
+# Configurable directories
+CMD_DIR ?= cmd
+INTERNAL_DIR ?= internal
+OUTPUT_DIR ?= output
 
-# Strip cmd/ from directory names and generate output binary names
-BINS=$(subst cmd/,output/,$(CMDS))
+# Get all directories under CMD_DIR that contain a file main.go
+# Support both flat structure (cmd/service/main.go) and nested (services/service/cmd/main.go)
+CMDS=$(shell find $(CMD_DIR) -maxdepth 3 -name "main.go" -path "*/cmd/main.go" -exec dirname {} \; 2>/dev/null || find $(CMD_DIR) -maxdepth 1 -type d -exec test -e '{}/main.go' \; -print 2>/dev/null)
+
+# Strip CMD_DIR/ from directory names and generate output binary names
+# For nested structure like services/api/cmd -> output/api
+BINS=$(patsubst $(CMD_DIR)/%,$(OUTPUT_DIR)/%,$(CMDS))
+BINS:=$(subst /cmd,,$(BINS))
 
 DEFAULT_APP_NAME ?= api
 
-$(info Using $(shell nproc) CPUs)
+$(info Using $(shell nproc 2>/dev/null || echo 1) CPUs)
 
 ## Golang
 go-mod-tidy: ## Mod tidy
@@ -31,17 +39,21 @@ go-mod-update: ## Mod Update
 	@go get -u ./...
 
 go-generate-install:
-	@rm -rf internal/version
-	@cp -r .make/templates/golang/version internal/
+	@rm -rf $(INTERNAL_DIR)/version
+	@cp -r .make/templates/golang/version $(INTERNAL_DIR)/
 
 .PHONY: go-generate
 go-generate: go-mod-tidy go-generate-install ## Mod generate
-	@go generate ./internal/...
+	@go generate ./$(INTERNAL_DIR)/...
 
-output/%: cmd/% FORCE | go-generate
+$(OUTPUT_DIR)/%: $(CMD_DIR)/% FORCE | go-generate
 	@echo "$(GREEN)Building $(notdir $<) binary...$(RESET)"
 	@mkdir -p $(dir $@)
-	@go build -o $@ ./$<
+	@if [ -d "$</cmd" ]; then \
+		go build -o $@ ./$</cmd; \
+	else \
+		go build -o $@ ./$<; \
+	fi
 
 # Special target that forces rules to always run
 .PHONY: FORCE
@@ -52,19 +64,19 @@ go-list: ## List all available binaries
 
 go-build: go-generate $(BINS) ## Build
 	@# Check for main.go in the root and build if it exists too
-	@[ -e main.go ] && go build -v -o output/$(DEFAULT_APP_NAME) || true
+	@[ -e main.go ] && go build -v -o $(OUTPUT_DIR)/$(DEFAULT_APP_NAME) || true
 	
 go-run: go-build ## Run
 	@echo "Running $(DEFAULT_APP_NAME)"
-	./output/$(DEFAULT_APP_NAME) start
+	./$(OUTPUT_DIR)/$(DEFAULT_APP_NAME) start
 
 go-version: go-generate ## Get Version
-	@echo "Version: $$(cat internal/version/version.txt)"
-	@echo "Revision: $$(cat internal/version/revision.txt)"
+	@echo "Version: $$(cat $(INTERNAL_DIR)/version/version.txt)"
+	@echo "Revision: $$(cat $(INTERNAL_DIR)/version/revision.txt)"
 
 go-clean: ## Go Clean
 	@go clean
-	@rm -rf internal/domain/entities/*
+	@rm -rf $(INTERNAL_DIR)/domain/entities/*
 
 go-mod-check: ## Check Modtidy
 	@go mod tidy
@@ -84,7 +96,7 @@ ifeq ($(EXPORT_RESULT), true)
 	@GO111MODULE=off go get -u github.com/jstemmer/go-junit-report
 	@$(eval OUTPUT_OPTIONS = | tee /dev/tty | go-junit-report -set-exit-code > junit-report.xml)
 endif
-	$(GOTEST) -v -race $(shell go list ./... | grep -v "/internal/tests/integration/") $(OUTPUT_OPTIONS)
+	$(GOTEST) -v -race $(shell go list ./... | grep -v "/$(INTERNAL_DIR)/tests/integration/") $(OUTPUT_OPTIONS)
 
 go-coverage: go-generate ## Run the tests of the project and export the coverage, options: $EXPORT_RESULT
 	## Generate coverage profile
