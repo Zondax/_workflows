@@ -16,10 +16,6 @@ jobs:
   cleanup:
     runs-on: zondax-runners
     environment: ${{ inputs.environment }}
-    strategy:
-      matrix:
-        region: 
-          - ${{ vars.PULUMI_GAR_LOCATION }}
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
       contents: read # Required for actions/checkout and GitHub API access
@@ -54,7 +50,7 @@ jobs:
             # Replace PR_NUMBER placeholder if present
             sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.temp.yaml
             # Replace <REGION> placeholder if present  
-            sed -i "s#<REGION>#${{ matrix.region }}#g" service.temp.yaml
+            sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.temp.yaml
             
             SERVICE_NAME=$(yq '.metadata.name' service.temp.yaml)
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
@@ -74,5 +70,5 @@ jobs:
 
       - name: Delete Cloud Run Service (Final Name)
         run: |
-          echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ matrix.region }}"
-          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ vars.PULUMI_GCP_PROJECT_ID }} --region ${{ matrix.region }} --platform managed --quiet || true
+          echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ vars.PULUMI_GAR_LOCATION }}"
+          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ vars.PULUMI_GCP_PROJECT_ID }} --region ${{ vars.PULUMI_GAR_LOCATION }} --platform managed --quiet || true

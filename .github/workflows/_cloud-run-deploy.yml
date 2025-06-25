@@ -43,10 +43,6 @@ jobs:
   deploy:
     runs-on: zondax-runners
     environment: ${{ inputs.environment }}
-    strategy:
-      matrix:
-        region: 
-          - ${{ vars.PULUMI_GAR_LOCATION }}
     outputs:
       url: ${{ steps.get-url.outputs.url }}
     permissions:
@@ -57,7 +53,7 @@ jobs:
       - name: Environment Logging
         run: |
           echo "Environment: ${{ inputs.environment }}"
-          echo "Region: ${{ matrix.region }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
           echo "WIF Provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}"
           echo "Service Account: ${{ vars.PULUMI_SA_CLOUDRUN }}"
           echo "GCP Project ID: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
@@ -93,7 +89,7 @@ jobs:
           # Replace PR_NUMBER placeholder if present (only for knative.yaml file, not config)
           sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
           # Replace <REGION> placeholder if present
-          sed -i "s#<REGION>#${{ matrix.region }}#g" service.deploy.yaml
+          sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.deploy.yaml
 
           # Process container images if specified
           if [ -n "${{ inputs.container_images }}" ]; then
@@ -192,7 +188,7 @@ jobs:
         run: |
           # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
-            --region=${{ matrix.region }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
           echo "Service deployed successfully!"
@@ -202,7 +198,7 @@ jobs:
         run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
-            --region=${{ matrix.region }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
