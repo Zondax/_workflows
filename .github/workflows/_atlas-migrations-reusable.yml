@@ -58,9 +58,37 @@ on:
         description: "Environment name for logging purposes"
         type: string
         default: "dev"
+      use_cloud_sql:
+        description: "Whether to use Google Cloud SQL instead of traditional PostgreSQL"
+        type: boolean
+        default: false
+      cloud_sql_instance:
+        description: "Cloud SQL instance name in format: project:region:instance"
+        type: string
+        required: false
+      cloud_sql_database:
+        description: "Cloud SQL database name"
+        type: string
+        default: "postgres"
+      cloud_sql_user:
+        description: "Cloud SQL user (for IAM auth, use your Google email)"
+        type: string
+        required: false
+      workload_identity_provider:
+        description: "Workload identity provider (required for GCP authentication)"
+        type: string
+        required: true
+      service_account:
+        description: "Service account (required for GCP authentication)"
+        type: string
+        required: true
+      gcp_project_id:
+        description: "GCP project ID (required for GCP authentication)"
+        type: string
+        required: true
     secrets:
       DATABASE_URL:
-        description: "Database connection URL for the target environment"
+        description: "Database connection URL for the target environment (for traditional PostgreSQL)"
         required: false
     outputs:
       migration_status:
@@ -100,6 +128,30 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: ${{ inputs.go_version }}
+
+      - name: Authenticate with GCP (WIF Required)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+          service_account: ${{ inputs.service_account }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Cloud SQL Proxy
+        if: inputs.use_cloud_sql
+        run: |
+          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.0/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mv cloud-sql-proxy /usr/local/bin/
+
+      - name: Start Cloud SQL Proxy
+        if: inputs.use_cloud_sql
+        run: |
+          cloud-sql-proxy ${{ inputs.cloud_sql_instance }} --port 5432 &
+          sleep 10  # Wait for proxy to start
+          echo "Cloud SQL Proxy started for instance: ${{ inputs.cloud_sql_instance }}"
 
       - name: Install Atlas
         run: |
@@ -173,8 +225,8 @@ jobs:
             --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public" \
             --latest 1
 
-      - name: Apply migrations to ${{ inputs.environment_name }}
-        if: inputs.action == 'deploy'
+      - name: Apply migrations to ${{ inputs.environment_name }} (Traditional PostgreSQL)
+        if: inputs.action == 'deploy' && !inputs.use_cloud_sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -183,7 +235,25 @@ jobs:
             --url "$DATABASE_URL" \
             --revisions-schema public
           
-          echo "✅ ${{ inputs.environment_name }} migrations applied successfully"
+          echo "✅ ${{ inputs.environment_name }} migrations applied successfully to traditional PostgreSQL"
+
+      - name: Apply migrations to ${{ inputs.environment_name }} (Cloud SQL)
+        if: inputs.action == 'deploy' && inputs.use_cloud_sql
+        run: |
+          # Get access token for IAM authentication
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          
+          # Build Cloud SQL connection URL
+          CLOUD_SQL_URL="postgresql://${{ inputs.cloud_sql_user }}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
+          
+          atlas migrate apply \
+            --config "file://${{ inputs.atlas_config_path }}" \
+            --env gorm \
+            --url "$CLOUD_SQL_URL" \
+            --revisions-schema public \
+            --allow-dirty
+          
+          echo "✅ ${{ inputs.environment_name }} migrations applied successfully to Cloud SQL"
 
       - name: Set migration result and capture logs
         id: migration-result
@@ -196,9 +266,23 @@ jobs:
             echo "✅ Migrations validated successfully"
             echo "📋 Validation completed for ${{ inputs.environment_name }} environment"
           else
+            # Determine the database URL to use
+            if [ "${{ inputs.use_cloud_sql }}" = "true" ]; then
+              ACCESS_TOKEN=$(gcloud auth print-access-token)
+              DB_URL="postgresql://${{ inputs.cloud_sql_user }}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
+              echo "📊 Checking Cloud SQL migration status..."
+            else
+              DB_URL="$DATABASE_URL"
+              echo "📊 Checking traditional PostgreSQL migration status..."
+            fi
+            
             # Capture actual migration status and count
+<<<<<<< Updated upstream
             echo "📊 Checking current migration status..."
             migration_info=$(atlas migrate status --url "$DATABASE_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
+=======
+            migration_info=$(atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DB_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
+>>>>>>> Stashed changes
             
             echo "status=success" >> $GITHUB_OUTPUT
             echo "applied_count=$migration_info" >> $GITHUB_OUTPUT
@@ -207,7 +291,11 @@ jobs:
             
             # Show detailed migration status for PR logs
             echo "📄 Migration status details:"
+<<<<<<< Updated upstream
             atlas migrate status --url "$DATABASE_URL" 2>/dev/null || echo "Could not retrieve detailed status"
+=======
+            atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DB_URL" 2>/dev/null || echo "Could not retrieve detailed status"
+>>>>>>> Stashed changes
           fi
 
       - name: Cleanup test resources
