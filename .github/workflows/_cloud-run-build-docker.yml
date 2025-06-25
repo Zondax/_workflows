@@ -46,7 +46,6 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
-          service_account: ${{ vars.PULUMI_SA_CLOUDRUN }}
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       - name: Configure Docker to use gcloud (for Artifact Registry)
@@ -61,7 +60,7 @@ jobs:
         run: |
           # Parse dockerfiles input into multiple -f flags
           IFS=',' read -ra FILES <<< "${{ inputs.dockerfiles }}"
-          DOCKERFILE_FLAGS=""
+          DOCKERFILE_FLAGS="" 
           for f in "${FILES[@]}"; do
             DOCKERFILE_FLAGS+=" -f $f"
           done
