@@ -18,7 +18,8 @@ jobs:
     environment: ${{ inputs.environment }}
     strategy:
       matrix:
-        region: ["${{ vars.PULUMI_GAR_LOCATION }}"]
+        region: 
+          - ${{ vars.PULUMI_GAR_LOCATION }}
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
       contents: read # Required for actions/checkout and GitHub API access

@@ -45,7 +45,8 @@ jobs:
     environment: ${{ inputs.environment }}
     strategy:
       matrix:
-        region: ["${{ vars.PULUMI_GAR_LOCATION }}"]
+        region: 
+          - ${{ vars.PULUMI_GAR_LOCATION }}
     outputs:
       url: ${{ steps.get-url.outputs.url }}
     permissions:
