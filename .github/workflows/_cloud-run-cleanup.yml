@@ -74,4 +74,4 @@ jobs:
       - name: Delete Cloud Run Service (Final Name)
         run: |
           echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ matrix.region }}"
-          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ vars.PULUMI_PROJECT_ID }} --region ${{ matrix.region }} --platform managed --quiet || true
+          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ vars.PULUMI_GCP_PROJECT_ID }} --region ${{ matrix.region }} --platform managed --quiet || true

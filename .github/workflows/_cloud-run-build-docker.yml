@@ -64,7 +64,7 @@ jobs:
           for f in "${FILES[@]}"; do
             DOCKERFILE_FLAGS+=" -f $f"
           done
-          IMAGE_TAG_SHA="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.image_name }}:${{ github.sha }}"
+          IMAGE_TAG_SHA="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.image_name }}:${{ github.sha }}"
           if [ "${{ inputs.build_tool }}" = "bake" ]; then
             # If bake_targets is set, add them as arguments
             BAKE_TARGETS=""
