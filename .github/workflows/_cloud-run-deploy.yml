@@ -35,6 +35,13 @@ on:
           JSON array of container names that need authorization configuration injection (RBAC/ABAC).
           Example: ["api", "store", "custom-service"]
           Required when using auth_model or auth_policy in container_configs.
+      service_account:
+        required: false
+        type: string
+        description: >-
+          Service account email to associate with the Cloud Run service.
+          Example: "my-service@my-project.iam.gserviceaccount.com"
+
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
@@ -89,6 +96,18 @@ jobs:
           sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
           # Replace <REGION> placeholder if present
           sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.deploy.yaml
+
+          # Inject service account if specified
+          if [ -n "${{ inputs.service_account }}" ]; then
+            echo "Injecting service account: ${{ inputs.service_account }}"
+            # Check if annotations section exists, if not create it
+            if ! yq e '.metadata.annotations' service.deploy.yaml &>/dev/null; then
+              yq e '.metadata.annotations = {}' -i service.deploy.yaml
+            fi
+            # Add or update the service account annotation
+            yq e '.metadata.annotations."run.googleapis.com/service-account" = "${{ inputs.service_account }}"' -i service.deploy.yaml
+            echo "✓ Service account configured: ${{ inputs.service_account }}"
+          fi
 
           # Process container images if specified
           if [ -n "${{ inputs.container_images }}" ]; then
