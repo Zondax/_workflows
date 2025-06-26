@@ -47,9 +47,9 @@ on:
       # Binary output configuration
       binary_output_dir:
         description: 'Directory containing built binaries (relative to workspace)'
-        required: false
+        required: true
         type: string
-        default: 'src-tauri/target/release/bundle'
+        default: ''
       
       # Upload configuration
       upload_enabled:
@@ -79,13 +79,51 @@ on:
       
       # Pre/post build commands
       pre_build_command:
-        description: 'Command to run before building'
+        description: 'Command to run before building (all platforms)'
+        required: false
+        type: string
+        default: ''
+      
+      pre_build_command_linux:
+        description: 'Command to run before building (Linux only)'
+        required: false
+        type: string
+        default: ''
+      
+      pre_build_command_windows:
+        description: 'Command to run before building (Windows only)'
+        required: false
+        type: string
+        default: |
+          choco install vcredist2022 -y
+          echo "CARGO_BUILD_TARGET=" >> $GITHUB_ENV
+      
+      pre_build_command_macos:
+        description: 'Command to run before building (macOS only)'
         required: false
         type: string
         default: ''
       
       post_build_command:
-        description: 'Command to run after building'
+        description: 'Command to run after building (all platforms)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command_linux:
+        description: 'Command to run after building (Linux only)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command_windows:
+        description: 'Command to run after building (Windows only)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command_macos:
+        description: 'Command to run after building (macOS only)'
         required: false
         type: string
         default: ''
@@ -146,19 +184,24 @@ on:
         required: false
         type: string
         default: ''
-
-    secrets:
-      R2_ACCOUNT_ID:
+      
+      # R2 Configuration (non-sensitive)
+      r2_account_id:
         description: 'Cloudflare R2 Account ID'
         required: true
+        type: string
+      
+      r2_bucket:
+        description: 'Cloudflare R2 Bucket Name'
+        required: true
+        type: string
+
+    secrets:
       R2_ACCESS_KEY_ID:
         description: 'Cloudflare R2 Access Key ID'
         required: true
       R2_SECRET_ACCESS_KEY:
         description: 'Cloudflare R2 Secret Access Key'
-        required: true
-      R2_BUCKET:
-        description: 'Cloudflare R2 Bucket Name'
         required: true
 
     outputs:
@@ -215,15 +258,21 @@ jobs:
       - name: Install dependencies
         run: ${{ inputs.setup_command }}
 
-      - name: Install Rust dependencies (Linux)
-        if: matrix.platform == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Run pre-build command
+      - name: Run pre-build command (all platforms)
         if: inputs.pre_build_command != ''
         run: ${{ inputs.pre_build_command }}
+
+      - name: Run pre-build command (Linux)
+        if: inputs.pre_build_command_linux != '' && matrix.platform == 'ubuntu-latest'
+        run: ${{ inputs.pre_build_command_linux }}
+
+      - name: Run pre-build command (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: ${{ inputs.pre_build_command_windows }}
+
+      - name: Run pre-build command (macOS)
+        if: inputs.pre_build_command_macos != '' && matrix.platform == 'macos-latest'
+        run: ${{ inputs.pre_build_command_macos }}
 
       - name: Build project
         id: build
@@ -231,9 +280,21 @@ jobs:
           ${{ inputs.build_command }}
           echo "success=true" >> $GITHUB_OUTPUT
 
-      - name: Run post-build command
+      - name: Run post-build command (all platforms)
         if: inputs.post_build_command != ''
         run: ${{ inputs.post_build_command }}
+
+      - name: Run post-build command (Linux)
+        if: inputs.post_build_command_linux != '' && matrix.platform == 'ubuntu-latest'
+        run: ${{ inputs.post_build_command_linux }}
+
+      - name: Run post-build command (Windows)
+        if: inputs.post_build_command_windows != '' && matrix.platform == 'windows-latest'
+        run: ${{ inputs.post_build_command_windows }}
+
+      - name: Run post-build command (macOS)
+        if: inputs.post_build_command_macos != '' && matrix.platform == 'macos-latest'
+        run: ${{ inputs.post_build_command_macos }}
 
       - name: Identify platform suffix
         id: platform
@@ -257,13 +318,48 @@ jobs:
         if: inputs.enable_compression
         shell: bash
         run: |
-          cd ${{ inputs.binary_output_dir }}
+          echo "=== Debug: Checking binary output directory ==="
+          echo "Binary output dir: ${{ inputs.binary_output_dir }}"
+          echo "Working directory: $(pwd)"
+          
+          if [ ! -d "${{ inputs.binary_output_dir }}" ]; then
+            echo "ERROR: Binary output directory does not exist!"
+            exit 1
+          fi
+          
+          echo "Contents of binary output directory:"
+          ls -la "${{ inputs.binary_output_dir }}"
+          
+          if [ -z "$(ls -A "${{ inputs.binary_output_dir }}")" ]; then
+            echo "ERROR: Binary output directory is empty!"
+            exit 1
+          fi
+          
+          echo "=== Creating archive ==="
+          ARCHIVE_NAME="${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}"
           
           # Create archive based on platform
           if [[ "${{ steps.platform.outputs.archive_ext }}" == "tar.gz" ]]; then
-            tar -czf ../../../${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }} .
+            echo "Creating tar.gz archive..."
+            tar -czf "$ARCHIVE_NAME" -C "${{ inputs.binary_output_dir }}" .
+            echo "Archive created at: $(pwd)/$ARCHIVE_NAME"
           else
-            powershell -Command "Compress-Archive -Path * -DestinationPath ../../../${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}"
+            echo "Creating zip archive..."
+            cd "${{ inputs.binary_output_dir }}"
+            powershell -Command "Compress-Archive -Path * -DestinationPath '$(pwd)/$ARCHIVE_NAME'"
+            cd $(pwd)
+            echo "Archive created at: $(pwd)/$ARCHIVE_NAME"
+          fi
+          
+          # Verify archive was created
+          if [ -f "$ARCHIVE_NAME" ]; then
+            echo "✅ Archive created successfully!"
+            ls -la "$ARCHIVE_NAME"
+          else
+            echo "❌ Archive was not created!"
+            echo "Files in current directory:"
+            ls -la
+            exit 1
           fi
 
       - name: Prepare uncompressed files
@@ -314,10 +410,10 @@ jobs:
         id: upload
         uses: ryand56/r2-upload-action@latest
         with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-account-id: ${{ inputs.r2_account_id }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET }}
+          r2-bucket: ${{ inputs.r2_bucket }}
           source-dir: upload
           destination-dir: ${{ inputs.r2_destination_dir }}/${{ github.ref_name }}/${{ github.sha }}
           output-file-url: true
@@ -329,7 +425,9 @@ jobs:
         run: |
           echo "Upload completed successfully!"
           echo "Uploaded files:"
-          echo "${{ steps.upload.outputs.file-urls }}"
+          cat << 'EOF'
+          ${{ steps.upload.outputs.file-urls }}
+          EOF
 
   create-release:
     name: Create GitHub Release
@@ -398,7 +496,7 @@ jobs:
           <!-- Add changelog here -->
           
           ---
-          *Built with ❤️ using GitHub Actions*
+          
           EOF
           fi
           
