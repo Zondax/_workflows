@@ -1,0 +1,427 @@
+name: Build and Upload Binaries
+
+on:
+  workflow_call:
+    inputs:
+      # Build configuration
+      build_command:
+        description: 'Command to build the project'
+        required: false
+        type: string
+        default: 'pnpm build'
+      
+      setup_command:
+        description: 'Command to setup dependencies'
+        required: false
+        type: string
+        default: 'pnpm install'
+      
+      # Package manager
+      package_manager:
+        description: 'Package manager to use (npm, pnpm, yarn)'
+        required: false
+        type: string
+        default: 'pnpm'
+      
+      # Node version
+      node_version:
+        description: 'Node.js version to use'
+        required: false
+        type: string
+        default: '20'
+      
+      # Rust version
+      rust_version:
+        description: 'Rust version to use'
+        required: false
+        type: string
+        default: 'stable'
+      
+      # Build platforms
+      platforms:
+        description: 'JSON array of platforms to build for'
+        required: false
+        type: string
+        default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      
+      # Binary output configuration
+      binary_output_dir:
+        description: 'Directory containing built binaries (relative to workspace)'
+        required: false
+        type: string
+        default: 'src-tauri/target/release/bundle'
+      
+      # Upload configuration
+      upload_enabled:
+        description: 'Whether to upload binaries to R2'
+        required: false
+        type: boolean
+        default: true
+      
+      r2_destination_dir:
+        description: 'Destination directory in R2 bucket'
+        required: false
+        type: string
+        default: 'releases'
+      
+      # Artifact naming
+      artifact_name_prefix:
+        description: 'Prefix for artifact names'
+        required: false
+        type: string
+        default: 'binaries'
+      
+      artifact_retention_days:
+        description: 'Number of days to retain build artifacts'
+        required: false
+        type: number
+        default: 1
+      
+      # Pre/post build commands
+      pre_build_command:
+        description: 'Command to run before building'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command:
+        description: 'Command to run after building'
+        required: false
+        type: string
+        default: ''
+      
+      # Compression configuration
+      enable_compression:
+        description: 'Whether to compress binaries before upload'
+        required: false
+        type: boolean
+        default: true
+      
+      # R2 upload configuration
+      multipart_size:
+        description: 'Minimum file size (in MB) to use multipart upload'
+        required: false
+        type: number
+        default: 100
+      
+      max_retries:
+        description: 'Maximum number of retries for multipart uploads'
+        required: false
+        type: number
+        default: 5
+      
+      multipart_concurrent:
+        description: 'Use concurrent multipart uploads'
+        required: false
+        type: boolean
+        default: true
+      
+      # GitHub Release configuration
+      create_release:
+        description: 'Create a GitHub release (only for tag pushes)'
+        required: false
+        type: boolean
+        default: true
+      
+      release_draft:
+        description: 'Create release as draft'
+        required: false
+        type: boolean
+        default: false
+      
+      release_prerelease:
+        description: 'Mark release as prerelease (auto-detects alpha/beta/rc)'
+        required: false
+        type: boolean
+        default: false
+      
+      release_body:
+        description: 'Custom release body/notes'
+        required: false
+        type: string
+        default: ''
+      
+      release_name:
+        description: 'Custom release name (defaults to tag name)'
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      R2_ACCOUNT_ID:
+        description: 'Cloudflare R2 Account ID'
+        required: true
+      R2_ACCESS_KEY_ID:
+        description: 'Cloudflare R2 Access Key ID'
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        description: 'Cloudflare R2 Secret Access Key'
+        required: true
+      R2_BUCKET:
+        description: 'Cloudflare R2 Bucket Name'
+        required: true
+
+    outputs:
+      upload_urls:
+        description: 'URLs of uploaded binaries'
+        value: ${{ jobs.upload.outputs.upload_urls }}
+      build_success:
+        description: 'Whether the build was successful'
+        value: ${{ jobs.build.outputs.success }}
+      release_url:
+        description: 'URL of the created GitHub release'
+        value: ${{ jobs.create-release.outputs.release_url }}
+      release_id:
+        description: 'ID of the created GitHub release'
+        value: ${{ jobs.create-release.outputs.release_id }}
+
+jobs:
+  build:
+    name: Build on ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platforms) }}
+    
+    outputs:
+      success: ${{ steps.build.outputs.success }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_version }}
+
+      - name: Setup pnpm (if using pnpm)
+        if: inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Yarn (if using yarn)
+        if: inputs.package_manager == 'yarn'
+        run: npm install -g yarn
+
+      - name: Install dependencies
+        run: ${{ inputs.setup_command }}
+
+      - name: Install Rust dependencies (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Run pre-build command
+        if: inputs.pre_build_command != ''
+        run: ${{ inputs.pre_build_command }}
+
+      - name: Build project
+        id: build
+        run: |
+          ${{ inputs.build_command }}
+          echo "success=true" >> $GITHUB_OUTPUT
+
+      - name: Run post-build command
+        if: inputs.post_build_command != ''
+        run: ${{ inputs.post_build_command }}
+
+      - name: Identify platform suffix
+        id: platform
+        run: |
+          case "${{ matrix.platform }}" in
+            ubuntu-latest)
+              echo "suffix=linux" >> $GITHUB_OUTPUT
+              echo "archive_ext=tar.gz" >> $GITHUB_OUTPUT
+              ;;
+            windows-latest)
+              echo "suffix=windows" >> $GITHUB_OUTPUT
+              echo "archive_ext=zip" >> $GITHUB_OUTPUT
+              ;;
+            macos-latest)
+              echo "suffix=macos" >> $GITHUB_OUTPUT
+              echo "archive_ext=tar.gz" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Create platform-specific archive
+        if: inputs.enable_compression
+        shell: bash
+        run: |
+          cd ${{ inputs.binary_output_dir }}
+          
+          # Create archive based on platform
+          if [[ "${{ steps.platform.outputs.archive_ext }}" == "tar.gz" ]]; then
+            tar -czf ../../../${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }} .
+          else
+            powershell -Command "Compress-Archive -Path * -DestinationPath ../../../${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}"
+          fi
+
+      - name: Prepare uncompressed files
+        if: inputs.enable_compression == false
+        shell: bash
+        run: |
+          mkdir -p ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          cp -r ${{ inputs.binary_output_dir }}/* ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}/
+
+      - name: Upload build artifacts (compressed)
+        if: inputs.enable_compression
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          path: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Upload build artifacts (uncompressed)
+        if: inputs.enable_compression == false
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          path: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+  upload:
+    name: Upload to Cloudflare R2
+    needs: build
+    runs-on: ubuntu-latest
+    if: inputs.upload_enabled && needs.build.outputs.success == 'true'
+    
+    outputs:
+      upload_urls: ${{ steps.upload.outputs.file-urls }}
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare upload directory
+        run: |
+          mkdir -p upload
+          find artifacts -type f -name "*" -exec cp {} upload/ \;
+          ls -la upload/
+
+      - name: Upload to Cloudflare R2
+        id: upload
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: upload
+          destination-dir: ${{ inputs.r2_destination_dir }}/${{ github.ref_name }}/${{ github.sha }}
+          output-file-url: true
+          multipart-size: ${{ inputs.multipart_size }}
+          max-retries: ${{ inputs.max_retries }}
+          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+
+      - name: Display upload results
+        run: |
+          echo "Upload completed successfully!"
+          echo "Uploaded files:"
+          echo "${{ steps.upload.outputs.file-urls }}"
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build, upload]
+    runs-on: ubuntu-latest
+    if: inputs.create_release && startsWith(github.ref, 'refs/tags/') && needs.build.outputs.success == 'true'
+    
+    outputs:
+      release_url: ${{ steps.release.outputs.html_url }}
+      release_id: ${{ steps.release.outputs.id }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Determine release type
+        id: release-type
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          
+          # Auto-detect prerelease based on tag name
+          if [[ "$TAG_NAME" == *"alpha"* ]] || [[ "$TAG_NAME" == *"beta"* ]] || [[ "$TAG_NAME" == *"rc"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=${{ inputs.release_prerelease }}" >> $GITHUB_OUTPUT
+          fi
+          
+          # Set release name
+          if [[ "${{ inputs.release_name }}" != "" ]]; then
+            echo "release_name=${{ inputs.release_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "release_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release body
+        id: release-body
+        run: |
+          if [[ "${{ inputs.release_body }}" != "" ]]; then
+            # Use custom release body
+            cat << 'EOF' > release_body.md
+          ${{ inputs.release_body }}
+          EOF
+          else
+            # Generate default release body
+            cat << 'EOF' > release_body.md
+          ## Release ${{ github.ref_name }}
+          
+          **Download Links:**
+          
+          📦 **GitHub Releases:** Download binaries directly from the assets below
+          
+          🌐 **Cloudflare R2:** Binaries are also available at:
+          ${{ needs.upload.outputs.upload_urls }}
+          
+          ### Platforms
+          - 🐧 **Linux**: Available as `.tar.gz` archive
+          - 🪟 **Windows**: Available as `.zip` archive  
+          - 🍎 **macOS**: Available as `.tar.gz` archive
+          
+          ### Changes
+          <!-- Add changelog here -->
+          
+          ---
+          *Built with ❤️ using GitHub Actions*
+          EOF
+          fi
+          
+          echo "Generated release body:"
+          cat release_body.md
+
+      - name: Create Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.release-type.outputs.release_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: ${{ inputs.release_draft }}
+          prerelease: ${{ steps.release-type.outputs.is_prerelease }}
+          files: release-artifacts/**/*
+          body_path: release_body.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Display release info
+        run: |
+          echo "Release created successfully!"
+          echo "Release URL: ${{ steps.release.outputs.html_url }}"
+          echo "Release ID: ${{ steps.release.outputs.id }}"
+          echo "Prerelease: ${{ steps.release-type.outputs.is_prerelease }}" 
