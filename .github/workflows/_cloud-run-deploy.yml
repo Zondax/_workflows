@@ -35,6 +35,22 @@ on:
           JSON array of container names that need authorization configuration injection (RBAC/ABAC).
           Example: ["api", "store", "custom-service"]
           Required when using auth_model or auth_policy in container_configs.
+<<<<<<< Updated upstream
+=======
+      cloudsql_instances:
+        required: false
+        type: string
+        description: >-
+          Comma-separated list of CloudSQL instance connection names to add to the service.
+          Example: "project:region:instance1,project:region:instance2"
+      allow_unauthenticated:
+        required: false
+        type: boolean
+        default: false
+        description: "Whether to allow unauthenticated access to the service"
+
+
+>>>>>>> Stashed changes
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
@@ -185,10 +201,25 @@ jobs:
       - name: Deploy to Cloud Run
         id: deploy
         run: |
-          # Deploy the Knative YAML using gcloud
-          gcloud run services replace service.deploy.yaml \
+          # Build the base deployment command
+          DEPLOY_CMD="gcloud run services replace service.deploy.yaml \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
-            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          
+          # Add CloudSQL instances if specified
+          if [ -n "${{ inputs.cloudsql_instances }}" ]; then
+            DEPLOY_CMD="$DEPLOY_CMD --add-cloudsql-instances=${{ inputs.cloudsql_instances }}"
+            echo "Adding CloudSQL instances: ${{ inputs.cloudsql_instances }}"
+          fi
+          
+          # Add allow unauthenticated if specified
+          if [ "${{ inputs.allow_unauthenticated }}" = "true" ]; then
+            DEPLOY_CMD="$DEPLOY_CMD --allow-unauthenticated"
+            echo "Allowing unauthenticated access"
+          fi
+          
+          echo "Executing deployment command: $DEPLOY_CMD"
+          eval $DEPLOY_CMD
             
           echo "Service deployed successfully!"
 
