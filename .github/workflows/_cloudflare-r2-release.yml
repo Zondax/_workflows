@@ -271,7 +271,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token || github.token }}
       
       - name: Patch git clone
-        run: git config --system --add safe.directory '*'
+        run: sudo git config --system --add safe.directory '*'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -492,6 +492,9 @@ jobs:
         with:
           submodules: ${{ inputs.checkout_submodules }}
           token: ${{ steps.app-token.outputs.token || github.token }}
+      
+      - name: Patch git clone
+        run: sudo git config --system --add safe.directory '*'
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
