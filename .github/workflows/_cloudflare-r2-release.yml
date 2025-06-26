@@ -214,10 +214,16 @@ on:
         default: true
 
     secrets:
-      R2_ACCESS_KEY_ID:
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+      r2_access_key_id:
         description: 'Cloudflare R2 Access Key ID'
         required: true
-      R2_SECRET_ACCESS_KEY:
+      r2_secret_access_key:
         description: 'Cloudflare R2 Secret Access Key'
         required: true
 
@@ -443,8 +449,8 @@ jobs:
         uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ inputs.r2_account_id }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-access-key-id: ${{ secrets.r2_access_key_id }}
+          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
           r2-bucket: ${{ inputs.r2_bucket }}
           source-dir: upload
           destination-dir: ${{ inputs.r2_destination_dir }}/${{ github.ref_name }}/${{ github.sha }}
