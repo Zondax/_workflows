@@ -470,10 +470,22 @@ jobs:
     outputs:
       release_url: ${{ steps.release.outputs.html_url }}
       release_id: ${{ steps.release.outputs.id }}
-    
+
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: inputs.github_app_auth != false
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_pem }}
+          repositories: ${{ inputs.github_app_repos }}
+          
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.checkout_submodules }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
