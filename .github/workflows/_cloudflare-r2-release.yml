@@ -196,6 +196,23 @@ on:
         required: true
         type: string
 
+        
+      github_app_auth:
+        description: "Use GitHub App Token"
+        required: false
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
+      checkout_submodules:
+        description: "Checkout submodules"
+        required: false
+        type: boolean
+        default: true
+
     secrets:
       R2_ACCESS_KEY_ID:
         description: 'Cloudflare R2 Access Key ID'
@@ -232,8 +249,23 @@ jobs:
       success: ${{ steps.build.outputs.success }}
     
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: inputs.github_app_auth != false
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_pem }}
+          repositories: ${{ inputs.github_app_repos }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.checkout_submodules }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
+      
+      - name: Patch git clone
+        run: git config --system --add safe.directory '*'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -496,7 +528,7 @@ jobs:
           <!-- Add changelog here -->
           
           ---
-          
+
           EOF
           fi
           
