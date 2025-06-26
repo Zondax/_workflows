@@ -92,7 +92,7 @@ jobs:
           # Replace <REGION> placeholder if present
           sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.deploy.yaml
 
-                    # Check service account configuration in the Knative YAML
+          # Check service account configuration in the Knative YAML
           SERVICE_ACCOUNT=$(yq e '.metadata.annotations."run.googleapis.com/service-account" // ""' service.deploy.yaml)
           
           if [ -n "$SERVICE_ACCOUNT" ] && [ "$SERVICE_ACCOUNT" != "null" ]; then
@@ -193,6 +193,12 @@ jobs:
           SERVICE_NAME=$(yq -r '.metadata.name' service.deploy.yaml)
           echo "final_service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
           echo "Deploying service: $SERVICE_NAME"
+
+      - name: Log service.deploy.yaml
+        run: |
+          echo "===== BEGIN service.deploy.yaml ====="
+          cat service.deploy.yaml
+          echo "===== END service.deploy.yaml ====="
 
       - name: Deploy to Cloud Run
         id: deploy
