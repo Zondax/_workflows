@@ -35,8 +35,6 @@ on:
           JSON array of container names that need authorization configuration injection (RBAC/ABAC).
           Example: ["api", "store", "custom-service"]
           Required when using auth_model or auth_policy in container_configs.
-<<<<<<< Updated upstream
-=======
       cloudsql_instances:
         required: false
         type: string
@@ -48,9 +46,6 @@ on:
         type: boolean
         default: false
         description: "Whether to allow unauthenticated access to the service"
-
-
->>>>>>> Stashed changes
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
