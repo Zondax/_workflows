@@ -1,0 +1,525 @@
+name: Build and Upload Binaries
+
+on:
+  workflow_call:
+    inputs:
+      # Build configuration
+      build_command:
+        description: 'Command to build the project'
+        required: false
+        type: string
+        default: 'pnpm build'
+      
+      setup_command:
+        description: 'Command to setup dependencies'
+        required: false
+        type: string
+        default: 'pnpm install'
+      
+      # Package manager
+      package_manager:
+        description: 'Package manager to use (npm, pnpm, yarn)'
+        required: false
+        type: string
+        default: 'pnpm'
+      
+      # Node version
+      node_version:
+        description: 'Node.js version to use'
+        required: false
+        type: string
+        default: '20'
+      
+      # Rust version
+      rust_version:
+        description: 'Rust version to use'
+        required: false
+        type: string
+        default: 'stable'
+      
+      # Build platforms
+      platforms:
+        description: 'JSON array of platforms to build for'
+        required: false
+        type: string
+        default: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      
+      # Binary output configuration
+      binary_output_dir:
+        description: 'Directory containing built binaries (relative to workspace)'
+        required: true
+        type: string
+        default: ''
+      
+      # Upload configuration
+      upload_enabled:
+        description: 'Whether to upload binaries to R2'
+        required: false
+        type: boolean
+        default: true
+      
+      r2_destination_dir:
+        description: 'Destination directory in R2 bucket'
+        required: false
+        type: string
+        default: 'releases'
+      
+      # Artifact naming
+      artifact_name_prefix:
+        description: 'Prefix for artifact names'
+        required: false
+        type: string
+        default: 'binaries'
+      
+      artifact_retention_days:
+        description: 'Number of days to retain build artifacts'
+        required: false
+        type: number
+        default: 1
+      
+      # Pre/post build commands
+      pre_build_command:
+        description: 'Command to run before building (all platforms)'
+        required: false
+        type: string
+        default: ''
+      
+      pre_build_command_linux:
+        description: 'Command to run before building (Linux only)'
+        required: false
+        type: string
+        default: ''
+      
+      pre_build_command_windows:
+        description: 'Command to run before building (Windows only)'
+        required: false
+        type: string
+        default: |
+          choco install vcredist2022 -y
+          echo "CARGO_BUILD_TARGET=" >> $GITHUB_ENV
+      
+      pre_build_command_macos:
+        description: 'Command to run before building (macOS only)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command:
+        description: 'Command to run after building (all platforms)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command_linux:
+        description: 'Command to run after building (Linux only)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command_windows:
+        description: 'Command to run after building (Windows only)'
+        required: false
+        type: string
+        default: ''
+      
+      post_build_command_macos:
+        description: 'Command to run after building (macOS only)'
+        required: false
+        type: string
+        default: ''
+      
+      # Compression configuration
+      enable_compression:
+        description: 'Whether to compress binaries before upload'
+        required: false
+        type: boolean
+        default: true
+      
+      # R2 upload configuration
+      multipart_size:
+        description: 'Minimum file size (in MB) to use multipart upload'
+        required: false
+        type: number
+        default: 100
+      
+      max_retries:
+        description: 'Maximum number of retries for multipart uploads'
+        required: false
+        type: number
+        default: 5
+      
+      multipart_concurrent:
+        description: 'Use concurrent multipart uploads'
+        required: false
+        type: boolean
+        default: true
+      
+      # GitHub Release configuration
+      create_release:
+        description: 'Create a GitHub release (only for tag pushes)'
+        required: false
+        type: boolean
+        default: true
+      
+      release_draft:
+        description: 'Create release as draft'
+        required: false
+        type: boolean
+        default: false
+      
+      release_prerelease:
+        description: 'Mark release as prerelease (auto-detects alpha/beta/rc)'
+        required: false
+        type: boolean
+        default: false
+      
+      release_body:
+        description: 'Custom release body/notes'
+        required: false
+        type: string
+        default: ''
+      
+      release_name:
+        description: 'Custom release name (defaults to tag name)'
+        required: false
+        type: string
+        default: ''
+      
+      # R2 Configuration (non-sensitive)
+      r2_account_id:
+        description: 'Cloudflare R2 Account ID'
+        required: true
+        type: string
+      
+      r2_bucket:
+        description: 'Cloudflare R2 Bucket Name'
+        required: true
+        type: string
+
+    secrets:
+      R2_ACCESS_KEY_ID:
+        description: 'Cloudflare R2 Access Key ID'
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        description: 'Cloudflare R2 Secret Access Key'
+        required: true
+
+    outputs:
+      upload_urls:
+        description: 'URLs of uploaded binaries'
+        value: ${{ jobs.upload.outputs.upload_urls }}
+      build_success:
+        description: 'Whether the build was successful'
+        value: ${{ jobs.build.outputs.success }}
+      release_url:
+        description: 'URL of the created GitHub release'
+        value: ${{ jobs.create-release.outputs.release_url }}
+      release_id:
+        description: 'ID of the created GitHub release'
+        value: ${{ jobs.create-release.outputs.release_id }}
+
+jobs:
+  build:
+    name: Build on ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platforms) }}
+    
+    outputs:
+      success: ${{ steps.build.outputs.success }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_version }}
+
+      - name: Setup pnpm (if using pnpm)
+        if: inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Yarn (if using yarn)
+        if: inputs.package_manager == 'yarn'
+        run: npm install -g yarn
+
+      - name: Install dependencies
+        run: ${{ inputs.setup_command }}
+
+      - name: Run pre-build command (all platforms)
+        if: inputs.pre_build_command != ''
+        run: ${{ inputs.pre_build_command }}
+
+      - name: Run pre-build command (Linux)
+        if: inputs.pre_build_command_linux != '' && matrix.platform == 'ubuntu-latest'
+        run: ${{ inputs.pre_build_command_linux }}
+
+      - name: Run pre-build command (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: ${{ inputs.pre_build_command_windows }}
+
+      - name: Run pre-build command (macOS)
+        if: inputs.pre_build_command_macos != '' && matrix.platform == 'macos-latest'
+        run: ${{ inputs.pre_build_command_macos }}
+
+      - name: Build project
+        id: build
+        run: |
+          ${{ inputs.build_command }}
+          echo "success=true" >> $GITHUB_OUTPUT
+
+      - name: Run post-build command (all platforms)
+        if: inputs.post_build_command != ''
+        run: ${{ inputs.post_build_command }}
+
+      - name: Run post-build command (Linux)
+        if: inputs.post_build_command_linux != '' && matrix.platform == 'ubuntu-latest'
+        run: ${{ inputs.post_build_command_linux }}
+
+      - name: Run post-build command (Windows)
+        if: inputs.post_build_command_windows != '' && matrix.platform == 'windows-latest'
+        run: ${{ inputs.post_build_command_windows }}
+
+      - name: Run post-build command (macOS)
+        if: inputs.post_build_command_macos != '' && matrix.platform == 'macos-latest'
+        run: ${{ inputs.post_build_command_macos }}
+
+      - name: Identify platform suffix
+        id: platform
+        run: |
+          case "${{ matrix.platform }}" in
+            ubuntu-latest)
+              echo "suffix=linux" >> $GITHUB_OUTPUT
+              echo "archive_ext=tar.gz" >> $GITHUB_OUTPUT
+              ;;
+            windows-latest)
+              echo "suffix=windows" >> $GITHUB_OUTPUT
+              echo "archive_ext=zip" >> $GITHUB_OUTPUT
+              ;;
+            macos-latest)
+              echo "suffix=macos" >> $GITHUB_OUTPUT
+              echo "archive_ext=tar.gz" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Create platform-specific archive
+        if: inputs.enable_compression
+        shell: bash
+        run: |
+          echo "=== Debug: Checking binary output directory ==="
+          echo "Binary output dir: ${{ inputs.binary_output_dir }}"
+          echo "Working directory: $(pwd)"
+          
+          if [ ! -d "${{ inputs.binary_output_dir }}" ]; then
+            echo "ERROR: Binary output directory does not exist!"
+            exit 1
+          fi
+          
+          echo "Contents of binary output directory:"
+          ls -la "${{ inputs.binary_output_dir }}"
+          
+          if [ -z "$(ls -A "${{ inputs.binary_output_dir }}")" ]; then
+            echo "ERROR: Binary output directory is empty!"
+            exit 1
+          fi
+          
+          echo "=== Creating archive ==="
+          ARCHIVE_NAME="${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}"
+          
+          # Create archive based on platform
+          if [[ "${{ steps.platform.outputs.archive_ext }}" == "tar.gz" ]]; then
+            echo "Creating tar.gz archive..."
+            tar -czf "$ARCHIVE_NAME" -C "${{ inputs.binary_output_dir }}" .
+            echo "Archive created at: $(pwd)/$ARCHIVE_NAME"
+          else
+            echo "Creating zip archive..."
+            cd "${{ inputs.binary_output_dir }}"
+            powershell -Command "Compress-Archive -Path * -DestinationPath '$(pwd)/$ARCHIVE_NAME'"
+            cd $(pwd)
+            echo "Archive created at: $(pwd)/$ARCHIVE_NAME"
+          fi
+          
+          # Verify archive was created
+          if [ -f "$ARCHIVE_NAME" ]; then
+            echo "✅ Archive created successfully!"
+            ls -la "$ARCHIVE_NAME"
+          else
+            echo "❌ Archive was not created!"
+            echo "Files in current directory:"
+            ls -la
+            exit 1
+          fi
+
+      - name: Prepare uncompressed files
+        if: inputs.enable_compression == false
+        shell: bash
+        run: |
+          mkdir -p ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          cp -r ${{ inputs.binary_output_dir }}/* ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}/
+
+      - name: Upload build artifacts (compressed)
+        if: inputs.enable_compression
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          path: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+      - name: Upload build artifacts (uncompressed)
+        if: inputs.enable_compression == false
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          path: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
+          retention-days: ${{ inputs.artifact_retention_days }}
+
+  upload:
+    name: Upload to Cloudflare R2
+    needs: build
+    runs-on: ubuntu-latest
+    if: inputs.upload_enabled && needs.build.outputs.success == 'true'
+    
+    outputs:
+      upload_urls: ${{ steps.upload.outputs.file-urls }}
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare upload directory
+        run: |
+          mkdir -p upload
+          find artifacts -type f -name "*" -exec cp {} upload/ \;
+          ls -la upload/
+
+      - name: Upload to Cloudflare R2
+        id: upload
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ inputs.r2_account_id }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ inputs.r2_bucket }}
+          source-dir: upload
+          destination-dir: ${{ inputs.r2_destination_dir }}/${{ github.ref_name }}/${{ github.sha }}
+          output-file-url: true
+          multipart-size: ${{ inputs.multipart_size }}
+          max-retries: ${{ inputs.max_retries }}
+          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+
+      - name: Display upload results
+        run: |
+          echo "Upload completed successfully!"
+          echo "Uploaded files:"
+          cat << 'EOF'
+          ${{ steps.upload.outputs.file-urls }}
+          EOF
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build, upload]
+    runs-on: ubuntu-latest
+    if: inputs.create_release && startsWith(github.ref, 'refs/tags/') && needs.build.outputs.success == 'true'
+    
+    outputs:
+      release_url: ${{ steps.release.outputs.html_url }}
+      release_id: ${{ steps.release.outputs.id }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Determine release type
+        id: release-type
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          
+          # Auto-detect prerelease based on tag name
+          if [[ "$TAG_NAME" == *"alpha"* ]] || [[ "$TAG_NAME" == *"beta"* ]] || [[ "$TAG_NAME" == *"rc"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=${{ inputs.release_prerelease }}" >> $GITHUB_OUTPUT
+          fi
+          
+          # Set release name
+          if [[ "${{ inputs.release_name }}" != "" ]]; then
+            echo "release_name=${{ inputs.release_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "release_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release body
+        id: release-body
+        run: |
+          if [[ "${{ inputs.release_body }}" != "" ]]; then
+            # Use custom release body
+            cat << 'EOF' > release_body.md
+          ${{ inputs.release_body }}
+          EOF
+          else
+            # Generate default release body
+            cat << 'EOF' > release_body.md
+          ## Release ${{ github.ref_name }}
+          
+          **Download Links:**
+          
+          📦 **GitHub Releases:** Download binaries directly from the assets below
+          
+          🌐 **Cloudflare R2:** Binaries are also available at:
+          ${{ needs.upload.outputs.upload_urls }}
+          
+          ### Platforms
+          - 🐧 **Linux**: Available as `.tar.gz` archive
+          - 🪟 **Windows**: Available as `.zip` archive  
+          - 🍎 **macOS**: Available as `.tar.gz` archive
+          
+          ### Changes
+          <!-- Add changelog here -->
+          
+          ---
+          
+          EOF
+          fi
+          
+          echo "Generated release body:"
+          cat release_body.md
+
+      - name: Create Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.release-type.outputs.release_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: ${{ inputs.release_draft }}
+          prerelease: ${{ steps.release-type.outputs.is_prerelease }}
+          files: release-artifacts/**/*
+          body_path: release_body.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Display release info
+        run: |
+          echo "Release created successfully!"
+          echo "Release URL: ${{ steps.release.outputs.html_url }}"
+          echo "Release ID: ${{ steps.release.outputs.id }}"
+          echo "Prerelease: ${{ steps.release-type.outputs.is_prerelease }}" 
