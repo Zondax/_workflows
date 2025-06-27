@@ -25,15 +25,15 @@ on:
       migrations_path:
         description: "Path to the migrations directory relative to the repository root"
         type: string
-        default: "internal/infrastructure/persistence/postgres/migrations"
+        default: "services/store/infrastructure/persistence/postgres/migrations"
       models_path:
         description: "Path to the models directory relative to the repository root"
         type: string
-        default: "internal/infrastructure/persistence/models"
+        default: "services/store/infrastructure/persistence/models"
       atlas_config_path:
         description: "Path to the Atlas configuration file"
         type: string
-        default: "atlas.hcl"
+        default: "services/store/atlas.hcl"
       go_version:
         description: "Go version to use"
         type: string
