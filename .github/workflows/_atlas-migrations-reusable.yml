@@ -244,8 +244,14 @@ jobs:
           # Get access token for IAM authentication
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           
-          # Build Cloud SQL connection URL
-          CLOUD_SQL_URL="postgresql://${{ inputs.cloud_sql_user }}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
+          # URL encode the username (replace @ with %40)
+          ENCODED_USER=$(echo "${{ inputs.cloud_sql_user }}" | sed 's/@/%40/g')
+          
+          # Build Cloud SQL connection URL with encoded username
+          CLOUD_SQL_URL="postgresql://${ENCODED_USER}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
+          
+          echo "🔗 Connecting to Cloud SQL with user: ${{ inputs.cloud_sql_user }}"
+          echo "🔗 Encoded user: ${ENCODED_USER}"
           
           atlas migrate apply \
             --config "file://${{ inputs.atlas_config_path }}" \
@@ -270,7 +276,8 @@ jobs:
             # Determine the database URL to use
             if [ "${{ inputs.use_cloud_sql }}" = "true" ]; then
               ACCESS_TOKEN=$(gcloud auth print-access-token)
-              DB_URL="postgresql://${{ inputs.cloud_sql_user }}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
+              ENCODED_USER=$(echo "${{ inputs.cloud_sql_user }}" | sed 's/@/%40/g')
+              DB_URL="postgresql://${ENCODED_USER}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
               echo "📊 Checking Cloud SQL migration status..."
             else
               DB_URL="$DATABASE_URL"
