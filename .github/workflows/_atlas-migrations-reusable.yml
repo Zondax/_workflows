@@ -149,7 +149,7 @@ jobs:
       - name: Start Cloud SQL Proxy
         if: inputs.use_cloud_sql
         run: |
-          cloud-sql-proxy ${{ inputs.cloud_sql_instance }} --port 5432 &
+          cloud-sql-proxy ${{ inputs.cloud_sql_instance }} --port 15432 &
           sleep 10  # Wait for proxy to start
           echo "Cloud SQL Proxy started for instance: ${{ inputs.cloud_sql_instance }}"
 
@@ -241,17 +241,15 @@ jobs:
       - name: Apply migrations to ${{ inputs.environment_name }} (Cloud SQL)
         if: inputs.action == 'deploy' && inputs.use_cloud_sql
         run: |
-          # Get access token for IAM authentication
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          # Set PostgreSQL environment variables for authentication
+          export PGUSER="${{ inputs.cloud_sql_user }}"
+          export PGPASSWORD=$(gcloud auth print-access-token)
           
-          # URL encode the username (replace @ with %40)
-          ENCODED_USER=$(echo "${{ inputs.cloud_sql_user }}" | sed 's/@/%40/g')
+          # Clean connection URL without credentials
+          export CLOUD_SQL_URL="postgresql://localhost:15432/${{ inputs.cloud_sql_database }}?sslmode=disable"
           
-          # Build Cloud SQL connection URL with encoded username
-          CLOUD_SQL_URL="postgresql://${ENCODED_USER}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
-          
-          echo "🔗 Connecting to Cloud SQL with user: ${{ inputs.cloud_sql_user }}"
-          echo "🔗 Encoded user: ${ENCODED_USER}"
+          echo "🔗 Connecting to Cloud SQL as user: $PGUSER"
+          echo "🔗 Using connection URL: $CLOUD_SQL_URL"
           
           atlas migrate apply \
             --config "file://${{ inputs.atlas_config_path }}" \
@@ -275,9 +273,9 @@ jobs:
           else
             # Determine the database URL to use
             if [ "${{ inputs.use_cloud_sql }}" = "true" ]; then
-              ACCESS_TOKEN=$(gcloud auth print-access-token)
-              ENCODED_USER=$(echo "${{ inputs.cloud_sql_user }}" | sed 's/@/%40/g')
-              DB_URL="postgresql://${ENCODED_USER}:${ACCESS_TOKEN}@localhost:5432/${{ inputs.cloud_sql_database }}?sslmode=disable"
+              export PGUSER="${{ inputs.cloud_sql_user }}"
+              export PGPASSWORD=$(gcloud auth print-access-token)
+              DB_URL="postgresql://localhost:15432/${{ inputs.cloud_sql_database }}?sslmode=disable"
               echo "📊 Checking Cloud SQL migration status..."
             else
               DB_URL="$DATABASE_URL"
