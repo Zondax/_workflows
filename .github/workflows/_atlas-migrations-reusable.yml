@@ -74,6 +74,10 @@ on:
         description: "Cloud SQL user (for IAM auth, use your Google email)"
         type: string
         required: false
+      store_service_account:
+        description: "Store service account that needs database access"
+        type: string
+        required: false
       workload_identity_provider:
         description: "Workload identity provider (required for GCP authentication)"
         type: string
@@ -224,6 +228,39 @@ jobs:
             --dir "file://${{ inputs.migrations_path }}" \
             --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public" \
             --latest 1
+
+      - name: Setup database permissions for migrations SA
+        if: inputs.action == 'deploy' && inputs.use_cloud_sql
+        run: |
+          # Get access token for PostgreSQL authentication
+          TOKEN=$(gcloud auth print-access-token)
+          export PGUSER="${{ inputs.cloud_sql_user }}"
+          export PGPASSWORD="$TOKEN"
+          
+          echo "🔐 Setting up database permissions for store service account..."
+          
+          # Install PostgreSQL client if not available
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          
+          # Grant permissions to store service account if provided
+          if [ -n "${{ inputs.store_service_account }}" ]; then
+            echo "🔐 Setting up permissions for store service account: ${{ inputs.store_service_account }}"
+            psql -h localhost -p 15432 -d ${{ inputs.cloud_sql_database }} << 'EOF'
+          -- Grant permissions to the store service account
+          GRANT USAGE ON SCHEMA public TO "${{ inputs.store_service_account }}";
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${{ inputs.store_service_account }}";
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${{ inputs.store_service_account }}";
+          
+          -- Grant permissions on future tables for store SA
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${{ inputs.store_service_account }}";
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "${{ inputs.store_service_account }}";
+          
+          EOF
+          else
+            echo "ℹ️ No store service account provided, skipping additional permissions setup"
+          fi
+          
+          echo "✅ Database permissions configured for store service account"
 
       - name: Apply migrations to ${{ inputs.environment_name }} (Traditional PostgreSQL)
         if: inputs.action == 'deploy' && !inputs.use_cloud_sql
