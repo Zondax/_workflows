@@ -3,26 +3,14 @@ name: Cloud Run Deploy Advanced (Reusable)
 on:
   workflow_call:
     inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name"
       knative_yaml:
         required: true
         type: string
         description: Path to the Knative YAML manifest for deployment
-      gcp_project_id:
-        required: true
-        type: string
-        description: GCP project ID
-      region:
-        required: true
-        type: string
-        description: GCP region(s) for Cloud Run. JSON list for multi-region deploy (e.g. '["us-central1","europe-west1"]').
-      workload_identity_provider:
-        required: true
-        type: string
-        description: Workload identity provider
-      service_account:
-        required: true
-        type: string
-        description: GCP service account
       container_images:
         required: false
         type: string
@@ -54,9 +42,7 @@ on:
 jobs:
   deploy:
     runs-on: zondax-runners
-    strategy:
-      matrix:
-        region: ${{ fromJson(inputs.region) }}
+    environment: ${{ inputs.environment }}
     outputs:
       url: ${{ steps.get-url.outputs.url }}
     permissions:
@@ -64,15 +50,23 @@ jobs:
       contents: read # Required for actions/checkout and GitHub API access
       pull-requests: write # Required for commenting on PRs
     steps:
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "WIF Provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}"
+          echo "Service Account: ${{ vars.PULUMI_SA_CLOUDRUN }}"
+          echo "GCP Project ID: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "GAR Location: ${{ vars.PULUMI_GAR_LOCATION }}"
+
       - uses: actions/checkout@v4
 
       - name: Authenticate with GCP
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ inputs.workload_identity_provider }}
-          service_account: ${{ inputs.service_account }}
-          
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+    
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         
@@ -94,7 +88,7 @@ jobs:
           # Replace PR_NUMBER placeholder if present (only for knative.yaml file, not config)
           sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
           # Replace <REGION> placeholder if present
-          sed -i "s#<REGION>#${{ matrix.region }}#g" service.deploy.yaml
+          sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.deploy.yaml
 
           # Process container images if specified
           if [ -n "${{ inputs.container_images }}" ]; then
@@ -193,8 +187,8 @@ jobs:
         run: |
           # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
-            --region=${{ matrix.region }} \
-            --project=${{ inputs.gcp_project_id }}
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
           echo "Service deployed successfully!"
 
@@ -203,8 +197,8 @@ jobs:
         run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
-            --region=${{ matrix.region }} \
-            --project=${{ inputs.gcp_project_id }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "Service URL: $URL"

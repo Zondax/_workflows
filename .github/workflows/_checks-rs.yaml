@@ -1,0 +1,416 @@
+name: Reusable Rust Checks
+
+on:
+  workflow_call:
+    inputs:
+      enable_linting:
+        description: "Enable linting checks with clippy"
+        required: false
+        type: boolean
+        default: true
+      enable_tests:
+        description: "Enable tests execution"
+        required: false
+        type: boolean
+        default: true
+      enable_coverage:
+        description: "Enable test coverage reporting"
+        required: false
+        type: boolean
+        default: true
+      upload_coverage:
+        description: "Upload coverage reports to Codecov"
+        required: false
+        type: boolean
+        default: false
+      coverage_threshold:
+        description: "Minimum coverage percentage required"
+        required: false
+        type: number
+        default: 75
+      rust_version:
+        description: "Rust version to use"
+        required: false
+        type: string
+        default: "stable"
+      toolchain_components:
+        description: "Additional toolchain components (comma-separated)"
+        required: false
+        type: string
+        default: "clippy,rustfmt"
+      runner:
+        description: "GitHub runner to use"
+        required: false
+        type: string
+        default: "zondax-runners"
+      base_image:
+        description: "Docker image to use for base image"
+        required: false
+        type: string
+        default: "ubuntu:24.04"
+      package_path:
+        description: "Path to the Rust package relative to the repository root"
+        required: false
+        type: string
+        default: "."
+      test_args:
+        description: "Additional arguments to pass to cargo test"
+        required: false
+        type: string
+        default: ""
+      checkout_submodules:
+        description: "Checkout submodules"
+        required: false
+        type: boolean
+        default: true
+      github_app_auth:
+        description: "Use GitHub App Token"
+        required: false
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
+      codecov_flags:
+        description: "Flags to pass to Codecov"
+        required: false
+        type: string
+        default: ""
+      post_pr_comment:
+        description: "Post coverage results as PR comment"
+        required: false
+        type: boolean
+        default: true
+      enable_security_audit:
+        description: "Enable security audit with cargo audit"
+        required: false
+        type: boolean
+        default: true
+      enable_build:
+        description: "Enable build step"
+        required: false
+        type: boolean
+        default: true
+      cache_cargo:
+        description: "Enable Cargo caching"
+        required: false
+        type: boolean
+        default: true
+      enable_node:
+        description: "Enable Node.js package manager support"
+        required: false
+        type: boolean
+        default: false
+      package_manager:
+        description: "Package manager to use (bun or pnpm) - only used if enable_node is true"
+        required: false
+        type: string
+        default: "bun"
+      node_version:
+        description: "Node.js version to use - only used if enable_node is true"
+        required: false
+        type: string
+        default: "lts/*"
+      bun_version:
+        description: "Bun version - only used if enable_node and package_manager is bun"
+        required: false
+        type: string
+        default: "1.2.13"
+      pnpm_version:
+        description: "PNPM version - only used if enable_node and package_manager is pnpm"
+        required: false
+        type: string
+        default: "10.4.1"
+      test_command:
+        description: "Test command to run"
+        required: false
+        type: string
+        default: "cargo test --all-features"
+      lint_command:
+        description: "Lint command to run"
+        required: false
+        type: string
+        default: "cargo clippy --all-targets --all-features -- -D warnings"
+      format_command:
+        description: "Format check command to run"
+        required: false
+        type: string
+        default: "cargo fmt --all -- --check"
+      coverage_command:
+        description: "Coverage command to run"
+        required: false
+        type: string
+        default: "cargo tarpaulin --all-features --out xml --output-dir ."
+      build_command:
+        description: "Build command to run"
+        required: false
+        type: string
+        default: "cargo build --all-targets --all-features"
+      audit_command:
+        description: "Security audit command to run"
+        required: false
+        type: string
+        default: "cargo audit"
+      system_deps_command:
+        description: "Command to install system dependencies (e.g., 'apt-get update && apt-get install -y sccache')"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+      codecov_token:
+        description: "Codecov token for private repositories"
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  checks-rust:
+    runs-on: ${{ inputs.runner }}
+    container:
+      image: ${{ inputs.base_image }}
+    timeout-minutes: 20
+    outputs:
+      coverage_percentage: ${{ steps.coverage-check.outputs.coverage_percentage }}
+      coverage_status: ${{ steps.coverage-check.outputs.coverage_status }}
+      coverage_message: ${{ steps.coverage-check.outputs.coverage_message }}
+
+    env:
+      PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
+      PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
+      
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: inputs.github_app_auth != false
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_pem }}
+          repositories: ${{ inputs.github_app_repos }}
+      
+      - name: Install needed packages
+        run: |
+          apt-get update
+          apt-get install -y git curl build-essential pkg-config libssl-dev
+      
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          submodules: ${{ inputs.checkout_submodules }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
+
+      - name: Patch git clone
+        run: git config --system --add safe.directory '*'
+
+      - name: Install node
+        if: inputs.enable_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      
+      - name: Install bun
+        if: inputs.enable_node && inputs.package_manager == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ inputs.bun_version }}
+
+      - name: Setup pnpm
+        if: inputs.enable_node && inputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm_version }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_version }}
+          components: ${{ inputs.toolchain_components }}
+
+      - name: Setup Rust cache
+        if: inputs.cache_cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.package_path }}
+          cache-on-failure: true
+
+      - name: Install cargo-tarpaulin for coverage
+        if: inputs.enable_coverage
+        run: cargo install cargo-tarpaulin
+
+      - name: Install cargo-audit for security
+        if: inputs.enable_security_audit
+        run: cargo install cargo-audit
+
+      - name: Install system dependencies
+        if: inputs.system_deps_command != ''
+        run: ${{ inputs.system_deps_command }}
+
+      - name: Install Node.js dependencies
+        if: inputs.enable_node
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ env.PM }} install
+
+      - name: Change to package directory
+        run: cd ${{ inputs.package_path }}
+
+      - name: Check formatting
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ inputs.format_command }}
+
+      - name: Run clippy
+        if: inputs.enable_linting
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ inputs.lint_command }}
+
+      - name: Security audit
+        if: inputs.enable_security_audit
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ inputs.audit_command }}
+
+      - name: Build
+        if: inputs.enable_build
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ inputs.build_command }}
+
+      - name: Run tests
+        if: inputs.enable_tests && !inputs.enable_coverage
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ inputs.test_command }} ${{ inputs.test_args }}
+
+      - name: Run tests with coverage
+        if: inputs.enable_tests && inputs.enable_coverage
+        run: |
+          cd ${{ inputs.package_path }}
+          ${{ inputs.coverage_command }} ${{ inputs.test_args }}
+
+      - name: Quality Gate - Test coverage shall be above threshold
+        if: inputs.enable_coverage
+        id: coverage-check
+        shell: bash
+        env:
+          TESTCOVERAGE_THRESHOLD: ${{ inputs.coverage_threshold }}
+        run: |
+          cd ${{ inputs.package_path }}
+          echo "🔍 Quality Gate: Test Coverage Check"
+          echo "Threshold: $TESTCOVERAGE_THRESHOLD%"
+          echo "----------------------------------------"
+          
+          # Check if coverage file exists
+          if [ ! -f "cobertura.xml" ]; then
+            echo "❌ Coverage file not found: cobertura.xml"
+            echo "coverage_status=error" >> $GITHUB_OUTPUT
+            echo "coverage_message=Coverage file not found: cobertura.xml" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Extract coverage percentage from XML
+          coverage=$(grep -o 'line-rate="[^"]*"' cobertura.xml | head -1 | grep -o '[0-9.]*')
+          if [ -z "$coverage" ]; then
+            echo "❌ Could not extract coverage from cobertura.xml"
+            echo "coverage_status=error" >> $GITHUB_OUTPUT
+            echo "coverage_message=Could not extract coverage from cobertura.xml" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Convert to percentage
+          coverage_percent=$(awk "BEGIN {printf \"%.2f\", $coverage * 100}")
+          echo "Current coverage: ${coverage_percent}%"
+          echo "coverage_percentage=$coverage_percent" >> $GITHUB_OUTPUT
+          
+          # Validate coverage is a number using bash regex
+          if ! [[ "$coverage_percent" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+            echo "❌ Invalid coverage value: $coverage_percent"
+            echo "coverage_status=error" >> $GITHUB_OUTPUT
+            echo "coverage_message=Invalid coverage value: $coverage_percent" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Compare using awk for reliable float comparison
+          result=$(awk -v cov="$coverage_percent" -v thresh="$TESTCOVERAGE_THRESHOLD" 'BEGIN {print (cov >= thresh)}')
+          
+          if [ "$result" = "1" ]; then
+            echo "✅ Coverage check PASSED (${coverage_percent}% >= ${TESTCOVERAGE_THRESHOLD}%)"
+            echo "coverage_status=passed" >> $GITHUB_OUTPUT
+            echo "coverage_message=Coverage check PASSED (${coverage_percent}% >= ${TESTCOVERAGE_THRESHOLD}%)" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Coverage check FAILED (${coverage_percent}% < ${TESTCOVERAGE_THRESHOLD}%)"
+            echo ""
+            echo "💡 To fix this:"
+            echo "   • Add more unit tests to increase coverage"
+            echo "   • Focus on untested critical paths"
+            echo "   • Or adjust threshold if current coverage is acceptable"
+            echo "coverage_status=failed" >> $GITHUB_OUTPUT
+            echo "coverage_message=Coverage check FAILED (${coverage_percent}% < ${TESTCOVERAGE_THRESHOLD}%)" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Upload coverage reports to Codecov
+        if: inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.codecov_token }}
+          file: ${{ inputs.package_path }}/cobertura.xml
+          flags: ${{ inputs.codecov_flags }}
+          fail_ci_if_error: false
+
+      - name: Upload coverage report as artifact
+        if: inputs.enable_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-rust-${{ github.run_number }}
+          path: ${{ inputs.package_path }}/cobertura.xml
+          retention-days: 30
+
+      - name: Fail workflow if coverage check failed
+        if: inputs.enable_coverage && steps.coverage-check.outputs.coverage_status == 'failed'
+        run: |
+          echo "❌ Workflow failed due to insufficient test coverage"
+          echo "Coverage: ${{ steps.coverage-check.outputs.coverage_percentage }}%"
+          echo "Required: ${{ inputs.coverage_threshold }}%"
+          exit 1
+
+
+  post-coverage-comment:
+    needs: checks-rust
+    if: inputs.enable_coverage && inputs.post_pr_comment && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && always() && needs.checks-rust.outputs.coverage_status != ''
+    uses: ./.github/workflows/_post-pr-comment-reusable.yml
+    secrets: inherit
+    with:
+      issue_number: ${{ github.event.number }}
+      comment_identifier: "rust-coverage-report"
+      comment_body: |
+        ## ${{ needs.checks-rust.outputs.coverage_status == 'passed' && '✅' || needs.checks-rust.outputs.coverage_status == 'failed' && '❌' || '⚠️' }} Rust Test Coverage Report
+        
+        | Metric | Value |
+        |--------|-------|
+        | **Current Coverage** | ${{ needs.checks-rust.outputs.coverage_percentage }}% |
+        | **Required Threshold** | ${{ inputs.coverage_threshold }}% |
+        | **Status** | **${{ needs.checks-rust.outputs.coverage_status == 'passed' && 'PASSED' || needs.checks-rust.outputs.coverage_status == 'failed' && 'FAILED' || 'ERROR' }}** |
+        
+        ${{ needs.checks-rust.outputs.coverage_status == 'failed' && '
+        ### 💡 How to improve coverage:
+        - Add more unit tests to increase coverage
+        - Focus on untested critical paths with `#[cfg(test)]` modules
+        - Use `cargo tarpaulin --ignored` to include ignored tests
+        - Consider adjusting threshold if current coverage is acceptable
+        ' || '' }}
+        
+        --- 

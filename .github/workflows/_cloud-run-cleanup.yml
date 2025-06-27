@@ -3,33 +3,19 @@ name: Cloud Run Cleanup Advanced (Reusable)
 on:
   workflow_call:
     inputs:
-      gcp_project_id:
+      environment:
         required: true
         type: string
-        description: "GCP project ID"
-      region:
-        required: true
-        type: string
-        description: "GCP region(s) for Cloud Run. JSON list for multi-region cleanup (e.g. '[\"us-central1\",\"europe-west1\"]')."
-      workload_identity_provider:
-        required: true
-        type: string
-        description: "Workload identity provider"
-      service_account:
-        required: true
-        type: string
-        description: "Service account"
+        description: "Environment name"
       knative_yaml:
         required: true
         type: string
         description: "Path to the Knative YAML file for this deployment"
-
+  
 jobs:
   cleanup:
     runs-on: zondax-runners
-    strategy:
-      matrix:
-        region: ${{ fromJson(inputs.region) }}
+    environment: ${{ inputs.environment }}
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
       contents: read # Required for actions/checkout and GitHub API access
@@ -40,8 +26,7 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ inputs.workload_identity_provider }}
-          service_account: ${{ inputs.service_account }}
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
           
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -64,7 +49,7 @@ jobs:
             # Replace PR_NUMBER placeholder if present
             sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.temp.yaml
             # Replace <REGION> placeholder if present  
-            sed -i "s#<REGION>#${{ matrix.region }}#g" service.temp.yaml
+            sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.temp.yaml
             
             SERVICE_NAME=$(yq '.metadata.name' service.temp.yaml)
             echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
@@ -84,5 +69,5 @@ jobs:
 
       - name: Delete Cloud Run Service (Final Name)
         run: |
-          echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ matrix.region }}"
-          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ inputs.gcp_project_id }} --region ${{ matrix.region }} --platform managed --quiet || true
+          echo "Deleting Cloud Run service: ${{ steps.set-service-name.outputs.safe_service_name }} in region ${{ vars.PULUMI_GAR_LOCATION }}"
+          gcloud run services delete ${{ steps.set-service-name.outputs.safe_service_name }} --project ${{ vars.PULUMI_GCP_PROJECT_ID }} --region ${{ vars.PULUMI_GAR_LOCATION }} --platform managed --quiet || true

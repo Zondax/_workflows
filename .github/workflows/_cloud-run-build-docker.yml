@@ -3,22 +3,11 @@ name: Build Docker Image (Reusable)
 on:
   workflow_call:
     inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name"
       image_name:
-        required: true
-        type: string
-      gar_repository:
-        required: true
-        type: string
-      gar_location:
-        required: true
-        type: string
-      gcp_project_id:
-        required: true
-        type: string
-      workload_identity_provider:
-        required: true
-        type: string
-      service_account:
         required: true
         type: string
       build_tool:
@@ -44,6 +33,7 @@ on:
 jobs:
   build:
     runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
     outputs:
       image_tag: ${{ steps.build_image.outputs.image_tag }}
     permissions:
@@ -55,12 +45,11 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ inputs.workload_identity_provider }}
-          service_account: ${{ inputs.service_account }}
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       - name: Configure Docker to use gcloud (for Artifact Registry)
-        run: gcloud auth configure-docker ${{ inputs.gar_location }}-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -71,11 +60,11 @@ jobs:
         run: |
           # Parse dockerfiles input into multiple -f flags
           IFS=',' read -ra FILES <<< "${{ inputs.dockerfiles }}"
-          DOCKERFILE_FLAGS=""
+          DOCKERFILE_FLAGS="" 
           for f in "${FILES[@]}"; do
             DOCKERFILE_FLAGS+=" -f $f"
           done
-          IMAGE_TAG_SHA="${{ inputs.gar_location }}-docker.pkg.dev/${{ inputs.gcp_project_id }}/${{ inputs.gar_repository }}/${{ inputs.image_name }}:${{ github.sha }}"
+          IMAGE_TAG_SHA="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.image_name }}:${{ github.sha }}"
           if [ "${{ inputs.build_tool }}" = "bake" ]; then
             # If bake_targets is set, add them as arguments
             BAKE_TARGETS=""
