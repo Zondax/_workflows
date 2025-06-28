@@ -25,15 +25,15 @@ on:
       migrations_path:
         description: "Path to the migrations directory relative to the repository root"
         type: string
-        default: "internal/infrastructure/persistence/postgres/migrations"
+        default: "services/store/infrastructure/persistence/postgres/migrations"
       models_path:
         description: "Path to the models directory relative to the repository root"
         type: string
-        default: "internal/infrastructure/persistence/models"
+        default: "services/store/infrastructure/persistence/models"
       atlas_config_path:
         description: "Path to the Atlas configuration file"
         type: string
-        default: "atlas.hcl"
+        default: "services/store/atlas.hcl"
       go_version:
         description: "Go version to use"
         type: string
@@ -55,12 +55,16 @@ on:
         type: string
         default: "validate"
       environment_name:
-        description: "Environment name for logging purposes"
+        description: "Environment name"
         type: string
         default: "dev"
+      use_cloud_sql:
+        description: "Whether to use Google Cloud SQL instead of traditional PostgreSQL"
+        type: boolean
+        default: false
     secrets:
       DATABASE_URL:
-        description: "Database connection URL for the target environment"
+        description: "Database connection URL for the target environment (for traditional PostgreSQL)"
         required: false
     outputs:
       migration_status:
@@ -74,6 +78,7 @@ jobs:
   atlas-migrations:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 30
+    environment: ${{ inputs.environment_name }}
     outputs:
       status: ${{ steps.migration-result.outputs.status }}
       applied_count: ${{ steps.migration-result.outputs.applied_count }}
@@ -100,6 +105,37 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: ${{ inputs.go_version }}
+
+      - name: Authenticate with GCP (WIF Required)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          service_account: ${{ vars.PULUMI_SA_MIGRATIONS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Cloud SQL Proxy
+        if: inputs.use_cloud_sql
+        run: |
+          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.0/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mv cloud-sql-proxy /usr/local/bin/
+
+      - name: Setup Cloud SQL environment variables
+        if: inputs.use_cloud_sql
+        run: |
+          echo "PGUSER=${{ vars.PULUMI_CLOUD_SQL_USER }}" >> $GITHUB_ENV
+          echo "PGPASSWORD=$(gcloud auth print-access-token)" >> $GITHUB_ENV
+          echo "CLOUD_SQL_URL=postgresql://localhost:15432/${{ vars.PULUMI_CLOUD_SQL_DATABASE }}?sslmode=disable" >> $GITHUB_ENV
+
+      - name: Start Cloud SQL Proxy
+        if: inputs.use_cloud_sql
+        run: |
+          cloud-sql-proxy ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }} --port 15432 &
+          sleep 10  # Wait for proxy to start
+          echo "Cloud SQL Proxy started for instance: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}"
 
       - name: Install Atlas
         run: |
@@ -173,8 +209,8 @@ jobs:
             --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public" \
             --latest 1
 
-      - name: Apply migrations to ${{ inputs.environment_name }}
-        if: inputs.action == 'deploy'
+      - name: Apply migrations to ${{ inputs.environment_name }} (Traditional PostgreSQL)
+        if: inputs.action == 'deploy' && !inputs.use_cloud_sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
@@ -184,7 +220,22 @@ jobs:
             --url "$DATABASE_URL" \
             --revisions-schema public
           
-          echo "✅ ${{ inputs.environment_name }} migrations applied successfully"
+          echo "✅ ${{ inputs.environment_name }} migrations applied successfully to traditional PostgreSQL"
+
+      - name: Apply migrations to ${{ inputs.environment_name }} (Cloud SQL)
+        if: inputs.action == 'deploy' && inputs.use_cloud_sql
+        run: |
+          echo "🔗 Connecting to Cloud SQL as user: $PGUSER"
+          echo "🔗 Using connection URL: $CLOUD_SQL_URL"
+          
+          atlas migrate apply \
+            --config "file://${{ inputs.atlas_config_path }}" \
+            --env gorm \
+            --url "$CLOUD_SQL_URL" \
+            --revisions-schema public \
+            --allow-dirty
+          
+          echo "✅ ${{ inputs.environment_name }} migrations applied successfully to Cloud SQL"
 
       - name: Set migration result and capture logs
         id: migration-result
@@ -197,9 +248,18 @@ jobs:
             echo "✅ Migrations validated successfully"
             echo "📋 Validation completed for ${{ inputs.environment_name }} environment"
           else
+            # Determine the database URL to use
+            if [ "${{ inputs.use_cloud_sql }}" = "true" ]; then
+              DB_URL="$CLOUD_SQL_URL"
+              echo "📊 Checking Cloud SQL migration status..."
+            else
+              DB_URL="$DATABASE_URL"
+              echo "📊 Checking traditional PostgreSQL migration status..."
+            fi
+            
             # Capture actual migration status and count
             echo "📊 Checking current migration status..."
-            migration_info=$(atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DATABASE_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
+            migration_info=$(atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DB_URL" --format "{{ .Current }}" 2>/dev/null || echo "unknown")
             
             echo "status=success" >> $GITHUB_OUTPUT
             echo "applied_count=$migration_info" >> $GITHUB_OUTPUT
@@ -208,7 +268,7 @@ jobs:
             
             # Show detailed migration status for PR logs
             echo "📄 Migration status details:"
-            atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DATABASE_URL" 2>/dev/null || echo "Could not retrieve detailed status"
+            atlas migrate status --config "file://${{ inputs.atlas_config_path }}" --url "$DB_URL" 2>/dev/null || echo "Could not retrieve detailed status"
           fi
 
       - name: Cleanup test resources
