@@ -1,9 +1,0 @@
-{
-    "schema": "1.0",
-    "name": "zondax/zup-make",
-    "description": "Zondax Make templates",
-    "sourceDir": ".make",
-    "targetDir": ".make",
-    "author": "Zondax AG",
-    "homepage": "https://zondax.ch"
-}
