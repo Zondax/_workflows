@@ -63,12 +63,11 @@ jobs:
 
       - name: Authenticate with GCP
         id: auth
-        uses: google-github-actions/auth@v2
+        uses: zondax/_actions/gcp-wif-auth@main
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
-    
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+          log_jwt_info: true
         
       - name: Install go
         uses: actions/setup-go@v5

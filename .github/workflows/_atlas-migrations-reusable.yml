@@ -107,14 +107,12 @@ jobs:
           go-version: ${{ inputs.go_version }}
 
       - name: Authenticate with GCP (WIF Required)
+        uses: zondax/_actions/gcp-wif-auth@main
         id: auth
-        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
           service_account: ${{ vars.PULUMI_SA_MIGRATIONS }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+          setup_gcloud: true
 
       - name: Install Cloud SQL Proxy
         if: inputs.use_cloud_sql

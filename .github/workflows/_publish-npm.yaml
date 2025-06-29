@@ -51,19 +51,23 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
-      - name: Install node
+      - name: Setup Node environment
+        uses: zondax/_actions/setup-node-env@main
+        id: setup-node
+        with:
+          node_version: 20
+          package_manager: bun
+          install_deps: true
+
+      - name: Configure npm registry
         uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: "https://registry.npmjs.org"
           scope: "@zondax"
 
-      - uses: oven-sh/setup-bun@v1
-
-      - run: bun install
-
       - name: Build package
-        run: if grep -q '"build"' package.json; then bun run build; else echo "No build script found, skipping"; fi
+        run: if grep -q '"build"' package.json; then ${{ steps.setup-node.outputs.pm_run }} build; else echo "No build script found, skipping"; fi
 
       - name: Set version from Git
         run: npm version from-git --no-git-tag-version

@@ -183,10 +183,6 @@ jobs:
       coverage_percentage: ${{ steps.coverage-check.outputs.coverage_percentage }}
       coverage_status: ${{ steps.coverage-check.outputs.coverage_status }}
       coverage_message: ${{ steps.coverage-check.outputs.coverage_message }}
-
-    env:
-      PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
-      PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
       
     steps:
       - name: Install needed packages
@@ -204,23 +200,15 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
-      - name: Install node
+      - name: Setup Node.js Environment
+        id: setup-node
         if: inputs.enable_node
-        uses: actions/setup-node@v4
+        uses: zondax/_actions/setup-node-env@main
         with:
-          node-version: ${{ inputs.node_version }}
-      
-      - name: Install bun
-        if: inputs.enable_node && inputs.package_manager == 'bun'
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ inputs.bun_version }}
-
-      - name: Setup pnpm
-        if: inputs.enable_node && inputs.package_manager == 'pnpm'
-        uses: pnpm/action-setup@v4
-        with:
-          version: ${{ inputs.pnpm_version }}
+          node_version: ${{ inputs.node_version }}
+          package_manager: ${{ inputs.package_manager }}
+          package_manager_version: ${{ inputs.package_manager == 'bun' && inputs.bun_version || inputs.pnpm_version }}
+          install_deps: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -251,7 +239,7 @@ jobs:
         if: inputs.enable_node
         run: |
           cd ${{ inputs.package_path }}
-          ${{ env.PM }} install
+          ${{ steps.setup-node.outputs.pm }} install
 
       - name: Change to package directory
         run: cd ${{ inputs.package_path }}

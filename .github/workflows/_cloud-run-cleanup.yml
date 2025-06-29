@@ -23,13 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - id: auth
-        uses: google-github-actions/auth@v2
+      - name: Authenticate with GCP
+        uses: zondax/_actions/gcp-wif-auth@main
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
-          
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+          setup_gcloud: true
         
       - name: Install go
         uses: actions/setup-go@v5

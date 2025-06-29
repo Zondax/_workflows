@@ -111,26 +111,11 @@ jobs:
       image: ${{ inputs.base_image }}
     timeout-minutes: 15
 
-    env:
-      PM: ${{ inputs.package_manager == 'bun' && 'bun' || 'pnpm' }}
-      PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
-
     steps:
       - name: Install needed packages
         run: |
           apt-get update
           apt-get install -y git unzip
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
-
-      - name: Install Bun
-        if: ${{ inputs.package_manager == 'bun' }}
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ inputs.bun_version }}
 
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
@@ -143,33 +128,32 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
-      - name: Setup pnpm
-        if: ${{ inputs.package_manager == 'pnpm' }}
-        uses: pnpm/action-setup@v4
+      - name: Setup Node.js Environment
+        id: setup-node
+        uses: zondax/_actions/setup-node-env@main
         with:
-          version: ${{ inputs.pnpm_version }}
-
-      - name: Install dependencies
-        run: ${{ env.PM }} install
+          node_version: ${{ inputs.node_version }}
+          package_manager: ${{ inputs.package_manager }}
+          package_manager_version: ${{ inputs.package_manager == 'bun' && inputs.bun_version || inputs.pnpm_version }}
 
       - name: Check format
-        run: ${{ env.PM_RUN }} ${{ inputs.format_command }}
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.format_command }}
 
       - name: Run lint
         if: ${{ inputs.enable_linting }}
-        run: ${{ env.PM_RUN }} ${{ inputs.lint_command }}
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.lint_command }}
 
       - name: Run doctor
         if: ${{ inputs.enable_doctor }}
-        run: ${{ env.PM_RUN }} doctor
+        run: ${{ steps.setup-node.outputs.pm_run }} doctor
 
       - name: Run tests
         if: ${{ inputs.enable_tests && !inputs.enable_coverage }}
-        run: ${{ env.PM_RUN }} ${{ inputs.test_command }}
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.test_command }}
 
       - name: Run tests with coverage
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
-        run: ${{ env.PM_RUN }} ${{ inputs.coverage_command }}
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.coverage_command }}
 
       - name: Vitest Coverage Report
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}

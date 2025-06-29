@@ -46,15 +46,13 @@ jobs:
         run: |
           apt-get update && apt-get install -y bash protobuf-compiler unzip
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Node environment
+        uses: zondax/_actions/setup-node-env@main
+        id: setup-node
         with:
-          node-version: ${{ inputs.node_version }}
-
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install
+          node_version: ${{ inputs.node_version }}
+          package_manager: bun
+          install_deps: true
 
       - name: Install protoc-gen-js
         run: |
@@ -63,7 +61,7 @@ jobs:
           which protoc-gen-js || echo "protoc-gen-js not found in PATH"
 
       - name: Generate ts from proto
-        run: bun gen:proto
+        run: ${{ steps.setup-node.outputs.pm_run }} gen:proto
 
       - name: Check for pending changes
         run: |

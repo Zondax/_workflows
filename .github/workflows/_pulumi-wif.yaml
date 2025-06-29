@@ -70,50 +70,22 @@ jobs:
           app_pem: ${{ secrets.app_pem }}
           use_sudo: true
 
-      - name: OIDC Debugger
-        uses: "github/actions-oidc-debugger@main"
+      - name: Authenticate with GCP
+        uses: zondax/_actions/gcp-wif-auth@main
         with:
-          audience: ${{ inputs.workload-identity-provider }}
-
-      - name: Authenticate with Google Cloud
-        uses: "google-github-actions/auth@v2"
-        with:
-          project_id: ${{ inputs.project-id }}
           workload_identity_provider: ${{ inputs.workload-identity-provider }}
-
-      # Set up Google Cloud SDK (in case gcloud is not already installed on the runner).
-      - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          version: "latest"
-          install_components: "beta"
-
-      # Verify authentication and permissions
-      - name: Verify GCP authentication
-        run: |
-          echo "=== Authenticated Account ==="
-          gcloud auth list
-
-          echo "=== Project Info ==="
-          gcloud config get-value project
-                    
-          echo "=== Current Configuration ==="
-          gcloud config list
+          project_id: ${{ inputs.project-id }}
+          gcloud_components: "beta"
+          log_jwt_info: true
 
       ## GCP access should be ready
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Node.js Environment
+        uses: zondax/_actions/setup-node-env@main
         with:
-          node-version: "lts/*"
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "latest"
-
-      - name: Install dependencies
-        run: bun install
+          node_version: "lts/*"
+          package_manager: "bun"
+          package_manager_version: "latest"
 
       - name: Run Pulumi
         uses: pulumi/actions@v6
