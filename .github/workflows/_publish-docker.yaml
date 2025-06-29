@@ -50,27 +50,21 @@ jobs:
       id-token: write # Needed for SLSA provenance
 
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_pem }}
-          repositories: |
-            ${{ inputs.github_app_repos }}
-
       - name: Install deps
         run: |
           sudo apt-get update -y
           sudo apt-get install -yy git make
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
         with:
-          fetch-depth: 0
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          fetch_depth: 0
           ref: ${{ inputs.checkout_ref || github.event.pull_request.head.ref || github.ref }}
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+          use_sudo: true
 
       - name: Debug GitHub variables
         run: |

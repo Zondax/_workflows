@@ -59,23 +59,16 @@ jobs:
       - name: Install git
         run: sudo apt-get update && sudo apt-get install -y git
 
-      - name: Generate GitHub App Token
-        id: app-token
-        if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v1
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
         with:
-          app-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_pem }}
-          repositories: |
-            ${{ inputs.github_app_repos }}
-
-      # Dependencies installed
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: ${{ inputs.checkout_submodules }}
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
+          fetch_depth: 0
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+          use_sudo: true
 
       - name: OIDC Debugger
         uses: "github/actions-oidc-debugger@main"

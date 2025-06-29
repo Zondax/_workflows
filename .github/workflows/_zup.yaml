@@ -80,16 +80,6 @@ jobs:
       PR_BODY: "${{ inputs.pr_body }}"
 
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_pem }}
-          repositories: |
-            ${{ inputs.github_app_repos }}
-
       - name: Install Git
         run: |
           apt-get update && apt-get install -y git
@@ -107,10 +97,14 @@ jobs:
           npm --version
           npx --version
 
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
         with:
-          token: ${{ steps.app-token.outputs.token || secrets.custom_token }}
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+          custom_token: ${{ secrets.custom_token }}
 
       - name: Set up Git
         run: |

@@ -189,30 +189,20 @@ jobs:
       PM_RUN: ${{ inputs.package_manager == 'bun' && 'bun run' || 'pnpm run' }}
       
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_pem }}
-          repositories: ${{ inputs.github_app_repos }}
-      
       - name: Install needed packages
         run: |
           apt-get update
           apt-get install -y git curl build-essential pkg-config libssl-dev
       
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
         with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          submodules: ${{ inputs.checkout_submodules }}
-          token: ${{ steps.app-token.outputs.token || github.token }}
-
-      - name: Patch git clone
-        run: git config --system --add safe.directory '*'
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
 
       - name: Install node
         if: inputs.enable_node

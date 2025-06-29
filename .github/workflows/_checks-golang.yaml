@@ -45,6 +45,13 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
 
 permissions:
   contents: read
@@ -63,25 +70,19 @@ jobs:
       coverage_message: ${{ steps.coverage-check.outputs.coverage_message }}
 
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v1
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
         with:
-          app-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_pem }}
-          repositories: |
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: |
+            ${{ github.repository }}
             ${{ inputs.github_app_repos }}
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          checkout_submodules: true
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
 
       - name: Build
         run: |
-          git config --global --add safe.directory "*"
           cd ${{ inputs.package_path }}
           make go-build
 
