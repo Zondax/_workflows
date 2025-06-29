@@ -88,6 +88,11 @@ on:
         required: false
         type: string
         default: ""
+      autoinit_env:
+        description: "Automatically run env:init:ci script after installing dependencies"
+        required: false
+        type: boolean
+        default: false
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -153,6 +158,10 @@ jobs:
 
       - name: Install dependencies
         run: ${{ env.PM }} install
+
+      - name: Initialize environment
+        if: ${{ inputs.autoinit_env }}
+        run: ${{ env.PM_RUN }} env:init:ci
 
       - name: Check format
         run: ${{ env.PM_RUN }} ${{ inputs.format_command }}
