@@ -25,7 +25,7 @@ on:
       node_version:
         description: "Node.js container version"
         type: string
-        default: "node:20-bookworm"
+        default: "node:22-bookworm"
       use_env_local:
         description: "Whether to use the environment local file provided in secrets"
         type: boolean
@@ -85,21 +85,14 @@ jobs:
         HEAD_SHA: ${{ env.HEAD_SHA }}
         HEAD_BRANCH_NAME: ${{ env.HEAD_BRANCH_NAME }}
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        if: inputs.github_app_auth != false
-        uses: actions/create-github-app-token@v2
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
         with:
-          app-id: ${{ secrets.app_id }}
-          private-key: ${{ secrets.app_pem }}
-          repositories: ${{ inputs.github_app_repos }}
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Disable shallow clone
-          submodules: ${{ inputs.checkout_submodules }}
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
 
       - name: Install system dependencies
         run: |
