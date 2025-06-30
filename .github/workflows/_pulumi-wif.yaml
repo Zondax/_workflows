@@ -51,6 +51,7 @@ jobs:
     name: Pulumi
     runs-on: zondax-runners
     timeout-minutes: 15
+    environment: ${{ inputs.environment }}
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
       contents: read # Required for actions/checkout and GitHub API access
@@ -95,9 +96,11 @@ jobs:
       - name: Start Cloud SQL Proxy
         if: inputs.use_cloud_sql
         run: |
-          cloud-sql-proxy ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }} &
+          cloud-sql-proxy $PULUMI_CLOUD_SQL_INSTANCE &
           sleep 10  # Wait for proxy to start
-          echo "Cloud SQL Proxy started for instance: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}"
+          echo "Cloud SQL Proxy started for instance: $PULUMI_CLOUD_SQL_INSTANCE"
+        env:
+          PULUMI_CLOUD_SQL_INSTANCE: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}
 
       - name: Setup Node.js Environment
         uses: zondax/_actions/setup-node-env@main
