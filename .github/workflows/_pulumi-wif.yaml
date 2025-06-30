@@ -22,7 +22,7 @@ on:
         description: "Checkout submodules"
         required: false
         type: boolean
-        default: true
+        default: false
       github_app_auth:
         description: "Use GitHub App Token"
         required: false
@@ -62,8 +62,13 @@ jobs:
       # Set conditional environment variables based on event type
       PULUMI_COMMAND: ${{ github.event_name == 'pull_request' && 'preview' || 'up' }}
     steps:
-      - name: Install git
-        run: sudo apt-get update && sudo apt-get install -y git
+      - name: Install git and update PATH
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git
+          export PATH="/usr/bin:$PATH"
+          echo "/usr/bin" >> $GITHUB_PATH
+          git --version
 
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
