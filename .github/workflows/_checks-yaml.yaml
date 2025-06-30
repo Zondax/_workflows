@@ -44,6 +44,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Install git
+        run: apk add --no-cache git
+
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
         with:
