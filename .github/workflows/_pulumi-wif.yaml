@@ -33,6 +33,11 @@ on:
         required: false
         type: string
         default: ""
+      use_cloud_sql:
+        description: "Whether to use Cloud SQL proxy"
+        required: false
+        type: boolean
+        default: false
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -79,6 +84,20 @@ jobs:
           log_jwt_info: true
 
       ## GCP access should be ready
+
+      - name: Install Cloud SQL Proxy
+        if: inputs.use_cloud_sql
+        run: |
+          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.0/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mv cloud-sql-proxy /usr/local/bin/
+
+      - name: Start Cloud SQL Proxy
+        if: inputs.use_cloud_sql
+        run: |
+          cloud-sql-proxy ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }} &
+          sleep 10  # Wait for proxy to start
+          echo "Cloud SQL Proxy started for instance: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}"
 
       - name: Setup Node.js Environment
         uses: zondax/_actions/setup-node-env@main
