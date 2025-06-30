@@ -37,7 +37,7 @@ on:
         description: "Node.js version to use"
         required: false
         type: string
-        default: "lts/*"
+        default: "22"
       package_manager:
         description: "Package manager to use (bun or pnpm)"
         required: false

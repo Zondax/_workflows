@@ -112,7 +112,7 @@ on:
         description: "Node.js version to use - only used if enable_node is true"
         required: false
         type: string
-        default: "lts/*"
+        default: "22"
       bun_version:
         description: "Bun version - only used if enable_node and package_manager is bun"
         required: false

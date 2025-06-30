@@ -83,7 +83,7 @@ jobs:
       - name: Setup Node.js Environment
         uses: zondax/_actions/setup-node-env@main
         with:
-          node_version: "lts/*"
+          node_version: "22"
           package_manager: "bun"
           package_manager_version: "latest"
 

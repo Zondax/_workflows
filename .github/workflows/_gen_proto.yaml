@@ -14,7 +14,7 @@ on:
       node_version:
         description: "Node.js version to use"
         type: string
-        default: "lts/*"
+        default: "22"
       github_app_auth:
         description: "Use GitHub App Token"
         required: false
