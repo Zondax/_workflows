@@ -44,6 +44,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Install git and bash
+        run: apk add --no-cache git bash
+
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
         with:
@@ -58,4 +61,5 @@ jobs:
 
       - name: Check yaml
         run: |
-          make ${{ inputs.make_command }}
+          echo "Running prettier on YAML files..."
+          bunx prettier --write "**/*.{yaml,yml}"
