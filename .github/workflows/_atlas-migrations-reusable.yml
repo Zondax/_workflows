@@ -1,6 +1,6 @@
 # Atlas Migrations CI/CD
 #
-# TODO: We can improve this flow for sure, but for this we need to decide if we want to pay for Atlas Pro or not.
+# TODO: We can improve this flow for sure
 # 
 # MISSING FEATURES:
 # TODO: Implement rollback job with manual trigger (workflow_dispatch)
