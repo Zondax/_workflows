@@ -96,7 +96,7 @@ jobs:
       - name: Start Cloud SQL Proxy
         if: inputs.use_cloud_sql
         run: |
-          cloud-sql-proxy $PULUMI_CLOUD_SQL_INSTANCE &
+          cloud-sql-proxy $PULUMI_CLOUD_SQL_INSTANCE --port 15432 &
           sleep 10  # Wait for proxy to start
           echo "Cloud SQL Proxy started for instance: $PULUMI_CLOUD_SQL_INSTANCE"
         env:
