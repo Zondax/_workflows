@@ -34,6 +34,10 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Install git
+        run: |
+          apt-get update && apt-get install -y git
+
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
         with:
@@ -44,7 +48,7 @@ jobs:
 
       - name: Install bash and protobuf dependencies
         run: |
-          apt-get update && apt-get install -y bash protobuf-compiler unzip git
+          apt-get update && apt-get install -y bash protobuf-compiler unzip
 
       - name: Setup Node environment
         uses: zondax/_actions/setup-node-env@main
