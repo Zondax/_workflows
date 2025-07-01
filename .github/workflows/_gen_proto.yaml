@@ -44,7 +44,7 @@ jobs:
 
       - name: Install bash and protobuf dependencies
         run: |
-          apt-get update && apt-get install -y bash protobuf-compiler unzip
+          apt-get update && apt-get install -y bash protobuf-compiler unzip git
 
       - name: Setup Node environment
         uses: zondax/_actions/setup-node-env@main
