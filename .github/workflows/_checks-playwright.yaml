@@ -31,16 +31,6 @@ on:
         type: boolean
         required: false
         default: true
-      enable_mirrors:
-        description: "Enable Ubuntu mirror configuration for faster downloads"
-        required: false
-        type: boolean
-        default: true
-      mirror_url:
-        description: "Ubuntu mirror URL (e.g., https://mirror.init7.net/ubuntu/)"
-        required: false
-        type: string
-        default: "https://mirror.init7.net/ubuntu/"
       checkout_submodules:
         description: "Checkout submodules"
         required: false
@@ -107,8 +97,6 @@ jobs:
       - name: Setup Ubuntu packages
         uses: zondax/_actions/setup-ubuntu-packages@main
         with:
-          enable_mirrors: ${{ inputs.enable_mirrors }}
-          mirror_url: ${{ inputs.mirror_url }}
           packages: |
             - jq
             - libnss3
