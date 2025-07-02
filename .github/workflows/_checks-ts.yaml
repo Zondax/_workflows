@@ -53,6 +53,16 @@ on:
         required: false
         type: string
         default: "ubuntu:24.04"
+      enable_mirrors:
+        description: "Enable Ubuntu mirror configuration for faster downloads"
+        required: false
+        type: boolean
+        default: true
+      mirror_url:
+        description: "Ubuntu mirror URL (e.g., https://mirror.init7.net/ubuntu/)"
+        required: false
+        type: string
+        default: "https://mirror.init7.net/ubuntu/"
       test_command:
         description: "Test command to run from package.json"
         required: false
@@ -125,10 +135,15 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
 
     steps:
-      - name: Install needed packages
-        run: |
-          apt-get update
-          apt-get install -y git unzip jq
+      - name: Setup Ubuntu packages
+        uses: zondax/_actions/setup-ubuntu-packages@main
+        with:
+          enable_mirrors: ${{ inputs.enable_mirrors }}
+          mirror_url: ${{ inputs.mirror_url }}
+          packages: |
+            - git
+            - unzip
+            - jq
 
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
