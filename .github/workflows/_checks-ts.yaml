@@ -30,77 +30,62 @@ on:
         default: "test:coverage"
       node_version:
         description: "Node.js version to use"
-        required: false
         type: string
         default: "22"
       package_manager:
         description: "Package manager to use (bun or pnpm)"
-        required: false
         type: string
         default: "bun"
       bun_version:
-        description: "Bun version"
-        required: false
+        description: "Bun version to use"
         type: string
         default: "1.2.13"
       pnpm_version:
-        description: "PNPM version"
-        required: false
+        description: "pnpm version to use"
         type: string
-        default: "10.4.1"
+        default: "latest"
       base_image:
         description: "Docker image to use for base image"
-        required: false
         type: string
         default: "ubuntu:24.04"
       test_command:
         description: "Test command to run from package.json"
-        required: false
         type: string
         default: "test"
       lint_command:
         description: "Lint command to run from package.json"
-        required: false
         type: string
         default: "lint"
       format_command:
         description: "Format command to run from package.json"
-        required: false
         type: string
         default: "format:check"
       checkout_submodules:
         description: "Checkout submodules"
-        required: false
         type: boolean
         default: true
       github_app_auth:
         description: "Use GitHub App Token"
-        required: false
         type: boolean
         default: false
       github_app_repos:
         description: "Additional repositories to access (one per line)"
-        required: false
         type: string
         default: ""
       codecov_flags:
         description: "Flags to pass to Codecov"
-        required: false
         type: string
         default: ""
       autoinit_env:
         description: "Automatically run env:init:ci script after installing dependencies"
-        required: false
         type: boolean
         default: false
       gcp_wif_provider:
         description: "GCP Workload Identity Provider (required if autoinit_env is true)"
-        required: false
         type: string
         default: ""
       gcp_project_id:
         description: "GCP Project ID (required if autoinit_env is true)"
-        required: false
         type: string
         default: ""
     secrets:
@@ -156,7 +141,8 @@ jobs:
         with:
           node_version: ${{ inputs.node_version }}
           package_manager: ${{ inputs.package_manager }}
-          package_manager_version: ${{ inputs.package_manager == 'bun' && inputs.bun_version || inputs.pnpm_version }}
+          bun_version: ${{ inputs.bun_version }}
+          pnpm_version: ${{ inputs.pnpm_version }}
           autoinit_env: ${{ inputs.autoinit_env }}
 
       - name: Check format

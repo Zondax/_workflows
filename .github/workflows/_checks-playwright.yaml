@@ -30,6 +30,10 @@ on:
         description: "Node.js version to use"
         type: string
         default: "22"
+      pnpm_version:
+        description: "pnpm version to use"
+        type: string
+        default: "latest"
       use_env_local:
         description: "Whether to use the environment local file provided in secrets"
         type: boolean
@@ -157,7 +161,7 @@ jobs:
         with:
           node_version: ${{ inputs.node_version }}
           package_manager: "pnpm"
-          package_manager_version: "10"
+          pnpm_version: ${{ inputs.pnpm_version }}
           autoinit_env: ${{ inputs.autoinit_env }}
 
       - name: Run build
