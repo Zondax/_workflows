@@ -106,6 +106,7 @@ jobs:
         uses: zondax/_actions/setup-ubuntu-packages@main
         with:
           packages: |
+            - git
             - jq
             - libnss3
             - libnspr4
