@@ -28,11 +28,6 @@ on:
         required: false
         type: boolean
         default: false
-      coverage_command:
-        description: "Coverage command to run from package.json"
-        required: false
-        type: string
-        default: "test:coverage"
       node_version:
         description: "Node.js version to use"
         required: false
@@ -42,17 +37,17 @@ on:
         description: "Package manager to use (bun or pnpm)"
         required: false
         type: string
-        default: "bun"
+        default: "pnpm"
       bun_version:
         description: "Bun version"
         required: false
         type: string
-        default: "1.2.13"
+        default: "1.2.17"
       pnpm_version:
         description: "PNPM version"
         required: false
         type: string
-        default: "10.4.1"
+        default: "11.4.2"
       base_image:
         description: "Docker image to use for base image"
         required: false
@@ -62,7 +57,7 @@ on:
         description: "Test command to run from package.json"
         required: false
         type: string
-        default: "test"
+        default: "test:expo"
       lint_command:
         description: "Lint command to run from package.json"
         required: false
@@ -73,6 +68,11 @@ on:
         required: false
         type: string
         default: "format:check"
+      coverage_command:
+        description: "Coverage command to run from package.json"
+        required: false
+        type: string
+        default: "test:expo:coverage"
       checkout_submodules:
         description: "Checkout submodules"
         required: false
