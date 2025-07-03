@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: ""
+      base_image:
+        description: "Docker image to use for base image"
+        required: false
+        type: string
+        default: "ubuntu:24.04"
 
     secrets:
       NPM_TOKEN:
@@ -38,9 +43,17 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     runs-on: "zondax-runners"
     container:
-      image: node:20-bookworm
+      image: ${{ inputs.base_image }}
 
     steps:
+      - name: Setup Ubuntu packages
+        uses: zondax/_actions/setup-ubuntu-packages@main
+        with:
+          packages: |
+            - git
+            - unzip
+            - jq
+
       - name: Checkout with GitHub App
         uses: zondax/_actions/checkout-with-app@main
         with:

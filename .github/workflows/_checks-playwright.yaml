@@ -89,15 +89,6 @@ jobs:
         HEAD_SHA: ${{ env.HEAD_SHA }}
         HEAD_BRANCH_NAME: ${{ env.HEAD_BRANCH_NAME }}
     steps:
-      - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
-        with:
-          github_app_auth: ${{ inputs.github_app_auth }}
-          github_app_repos: ${{ inputs.github_app_repos }}
-          checkout_submodules: ${{ inputs.checkout_submodules }}
-          app_id: ${{ secrets.app_id }}
-          app_pem: ${{ secrets.app_pem }}
-
       - name: Setup Ubuntu packages
         uses: zondax/_actions/setup-ubuntu-packages@main
         with:
@@ -116,6 +107,15 @@ jobs:
             - libgbm1
             - libxkbcommon0
             - libasound2
+
+      - name: Checkout with GitHub App
+        uses: zondax/_actions/checkout-with-app@main
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
 
       - name: Setup environment variables
         if: inputs.use_env_local
