@@ -71,7 +71,7 @@ jobs:
       - name: Configure Git for private repos
         if: inputs.github_app_auth
         run: |
-          git config --global url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          git config --local url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
       - name: Authenticate with GCP
         uses: zondax/_actions/gcp-wif-auth@main
         with:
@@ -95,11 +95,12 @@ jobs:
           done
           IMAGE_TAG_SHA="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.image_name }}:${{ github.sha }}"
           
-          # Set GitHub token for private repositories if GitHub App auth is enabled
+          # Use Docker secrets for GitHub token if GitHub App auth is enabled
           if [ "${{ inputs.github_app_auth }}" = "true" ]; then
-            BUILD_ARGS="--build-arg GITHUB_TOKEN=${{ steps.checkout.outputs.token }}"
+            echo "${{ steps.checkout.outputs.token }}" > /tmp/github_token
+            SECRET_ARGS="--secret id=github_token,src=/tmp/github_token"
           else
-            BUILD_ARGS=""
+            SECRET_ARGS=""
           fi
           
           if [ "${{ inputs.build_tool }}" = "bake" ]; then
@@ -112,13 +113,16 @@ jobs:
               done
             fi
             if [ "${{ inputs.github_app_auth }}" = "true" ]; then
-              docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA" --set "*.args.GITHUB_TOKEN=${{ steps.checkout.outputs.token }}"
+              docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA" --secret id=github_token,src=/tmp/github_token
             else
               docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA"
             fi
           else
-            docker build $DOCKERFILE_FLAGS $BUILD_ARGS --tag "$IMAGE_TAG_SHA" .
+            docker build $DOCKERFILE_FLAGS $SECRET_ARGS --tag "$IMAGE_TAG_SHA" .
           fi
+          
+          # Clean up token file
+          [ -f /tmp/github_token ] && rm -f /tmp/github_token
           echo "image_tag=$IMAGE_TAG_SHA" >> $GITHUB_OUTPUT
       - name: Push Docker image to Artifact Registry
         run: |

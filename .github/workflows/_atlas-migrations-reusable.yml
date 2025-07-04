@@ -133,7 +133,7 @@ jobs:
       - name: Configure Git for private repos
         if: inputs.github_app_auth
         run: |
-          git config --global url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          git config --local url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
           
       - name: Configure Go private modules
         if: inputs.goprivate != ''
