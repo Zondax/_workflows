@@ -45,6 +45,11 @@ on:
         required: false
         type: boolean
         default: true
+      goprivate:
+        description: "Comma-separated list of module path prefixes for GOPRIVATE"
+        required: false
+        type: string
+        default: ""
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -71,6 +76,7 @@ jobs:
 
     steps:
       - name: Checkout with GitHub App
+        id: checkout
         uses: zondax/_actions/checkout-with-app@main
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
@@ -78,6 +84,16 @@ jobs:
           checkout_submodules: true
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
+
+      - name: Configure Git for private repos
+        if: inputs.github_app_auth
+        run: |
+          git config --global url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          
+      - name: Configure Go private modules
+        if: inputs.goprivate != ''
+        run: |
+          echo "GOPRIVATE=${{ inputs.goprivate }}" >> $GITHUB_ENV
 
       - name: Build
         run: |
