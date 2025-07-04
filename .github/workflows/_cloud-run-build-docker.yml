@@ -60,7 +60,7 @@ jobs:
     steps:
       - name: Checkout with GitHub App
         id: checkout
-        uses: zondax/_actions/checkout-with-app@feat/configure-private-repos
+        uses: zondax/_actions/checkout-with-app@main
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
