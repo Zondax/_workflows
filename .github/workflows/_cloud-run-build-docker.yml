@@ -26,10 +26,27 @@ on:
         required: false
         type: string
         default: ''
+      github_app_auth:
+        description: "Use GitHub App Token"
+        required: false
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
     outputs:
       image_tag:
         description: "The full tag of the built image."
         value: ${{ jobs.build.outputs.image_tag }}
+    secrets:
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
 jobs:
   build:
     runs-on: zondax-runners
@@ -41,7 +58,16 @@ jobs:
       contents: read # Required for actions/checkout and GitHub API access
       pull-requests: write # Required for commenting on PRs
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout with GitHub App
+        id: checkout
+        uses: zondax/_actions/checkout-with-app@main
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          patch_git_config: false
+          checkout_submodules: true
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
       - name: Authenticate with GCP
         uses: zondax/_actions/gcp-wif-auth@main
         with:
@@ -64,6 +90,15 @@ jobs:
             DOCKERFILE_FLAGS+=" -f $f"
           done
           IMAGE_TAG_SHA="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.image_name }}:${{ github.sha }}"
+          
+          # Use Docker secrets for GitHub token if GitHub App auth is enabled
+          if [ "${{ inputs.github_app_auth }}" = "true" ]; then
+            echo "${{ steps.checkout.outputs.token }}" > /tmp/github_token
+            SECRET_ARGS="--secret id=github_token,src=/tmp/github_token"
+          else
+            SECRET_ARGS=""
+          fi
+          
           if [ "${{ inputs.build_tool }}" = "bake" ]; then
             # If bake_targets is set, add them as arguments
             BAKE_TARGETS=""
@@ -73,10 +108,17 @@ jobs:
                 BAKE_TARGETS+=" $t"
               done
             fi
-            docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA"
+            if [ "${{ inputs.github_app_auth }}" = "true" ]; then
+              docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA" --secret id=github_token,src=/tmp/github_token
+            else
+              docker buildx bake $DOCKERFILE_FLAGS $BAKE_TARGETS --set "*.tags=$IMAGE_TAG_SHA"
+            fi
           else
-            docker build $DOCKERFILE_FLAGS --tag "$IMAGE_TAG_SHA" .
+            docker build $DOCKERFILE_FLAGS $SECRET_ARGS --tag "$IMAGE_TAG_SHA" .
           fi
+          
+          # Clean up token file
+          [ -f /tmp/github_token ] && rm -f /tmp/github_token
           echo "image_tag=$IMAGE_TAG_SHA" >> $GITHUB_OUTPUT
       - name: Push Docker image to Artifact Registry
         run: |
