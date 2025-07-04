@@ -129,12 +129,6 @@ jobs:
           checkout_submodules: true
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
-
-      - name: Configure private repos
-        if: inputs.github_app_auth
-        uses: zondax/_actions/configure-private-repos@feat/configure-private-repos
-        with:
-          github_token: ${{ steps.checkout.outputs.token }}
           goprivate: ${{ inputs.goprivate }}
 
       - name: Setup Go
