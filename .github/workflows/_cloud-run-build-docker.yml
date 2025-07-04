@@ -65,6 +65,7 @@ jobs:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
           checkout_submodules: true
+          patch_git_config: false
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
       - name: Configure Git for private repos
