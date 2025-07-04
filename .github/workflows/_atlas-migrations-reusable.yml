@@ -62,9 +62,30 @@ on:
         description: "Whether to use Google Cloud SQL instead of traditional PostgreSQL"
         type: boolean
         default: false
+      github_app_auth:
+        description: "Use GitHub App Token"
+        required: false
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
+      goprivate:
+        description: "Comma-separated list of module path prefixes for GOPRIVATE"
+        required: false
+        type: string
+        default: ""
     secrets:
       DATABASE_URL:
         description: "Database connection URL for the target environment (for traditional PostgreSQL)"
+        required: false
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
         required: false
     outputs:
       migration_status:
@@ -98,8 +119,25 @@ jobs:
           - 5432:5432
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout with GitHub App
+        id: checkout
+        uses: zondax/_actions/checkout-with-app@main
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: true
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+
+      - name: Configure Git for private repos
+        if: inputs.github_app_auth
+        run: |
+          git config --global url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
+          
+      - name: Configure Go private modules
+        if: inputs.goprivate != ''
+        run: |
+          echo "GOPRIVATE=${{ inputs.goprivate }}" >> $GITHUB_ENV
 
       - name: Setup Go
         uses: actions/setup-go@v4
