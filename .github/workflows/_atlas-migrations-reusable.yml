@@ -130,15 +130,12 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
-      - name: Configure Git for private repos
+      - name: Configure private repos
         if: inputs.github_app_auth
-        run: |
-          git config --local url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
-          
-      - name: Configure Go private modules
-        if: inputs.goprivate != ''
-        run: |
-          echo "GOPRIVATE=${{ inputs.goprivate }}" >> $GITHUB_ENV
+        uses: zondax/_actions/configure-private-repos@feat/configure-private-repos
+        with:
+          github_token: ${{ steps.checkout.outputs.token }}
+          goprivate: ${{ inputs.goprivate }}
 
       - name: Setup Go
         uses: actions/setup-go@v4

@@ -68,10 +68,12 @@ jobs:
           checkout_submodules: true
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
-      - name: Configure Git for private repos
+      - name: Configure private repos
         if: inputs.github_app_auth
-        run: |
-          git config --local url."https://x-access-token:${{ steps.checkout.outputs.token }}@github.com/".insteadOf "https://github.com/"
+        uses: zondax/_actions/configure-private-repos@feat/configure-private-repos
+        with:
+          github_token: ${{ steps.checkout.outputs.token }}
+          goprivate: ""
       - name: Authenticate with GCP
         uses: zondax/_actions/gcp-wif-auth@main
         with:
