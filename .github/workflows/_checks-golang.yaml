@@ -74,9 +74,7 @@ jobs:
         uses: zondax/_actions/checkout-with-app@main
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
-          github_app_repos: |
-            ${{ github.repository }}
-            ${{ inputs.github_app_repos }}
+          github_app_repos: ${{ inputs.github_app_repos }}
           checkout_submodules: true
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
