@@ -59,13 +59,8 @@ on:
         required: false
         type: boolean
         default: false
-      gcp_wif_provider:
-        description: "GCP Workload Identity Provider (required if autoinit_env is true)"
-        required: false
-        type: string
-        default: ""
-      gcp_project_id:
-        description: "GCP Project ID (required if autoinit_env is true)"
+      environment:
+        description: "Environment name to use for accessing environment variables"
         required: false
         type: string
         default: ""
@@ -102,6 +97,7 @@ jobs:
         CI: true
         HEAD_SHA: ${{ env.HEAD_SHA }}
         HEAD_BRANCH_NAME: ${{ env.HEAD_BRANCH_NAME }}
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write  # Required for Workload Identity Federation
@@ -136,11 +132,11 @@ jobs:
           app_pem: ${{ secrets.app_pem }}
 
       - name: Authenticate with GCP
-        if: ${{ inputs.autoinit_env && inputs.gcp_wif_provider != '' }}
+        if: ${{ inputs.autoinit_env && inputs.environment != '' }}
         uses: zondax/_actions/gcp-wif-auth@main
         with:
-          workload_identity_provider: ${{ inputs.gcp_wif_provider }}
-          project_id: ${{ inputs.gcp_project_id }}
+          workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
       - name: Setup environment variables
         if: inputs.use_env_local
