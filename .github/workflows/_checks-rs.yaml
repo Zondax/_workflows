@@ -58,6 +58,10 @@ on:
         required: false
         type: string
         default: ""
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 10
       checkout_submodules:
         description: "Checkout submodules"
         required: false
@@ -178,7 +182,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.base_image }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     outputs:
       coverage_percentage: ${{ steps.coverage-check.outputs.coverage_percentage }}
       coverage_status: ${{ steps.coverage-check.outputs.coverage_status }}

@@ -77,6 +77,10 @@ on:
         required: false
         type: string
         default: ""
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 10
     secrets:
       DATABASE_URL:
         description: "Database connection URL for the target environment (for traditional PostgreSQL)"
@@ -98,7 +102,7 @@ on:
 jobs:
   atlas-migrations:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment_name }}
     outputs:
       status: ${{ steps.migration-result.outputs.status }}

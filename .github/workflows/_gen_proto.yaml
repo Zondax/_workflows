@@ -25,13 +25,17 @@ on:
         required: false
         type: string
         default: ""
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 10
 
 jobs:
   checks-proto:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.container_image }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout_minutes }}
 
     steps:
       - name: Install git

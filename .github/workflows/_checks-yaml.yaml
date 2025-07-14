@@ -3,6 +3,11 @@ name: Reusable YAML Checks
 on:
   workflow_call:
     inputs:
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 10
+    inputs:
       runner:
         description: "The runner to use for the workflow"
         type: "string"
@@ -41,7 +46,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     container:
       image: ${{ inputs.container_image }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout_minutes }}
 
     steps:
       - name: Install git and bash

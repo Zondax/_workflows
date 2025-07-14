@@ -6,7 +6,7 @@ on:
       timeout_minutes:
         description: "Timeout in minutes for the job"
         type: number
-        default: 15
+        default: 10
       dry_run:
         description: "If true, will not publish to npm"
         type: boolean

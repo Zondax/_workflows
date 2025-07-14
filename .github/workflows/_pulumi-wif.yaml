@@ -38,6 +38,10 @@ on:
         required: false
         type: boolean
         default: false
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 10
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -50,7 +54,7 @@ jobs:
   pulumi:
     name: Pulumi
     runs-on: zondax-runners
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
     permissions:
       id-token: write # Enables automatic ID token injection for google-github-actions/auth
