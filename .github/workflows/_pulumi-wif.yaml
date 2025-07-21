@@ -130,10 +130,9 @@ jobs:
           pnpm_version: ${{ inputs.pnpm_version }}
 
       - name: Run Pulumi
-        uses: pulumi/actions@v6
-        with:
-          command: ${{ env.PULUMI_COMMAND }}
-          stack-name: ${{ inputs.stack-name }}
-          cloud-url: ${{ inputs.cloud-url }}
-          comment-on-pr: true
-          comment-on-summary: true
+        run: |
+          # Set Pulumi backend
+          export PULUMI_BACKEND_URL="${{ inputs.cloud-url }}"
+          
+          # Run Pulumi via pnpm script
+          pnpm run ${{ env.PULUMI_COMMAND }}:${{ inputs.stack-name }}
