@@ -126,7 +126,8 @@ jobs:
         with:
           node_version: "22"
           package_manager: ${{ inputs.package_manager }}
-          package_manager_version: ${{ inputs.package_manager == 'bun' && inputs.bun_version || inputs.pnpm_version }}
+          bun_version: ${{ inputs.bun_version }}
+          pnpm_version: ${{ inputs.pnpm_version }}
 
       - name: Run Pulumi
         uses: pulumi/actions@v6
