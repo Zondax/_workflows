@@ -42,6 +42,21 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
+      package_manager:
+        description: "Package manager to use (bun or pnpm)"
+        required: false
+        type: string
+        default: "pnpm"
+      bun_version:
+        description: "Bun version"
+        required: false
+        type: string
+        default: "1.2.17"
+      pnpm_version:
+        description: "PNPM version"
+        required: false
+        type: string
+        default: "latest"
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -110,8 +125,8 @@ jobs:
         uses: zondax/_actions/setup-node-env@main
         with:
           node_version: "22"
-          package_manager: "bun"
-          package_manager_version: "latest"
+          package_manager: ${{ inputs.package_manager }}
+          package_manager_version: ${{ inputs.package_manager == 'bun' && inputs.bun_version || inputs.pnpm_version }}
 
       - name: Run Pulumi
         uses: pulumi/actions@v6
