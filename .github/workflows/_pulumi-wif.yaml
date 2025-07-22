@@ -122,7 +122,7 @@ jobs:
           PULUMI_CLOUD_SQL_INSTANCE: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}
 
       - name: Setup Node.js Environment
-        uses: zondax/_actions/setup-node-env@main
+        uses: zondax/_actions/setup-node-env@dev
         with:
           node_version: "22"
           package_manager: ${{ inputs.package_manager }}
