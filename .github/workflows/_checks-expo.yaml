@@ -117,14 +117,14 @@ jobs:
 
     steps:
       - name: Setup Ubuntu packages
-        uses: zondax/_actions/setup-ubuntu-packages@main
+        uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |
             - git
             - unzip
 
       - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/actions/checkout-with-app@v1
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
@@ -136,7 +136,7 @@ jobs:
 
       - name: Setup Node.js Environment
         id: setup-node
-        uses: zondax/_actions/setup-node-env@main
+        uses: zondax/actions/setup-node-env@v1
         with:
           node_version: ${{ inputs.node_version }}
           package_manager: ${{ inputs.package_manager }}

@@ -125,7 +125,7 @@ jobs:
     steps:
       - name: Checkout with GitHub App
         id: checkout
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/actions/checkout-with-app@v1
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
@@ -141,7 +141,7 @@ jobs:
           go-version: ${{ inputs.go_version }}
 
       - name: Authenticate with GCP (WIF Required)
-        uses: zondax/_actions/gcp-wif-auth@main
+        uses: zondax/actions/gcp-wif-auth@v1
         id: auth
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}

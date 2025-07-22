@@ -103,7 +103,7 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
     steps:
       - name: Setup Ubuntu packages
-        uses: zondax/_actions/setup-ubuntu-packages@main
+        uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |
             - git
@@ -123,7 +123,7 @@ jobs:
             - libasound2t64
 
       - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/actions/checkout-with-app@v1
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
@@ -133,7 +133,7 @@ jobs:
 
       - name: Authenticate with GCP
         if: ${{ inputs.autoinit_env && inputs.environment != '' }}
-        uses: zondax/_actions/gcp-wif-auth@main
+        uses: zondax/actions/gcp-wif-auth@v1
         with:
           workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
@@ -153,7 +153,7 @@ jobs:
 
       - name: Setup Node.js Environment
         id: setup-node
-        uses: zondax/_actions/setup-node-env@main
+        uses: zondax/actions/setup-node-env@v1
         with:
           node_version: ${{ inputs.node_version }}
           package_manager: "pnpm"

@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Authenticate with GCP
-        uses: zondax/_actions/gcp-wif-auth@main
+        uses: zondax/actions/gcp-wif-auth@v1
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
           setup_gcloud: true

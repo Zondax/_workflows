@@ -256,7 +256,7 @@ jobs:
     
     steps:
       - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/actions/checkout-with-app@v1
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
@@ -266,7 +266,7 @@ jobs:
           app_pem: ${{ secrets.app_pem }}
 
       - name: Setup Node environment
-        uses: zondax/_actions/setup-node-env@main
+        uses: zondax/actions/setup-node-env@v1
         id: setup-node
         with:
           node_version: ${{ inputs.node_version }}
@@ -464,7 +464,7 @@ jobs:
 
     steps:
       - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/actions/checkout-with-app@v1
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
