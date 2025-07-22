@@ -56,7 +56,7 @@ jobs:
           sudo apt-get install -yy git make
 
       - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/actions/checkout-with-app@v1
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}

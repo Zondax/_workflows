@@ -63,7 +63,7 @@ jobs:
 
       - name: Authenticate with GCP
         id: auth
-        uses: zondax/_actions/gcp-wif-auth@main
+        uses: zondax/actions/gcp-wif-auth@v1
         with:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
