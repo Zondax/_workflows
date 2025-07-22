@@ -138,4 +138,4 @@ jobs:
           export PULUMI_BACKEND_URL="${{ inputs.cloud-url }}"
           
           # Run Pulumi via pnpm script
-          pnpm ${{ env.PULUMI_COMMAND }}:${{ inputs.environment }}
+          ${{ inputs.package_manager }} ${{ env.PULUMI_COMMAND }}:${{ inputs.environment }}
