@@ -46,7 +46,7 @@ on:
         description: "Package manager to use (bun or pnpm)"
         required: false
         type: string
-        default: "pnpm"
+        default: "bun"
       bun_version:
         description: "Bun version"
         required: false
