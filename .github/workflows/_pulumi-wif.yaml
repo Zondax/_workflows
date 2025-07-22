@@ -85,7 +85,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y git
 
       - name: Checkout with GitHub App
-        uses: zondax/_actions/checkout-with-app@main
+        uses: zondax/_actions/checkout-with-app@v1.0.0
         with:
           github_app_auth: ${{ inputs.github_app_auth }}
           github_app_repos: ${{ inputs.github_app_repos }}
@@ -96,7 +96,7 @@ jobs:
           use_sudo: true
 
       - name: Authenticate with GCP
-        uses: zondax/_actions/gcp-wif-auth@main
+        uses: zondax/_actions/gcp-wif-auth@v1.0.0
         with:
           workload_identity_provider: ${{ inputs.workload-identity-provider }}
           project_id: ${{ inputs.project-id }}
@@ -122,12 +122,15 @@ jobs:
           PULUMI_CLOUD_SQL_INSTANCE: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}
 
       - name: Setup Node.js Environment
-        uses: zondax/_actions/setup-node-env@dev
+        uses: zondax/_actions/setup-node-env@v1.0.0
         with:
           node_version: "22"
           package_manager: ${{ inputs.package_manager }}
           bun_version: ${{ inputs.bun_version }}
           pnpm_version: ${{ inputs.pnpm_version }}
+
+      - name: Verify Pulumi installation
+        run: pulumi version
 
       - name: Run Pulumi
         run: |
