@@ -38,9 +38,12 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
 
     steps:
-      - name: Install git
-        run: |
-          apt-get update && apt-get install -y git
+      - name: Setup Ubuntu packages
+        uses: zondax/actions/setup-ubuntu-packages@v1
+        with:
+          packages: |
+            - bash
+            - protobuf-compiler
 
       - name: Checkout with GitHub App
         uses: zondax/actions/checkout-with-app@v1
@@ -49,10 +52,6 @@ jobs:
           github_app_repos: ${{ inputs.github_app_repos }}
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
-
-      - name: Install bash and protobuf dependencies
-        run: |
-          apt-get update && apt-get install -y bash protobuf-compiler unzip
 
       - name: Setup Node environment
         uses: zondax/actions/setup-node-env@v1
