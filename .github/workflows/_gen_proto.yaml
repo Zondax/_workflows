@@ -44,6 +44,7 @@ jobs:
           packages: |
             - bash
             - protobuf-compiler
+            - libprotobuf-dev
 
       - name: Checkout with GitHub App
         uses: zondax/actions/checkout-with-app@v1
