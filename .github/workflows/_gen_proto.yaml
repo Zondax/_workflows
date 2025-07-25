@@ -64,12 +64,14 @@ jobs:
 
       - name: Install proto generation tools
         run: |
-          npm install -g protoc-gen-js grpc-tools protoc-gen-grpc-web
+          npm install -g protoc-gen-js protoc-gen-grpc-web grpc-tools grpc_tools_node_protoc_ts
           # Verify installations
           which protoc-gen-js || echo "protoc-gen-js not found in PATH"
+          which protoc-gen-grpc-web || echo "protoc-gen-grpc-web not found in PATH" 
           which grpc_tools_node_protoc_plugin || echo "grpc_tools_node_protoc_plugin not found in PATH"
           which grpc_tools_node_protoc_ts || echo "grpc_tools_node_protoc_ts not found in PATH"
-          which protoc-gen-grpc-web || echo "protoc-gen-grpc-web not found in PATH"
+          # Create symlink for protoc-gen-ts (expected by gen-proto-grpc-js.sh)
+          ln -sf $(which grpc_tools_node_protoc_ts) /usr/local/bin/protoc-gen-ts || true
 
       - name: Generate ts from proto
         run: ${{ steps.setup-node.outputs.pm_run }} gen:proto
