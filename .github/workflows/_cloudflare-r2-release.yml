@@ -37,6 +37,24 @@ on:
         type: string
         default: 'stable'
       
+      # Environment variables
+      env_vars:
+        description: 'Environment variables to set during build (one per line: KEY=value)'
+        required: false
+        type: string
+        default: ''
+      
+      # Auto-initialize environment
+      autoinit_env:
+        description: "Automatically run env:init:ci script after installing dependencies"
+        type: boolean
+        default: false
+      
+      environment:
+        description: "Environment name to use for accessing environment variables"
+        type: string
+        default: ""
+      
       # Build platforms
       platforms:
         description: 'JSON array of platforms to build for'
@@ -265,6 +283,13 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
+      - name: Authenticate with GCP
+        if: ${{ inputs.autoinit_env && inputs.environment != '' }}
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
       - name: Setup Node environment
         uses: zondax/actions/setup-node-env@v1
         id: setup-node
@@ -272,6 +297,7 @@ jobs:
           node_version: ${{ inputs.node_version }}
           package_manager: ${{ inputs.package_manager }}
           install_deps: false
+          autoinit_env: ${{ inputs.autoinit_env }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -280,6 +306,17 @@ jobs:
 
       - name: Install dependencies
         run: ${{ inputs.setup_command }}
+
+      - name: Set environment variables
+        if: inputs.env_vars != ''
+        run: |
+          echo "Setting environment variables..."
+          echo "${{ inputs.env_vars }}" | while IFS= read -r line; do
+            if [[ -n "$line" && "$line" != \#* ]]; then
+              echo "Setting: ${line%%=*}"
+              echo "$line" >> $GITHUB_ENV
+            fi
+          done
 
       - name: Run pre-build command (all platforms)
         if: inputs.pre_build_command != ''
