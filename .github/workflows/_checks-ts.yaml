@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: true
+      enable_typecheck:
+        description: "Enable TS typecheck"
+        required: false
+        type: boolean
+        default: false
       enable_tests:
         description: "Enable tests execution"
         required: false
@@ -56,6 +61,10 @@ on:
         description: "Lint command to run from package.json"
         type: string
         default: "lint"
+      typecheck_command:
+        description: "Typecheck command to run from package.json"
+        type: string
+        default: "typecheck"
       format_command:
         description: "Format command to run from package.json"
         type: string
@@ -152,6 +161,10 @@ jobs:
       - name: Run lint
         if: ${{ inputs.enable_linting }}
         run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.lint_command }}
+
+      - name: Run typecheck
+        if: ${{ inputs.enable_typecheck }}
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.typecheck_command }}
 
       - name: Run tests
         if: ${{ inputs.enable_tests && !inputs.enable_coverage }}
