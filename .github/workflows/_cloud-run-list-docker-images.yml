@@ -41,37 +41,47 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
+          # First get the image data with timestamps
+          TEMP_FILE="/tmp/api_images_$$"
           if gcloud artifacts docker images list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --format='value(IMAGE,CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null | while IFS=$'\t' read -r image created updated; do
-            if [ -n "$image" ]; then
-              # Extract tag from image URL
-              IMAGE_TAG=$(echo "$image" | sed 's/.*://')
-              
-              # Parse commit info from tag
-              if echo "$IMAGE_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
-                SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-8)
-                COMMIT_INFO="(📝 $SHORT_SHA)"
-              elif echo "$IMAGE_TAG" | grep -q '^sha-'; then
-                COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
-                if [ ${#COMMIT_SHA} -eq 40 ]; then
-                  SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
-                  COMMIT_INFO="(📝 $SHORT_SHA)"
+            --include-tags \
+            --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+            
+            # Process each line to display both tags and timestamps
+            while IFS=',' read -r tags_raw created updated; do
+              if [ -n "$tags_raw" ]; then
+                # Clean up the tags (remove quotes and brackets)
+                CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                
+                echo "   🏷️  Tags: $CLEAN_TAGS"
+                
+                # Parse commit info from the first tag
+                FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                  echo "      📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                  if [ ${#COMMIT_SHA} -eq 40 ]; then
+                    SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                    echo "      📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                  else
+                    echo "      📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                  fi
                 else
-                  COMMIT_INFO="(📝 $COMMIT_SHA)"
+                  echo "      📝 Tag: $FIRST_TAG"
                 fi
-              else
-                COMMIT_INFO=""
+                
+                echo "      📅 Created: $created"
+                echo "      🔄 Updated: $updated"
+                echo ""
               fi
-              
-              echo "   🏷️  $IMAGE_TAG $COMMIT_INFO"
-              echo "      📅 Created: $created"
-              echo "      🔄 Updated: $updated"
-              echo ""
-            fi
-          done; then
+            done < "$TEMP_FILE"
+            
+            rm -f "$TEMP_FILE"
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
@@ -92,37 +102,47 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
+          # First get the image data with timestamps
+          TEMP_FILE="/tmp/store_images_$$"
           if gcloud artifacts docker images list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --format='value(IMAGE,CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null | while IFS=$'\t' read -r image created updated; do
-            if [ -n "$image" ]; then
-              # Extract tag from image URL
-              IMAGE_TAG=$(echo "$image" | sed 's/.*://')
-              
-              # Parse commit info from tag
-              if echo "$IMAGE_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
-                SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-8)
-                COMMIT_INFO="(📝 $SHORT_SHA)"
-              elif echo "$IMAGE_TAG" | grep -q '^sha-'; then
-                COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
-                if [ ${#COMMIT_SHA} -eq 40 ]; then
-                  SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
-                  COMMIT_INFO="(📝 $SHORT_SHA)"
+            --include-tags \
+            --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+            
+            # Process each line to display both tags and timestamps
+            while IFS=',' read -r tags_raw created updated; do
+              if [ -n "$tags_raw" ]; then
+                # Clean up the tags (remove quotes and brackets)
+                CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                
+                echo "   🏷️  Tags: $CLEAN_TAGS"
+                
+                # Parse commit info from the first tag
+                FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                  echo "      📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                  if [ ${#COMMIT_SHA} -eq 40 ]; then
+                    SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                    echo "      📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                  else
+                    echo "      📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                  fi
                 else
-                  COMMIT_INFO="(📝 $COMMIT_SHA)"
+                  echo "      📝 Tag: $FIRST_TAG"
                 fi
-              else
-                COMMIT_INFO=""
+                
+                echo "      📅 Created: $created"
+                echo "      🔄 Updated: $updated"
+                echo ""
               fi
-              
-              echo "   🏷️  $IMAGE_TAG $COMMIT_INFO"
-              echo "      📅 Created: $created"
-              echo "      🔄 Updated: $updated"
-              echo ""
-            fi
-          done; then
+            done < "$TEMP_FILE"
+            
+            rm -f "$TEMP_FILE"
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
@@ -143,37 +163,47 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
+          # First get the image data with timestamps
+          TEMP_FILE="/tmp/api_relay_images_$$"
           if gcloud artifacts docker images list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --format='value(IMAGE,CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null | while IFS=$'\t' read -r image created updated; do
-            if [ -n "$image" ]; then
-              # Extract tag from image URL
-              IMAGE_TAG=$(echo "$image" | sed 's/.*://')
-              
-              # Parse commit info from tag
-              if echo "$IMAGE_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
-                SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-8)
-                COMMIT_INFO="(📝 $SHORT_SHA)"
-              elif echo "$IMAGE_TAG" | grep -q '^sha-'; then
-                COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
-                if [ ${#COMMIT_SHA} -eq 40 ]; then
-                  SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
-                  COMMIT_INFO="(📝 $SHORT_SHA)"
+            --include-tags \
+            --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+            
+            # Process each line to display both tags and timestamps
+            while IFS=',' read -r tags_raw created updated; do
+              if [ -n "$tags_raw" ]; then
+                # Clean up the tags (remove quotes and brackets)
+                CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                
+                echo "   🏷️  Tags: $CLEAN_TAGS"
+                
+                # Parse commit info from the first tag
+                FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                  echo "      📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                  if [ ${#COMMIT_SHA} -eq 40 ]; then
+                    SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                    echo "      📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                  else
+                    echo "      📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                  fi
                 else
-                  COMMIT_INFO="(📝 $COMMIT_SHA)"
+                  echo "      📝 Tag: $FIRST_TAG"
                 fi
-              else
-                COMMIT_INFO=""
+                
+                echo "      📅 Created: $created"
+                echo "      🔄 Updated: $updated"
+                echo ""
               fi
-              
-              echo "   🏷️  $IMAGE_TAG $COMMIT_INFO"
-              echo "      📅 Created: $created"
-              echo "      🔄 Updated: $updated"
-              echo ""
-            fi
-          done; then
+            done < "$TEMP_FILE"
+            
+            rm -f "$TEMP_FILE"
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
