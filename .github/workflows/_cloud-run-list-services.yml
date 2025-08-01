@@ -1,0 +1,211 @@
+name: List Cloud Run Services (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to list services from'
+        required: true
+        type: string
+      show_details:
+        description: 'Show detailed service information'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  list-services:
+    name: List Cloud Run Services
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment == 'both' && 'dev' || inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: List Dev Environment Services
+        if: inputs.environment == 'dev' || inputs.environment == 'both'
+        run: |
+          echo "================================================"
+          echo "🔧 DEV ENVIRONMENT SERVICES"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "================================================"
+          
+          # Get list of services
+          DEV_SERVICES=$(gcloud run services list \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --filter="metadata.name~'-dev$'" \
+            --format='value(metadata.name)' || echo "")
+          
+          if [ -z "$DEV_SERVICES" ]; then
+            echo "ℹ️  No dev services found"
+          else
+            echo "📋 Found $(echo "$DEV_SERVICES" | wc -l) dev services:"
+            echo ""
+            
+            for service in $DEV_SERVICES; do
+              echo "🔸 SERVICE: $service"
+              
+              # Get service URL
+              SERVICE_URL=$(gcloud run services describe "$service" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(status.url)' || echo "N/A")
+              echo "   🔗 URL: $SERVICE_URL"
+              
+              if [ "${{ inputs.show_details }}" = "true" ]; then
+                # Get traffic allocation
+                echo "   📊 TRAFFIC ALLOCATION:"
+                gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --format='table[no-heading](spec.traffic[].percent,spec.traffic[].revisionName,spec.traffic[].tag,spec.traffic[].url)' | \
+                  sed 's/^/      /'
+                
+                # Get revision count
+                REVISION_COUNT=$(gcloud run revisions list \
+                  --service="$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --format='value(metadata.name)' | wc -l)
+                echo "   🔢 Total revisions: $REVISION_COUNT"
+                
+                # Check if ready for canary
+                STABLE_TAG=$(gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --format='value(spec.traffic[].tag)' | grep "stable" || echo "")
+                
+                if [ -n "$STABLE_TAG" ]; then
+                  echo "   ✅ Canary ready: Yes (stable tag found)"
+                else
+                  echo "   ⚠️  Canary ready: No (no stable tag)"
+                fi
+                
+                # Get latest image
+                LATEST_IMAGE=$(gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --format='value(spec.template.spec.containers[0].image)' || echo "N/A")
+                echo "   🐳 Current image: $LATEST_IMAGE"
+              fi
+              
+              echo ""
+            done
+          fi
+
+      - name: List Production Environment Services  
+        if: inputs.environment == 'pro' || inputs.environment == 'both'
+        env:
+          # Use pro environment variables for production
+          PULUMI_GCP_PROJECT_ID_PRO: ${{ inputs.environment == 'pro' && vars.PULUMI_GCP_PROJECT_ID || 'ks-pro-52f3fd4' }}
+        run: |
+          echo "================================================"
+          echo "🏭 PRODUCTION ENVIRONMENT SERVICES" 
+          echo "Project: $PULUMI_GCP_PROJECT_ID_PRO"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "================================================"
+          
+          # Get list of production services (ending with -main)
+          PRO_SERVICES=$(gcloud run services list \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+            --filter="metadata.name~'-main$'" \
+            --format='value(metadata.name)' || echo "")
+          
+          if [ -z "$PRO_SERVICES" ]; then
+            echo "ℹ️  No production services found"
+          else
+            echo "📋 Found $(echo "$PRO_SERVICES" | wc -l) production services:"
+            echo ""
+            
+            for service in $PRO_SERVICES; do
+              echo "🔸 SERVICE: $service"
+              
+              # Get service URL
+              SERVICE_URL=$(gcloud run services describe "$service" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(status.url)' || echo "N/A")
+              echo "   🔗 URL: $SERVICE_URL"
+              
+              if [ "${{ inputs.show_details }}" = "true" ]; then
+                # Get traffic allocation
+                echo "   📊 TRAFFIC ALLOCATION:"
+                gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                  --format='table[no-heading](spec.traffic[].percent,spec.traffic[].revisionName,spec.traffic[].tag,spec.traffic[].url)' | \
+                  sed 's/^/      /'
+                
+                # Get revision count
+                REVISION_COUNT=$(gcloud run revisions list \
+                  --service="$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                  --format='value(metadata.name)' | wc -l)
+                echo "   🔢 Total revisions: $REVISION_COUNT"
+                
+                # Check if ready for canary
+                STABLE_TAG=$(gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                  --format='value(spec.traffic[].tag)' | grep "stable" || echo "")
+                
+                CANARY_TAG=$(gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                  --format='value(spec.traffic[].tag)' | grep "canary" || echo "")
+                
+                if [ -n "$CANARY_TAG" ]; then
+                  echo "   🚀 Status: CANARY ACTIVE"
+                elif [ -n "$STABLE_TAG" ]; then
+                  echo "   ✅ Status: Ready for canary deployment"
+                else
+                  echo "   ⚠️  Status: Not ready for canary (no stable tag)"
+                fi
+                
+                # Get latest image
+                LATEST_IMAGE=$(gcloud run services describe "$service" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                  --format='value(spec.template.spec.containers[0].image)' || echo "N/A")
+                echo "   🐳 Current image: $LATEST_IMAGE"
+              fi
+              
+              echo ""
+            done
+          fi
+
+      - name: Generate Summary
+        run: |
+          echo "================================================"
+          echo "📊 SUMMARY"
+          echo "================================================"
+          echo ""
+          echo "🎯 CANARY DEPLOYMENT COMMANDS:"
+          echo ""
+          echo "To deploy a canary:"
+          echo "1. Go to Actions → 🚀 Deploy Canary"
+          echo "2. Select:"
+          echo "   - Service: api, store, or api-relay"
+          echo "   - Environment: dev or pro"  
+          echo "   - Image Tag: Use SHA from recent builds (e.g., sha-abc123)"
+          echo "   - Traffic: Start with 10%"
+          echo ""
+          echo "To promote a canary:"
+          echo "1. Go to Actions → ⬆️ Promote Canary"
+          echo "2. Increase traffic: 25% → 50% → 75%"
+          echo ""
+          echo "To finalize or rollback:"
+          echo "1. ✅ Finalize Canary (100% traffic)"
+          echo "2. 🚨 Rollback Canary (emergency recovery)"
+          echo ""
+          echo "💡 TIP: Use 'List Docker Images' workflow to see available image tags"

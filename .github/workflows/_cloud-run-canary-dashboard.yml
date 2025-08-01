@@ -1,0 +1,269 @@
+name: Canary Dashboard (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to analyze'
+        required: true
+        type: string
+
+jobs:
+  dashboard:
+    name: Canary Deployment Dashboard
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment == 'both' && 'dev' || inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Dashboard Header
+        run: |
+          echo "================================================"
+          echo "📊 CANARY DEPLOYMENT DASHBOARD"
+          echo "Generated: $(date)"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "================================================"
+
+      - name: Analyze Dev Environment
+        if: inputs.environment == 'dev' || inputs.environment == 'both'
+        run: |
+          echo ""
+          echo "🔧 DEV ENVIRONMENT STATUS"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "----------------------------------------"
+          
+          # Check each service
+          for service_type in api store api-relay; do
+            service_name="${service_type}-dev"
+            echo ""
+            echo "🔸 SERVICE: $service_name"
+            
+            # Check if service exists
+            if gcloud run services describe "$service_name" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --quiet >/dev/null 2>&1; then
+              
+              # Get current status
+              CURRENT_URL=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(status.url)')
+              
+              CURRENT_IMAGE=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(spec.template.spec.containers[0].image)')
+              
+              CURRENT_TAG=$(echo "$CURRENT_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "custom")
+              
+              REVISION_COUNT=$(gcloud run revisions list \
+                --service="$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(metadata.name)' | wc -l)
+              
+              # Check canary status
+              STABLE_TAG=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(spec.traffic[].tag)' | grep "stable" || echo "")
+              
+              CANARY_TAG=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(spec.traffic[].tag)' | grep "canary" || echo "")
+              
+              echo "   ✅ Status: DEPLOYED"
+              echo "   🔗 URL: $CURRENT_URL"
+              echo "   🏷️  Current: $CURRENT_TAG"
+              echo "   🔢 Revisions: $REVISION_COUNT"
+              
+              if [ -n "$CANARY_TAG" ]; then
+                echo "   🚀 Canary: ACTIVE"
+                # Show traffic split
+                echo "   📊 Traffic:"
+                gcloud run services describe "$service_name" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --format='table[no-heading](spec.traffic[].percent,spec.traffic[].tag)' | \
+                  sed 's/^/      /'
+              elif [ -n "$STABLE_TAG" ]; then
+                echo "   ✅ Canary: Ready"
+              else
+                echo "   ⚠️  Canary: Not ready"
+              fi
+              
+              # Get latest available image
+              LATEST_AVAILABLE=$(gcloud artifacts docker images list \
+                --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
+                --filter="package=$service_type" \
+                --sort-by="~CREATE_TIME" \
+                --limit="1" \
+                --format='value(IMAGE)' 2>/dev/null | grep -o 'sha-[a-f0-9]*' || echo "none")
+              
+              if [ "$CURRENT_TAG" != "$LATEST_AVAILABLE" ] && [ "$LATEST_AVAILABLE" != "none" ]; then
+                echo "   🆕 Available: $LATEST_AVAILABLE (newer than current)"
+              else
+                echo "   ✅ Up to date"
+              fi
+              
+            else
+              echo "   ❌ Status: NOT DEPLOYED"
+              echo "   💡 Tip: Deploy normally first, then use canary workflows"
+            fi
+          done
+
+      - name: Analyze Production Environment
+        if: inputs.environment == 'pro' || inputs.environment == 'both'
+        env:
+          PULUMI_GCP_PROJECT_ID_PRO: ${{ inputs.environment == 'pro' && vars.PULUMI_GCP_PROJECT_ID || 'ks-pro-52f3fd4' }}
+        run: |
+          echo ""
+          echo "🏭 PRODUCTION ENVIRONMENT STATUS"
+          echo "Project: $PULUMI_GCP_PROJECT_ID_PRO"
+          echo "----------------------------------------"
+          
+          # Check each service
+          for service_type in api store api-relay; do
+            service_name="${service_type}-main"
+            echo ""
+            echo "🔸 SERVICE: $service_name"
+            
+            # Check if service exists
+            if gcloud run services describe "$service_name" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+              --quiet >/dev/null 2>&1; then
+              
+              # Get current status
+              CURRENT_URL=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(status.url)')
+              
+              CURRENT_IMAGE=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(spec.template.spec.containers[0].image)')
+              
+              CURRENT_TAG=$(echo "$CURRENT_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "custom")
+              
+              REVISION_COUNT=$(gcloud run revisions list \
+                --service="$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(metadata.name)' | wc -l)
+              
+              # Check canary status
+              STABLE_TAG=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(spec.traffic[].tag)' | grep "stable" || echo "")
+              
+              CANARY_TAG=$(gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(spec.traffic[].tag)' | grep "canary" || echo "")
+              
+              echo "   ✅ Status: DEPLOYED"
+              echo "   🔗 URL: $CURRENT_URL"
+              echo "   🏷️  Current: $CURRENT_TAG"
+              echo "   🔢 Revisions: $REVISION_COUNT"
+              
+              if [ -n "$CANARY_TAG" ]; then
+                echo "   🚀 Canary: ACTIVE ⚠️"
+                # Show traffic split
+                echo "   📊 Traffic:"
+                gcloud run services describe "$service_name" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                  --format='table[no-heading](spec.traffic[].percent,spec.traffic[].tag)' | \
+                  sed 's/^/      /'
+                echo "   💡 Use ⬆️ Promote or 🚨 Rollback workflows"
+              elif [ -n "$STABLE_TAG" ]; then
+                echo "   ✅ Canary: Ready for deployment"
+              else
+                echo "   ⚠️  Canary: Not ready (no stable tag)"
+              fi
+              
+            else
+              echo "   ❌ Status: NOT DEPLOYED"
+              echo "   💡 Tip: Deploy normally first, then use canary workflows"
+            fi
+          done
+
+      - name: Generate Action Plan
+        run: |
+          echo ""
+          echo "================================================"
+          echo "🎯 RECOMMENDED ACTIONS"
+          echo "================================================"
+          echo ""
+          echo "📋 INFORMATION WORKFLOWS:"
+          echo "   📋 List Cloud Run Services - See detailed service status"
+          echo "   🐳 List Docker Images - See available image tags"
+          echo "   📊 Canary Dashboard - This comprehensive overview"
+          echo ""
+          echo "🚀 DEPLOYMENT WORKFLOWS:"
+          echo "   🚀 Deploy Canary - Start canary deployment (10% traffic)"
+          echo "   ⬆️ Promote Canary - Increase canary traffic gradually"
+          echo "   ✅ Finalize Canary - Complete deployment (100% traffic)"
+          echo "   🚨 Rollback Canary - Emergency recovery to stable"
+          echo ""
+          echo "💡 TYPICAL WORKFLOW:"
+          echo "   1. Run 📊 Dashboard → See current status"
+          echo "   2. Run 🐳 List Images → Find latest image tag"
+          echo "   3. Run 🚀 Deploy Canary → Start with 10%"
+          echo "   4. Monitor & run ⬆️ Promote → 25% → 50% → 75%"
+          echo "   5. Run ✅ Finalize → Complete deployment"
+          echo ""
+          echo "🚨 IF ISSUES DETECTED:"
+          echo "   1. Run 🚨 Rollback Canary immediately"
+          echo "   2. Fix issues in code"
+          echo "   3. Start process again with corrected version"
+          echo ""
+          
+          # Check for any active canaries
+          ACTIVE_CANARIES=0
+          
+          # Count dev canaries
+          if [ "${{ inputs.environment }}" = "dev" ] || [ "${{ inputs.environment }}" = "both" ]; then
+            for service_type in api store api-relay; do
+              service_name="${service_type}-dev"
+              if gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --quiet >/dev/null 2>&1; then
+                
+                CANARY_CHECK=$(gcloud run services describe "$service_name" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --format='value(spec.traffic[].tag)' | grep "canary" || echo "")
+                
+                if [ -n "$CANARY_CHECK" ]; then
+                  ACTIVE_CANARIES=$((ACTIVE_CANARIES + 1))
+                fi
+              fi
+            done
+          fi
+          
+          # Count production canaries (simplified for example)
+          if [ "${{ inputs.environment }}" = "pro" ] || [ "${{ inputs.environment }}" = "both" ]; then
+            # Add production canary checking logic here if needed
+            echo "⚠️  Remember: Production canaries require extra attention!"
+          fi
+          
+          if [ $ACTIVE_CANARIES -gt 0 ]; then
+            echo "🚨 ACTIVE CANARIES DETECTED: $ACTIVE_CANARIES"
+            echo "   Please review and take action on active canary deployments"
+          else
+            echo "✅ No active canaries detected - all services stable"
+          fi

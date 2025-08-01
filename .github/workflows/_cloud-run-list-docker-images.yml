@@ -1,0 +1,186 @@
+name: List Docker Images (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'Service to list images for'
+        required: true
+        type: string
+      environment:
+        description: 'Environment context (affects which registry to check)'
+        required: true
+        type: string
+      limit:
+        description: 'Number of recent images to show per service'
+        required: false
+        type: string
+        default: '10'
+
+jobs:
+  list-images:
+    name: List Docker Images
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment == 'both' && 'dev' || inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: List API Images
+        if: inputs.service == 'api' || inputs.service == 'all'
+        run: |
+          echo "================================================"
+          echo "🔸 API SERVICE DOCKER IMAGES"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax"
+          echo "================================================"
+          
+          echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
+          gcloud artifacts docker images list \
+            --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
+            --filter="package=api" \
+            --sort-by="~CREATE_TIME" \
+            --limit="${{ inputs.limit }}" \
+            --format='table(
+              IMAGE:label="🐳 IMAGE TAG",
+              CREATE_TIME.date():label="📅 CREATED",
+              UPDATE_TIME.date():label="🔄 UPDATED"
+            )'
+          
+          echo ""
+          echo "💡 USAGE EXAMPLES:"
+          echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
+          echo "   Example: sha-abc123 or full URL from above"
+          echo ""
+
+      - name: List Store Images
+        if: inputs.service == 'store' || inputs.service == 'all'
+        run: |
+          echo "================================================"
+          echo "🔸 STORE SERVICE DOCKER IMAGES"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax"
+          echo "================================================"
+          
+          echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
+          gcloud artifacts docker images list \
+            --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
+            --filter="package=store" \
+            --sort-by="~CREATE_TIME" \
+            --limit="${{ inputs.limit }}" \
+            --format='table(
+              IMAGE:label="🐳 IMAGE TAG",
+              CREATE_TIME.date():label="📅 CREATED",
+              UPDATE_TIME.date():label="🔄 UPDATED"
+            )'
+          
+          echo ""
+          echo "💡 USAGE EXAMPLES:"
+          echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
+          echo "   Example: sha-xyz789 or full URL from above"
+          echo ""
+
+      - name: List API Relay Images
+        if: inputs.service == 'api-relay' || inputs.service == 'all'
+        run: |
+          echo "================================================"
+          echo "🔸 API-RELAY SERVICE DOCKER IMAGES"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax"
+          echo "================================================"
+          
+          echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
+          gcloud artifacts docker images list \
+            --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
+            --filter="package=api-relay" \
+            --sort-by="~CREATE_TIME" \
+            --limit="${{ inputs.limit }}" \
+            --format='table(
+              IMAGE:label="🐳 IMAGE TAG",
+              CREATE_TIME.date():label="📅 CREATED",
+              UPDATE_TIME.date():label="🔄 UPDATED"
+            )' || echo "⚠️  No api-relay images found or access denied"
+          
+          echo ""
+          echo "💡 USAGE EXAMPLES:"
+          echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
+          echo "   Example: sha-def456 or full URL from above"
+          echo ""
+
+      - name: Show Recent Builds Summary
+        run: |
+          echo "================================================"
+          echo "📊 RECENT BUILDS SUMMARY"
+          echo "================================================"
+          
+          echo "🔍 Finding most recent images across all services..."
+          
+          # Get most recent image for each service
+          echo ""
+          echo "🕒 LATEST IMAGES BY SERVICE:"
+          
+          for service in api store api-relay; do
+            echo "🔸 $service:"
+            LATEST_IMAGE=$(gcloud artifacts docker images list \
+              --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
+              --filter="package=$service" \
+              --sort-by="~CREATE_TIME" \
+              --limit="1" \
+              --format='value(IMAGE)' 2>/dev/null || echo "")
+            
+            if [ -n "$LATEST_IMAGE" ]; then
+              # Extract just the tag (sha-xxx part)
+              TAG=$(echo "$LATEST_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "$LATEST_IMAGE")
+              CREATED=$(gcloud artifacts docker images list \
+                --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
+                --filter="package=$service" \
+                --sort-by="~CREATE_TIME" \
+                --limit="1" \
+                --format='value(CREATE_TIME.date())' 2>/dev/null || echo "Unknown")
+              
+              echo "   🏷️  Tag: $TAG"
+              echo "   📅 Created: $CREATED"
+            else
+              echo "   ⚠️  No images found"
+            fi
+            echo ""
+          done
+
+      - name: Generate Usage Instructions
+        run: |
+          echo "================================================"
+          echo "🎯 CANARY DEPLOYMENT USAGE"
+          echo "================================================"
+          echo ""
+          echo "📝 HOW TO USE THESE IMAGES:"
+          echo ""
+          echo "1️⃣  COPY THE IMAGE TAG:"
+          echo "   - Use the SHA tag (e.g., sha-abc123)"
+          echo "   - Or use the full image URL"
+          echo ""
+          echo "2️⃣  DEPLOY CANARY:"
+          echo "   - Go to Actions → 🚀 Deploy Canary"
+          echo "   - Paste the image tag in 'Image Tag' field"
+          echo "   - Select service and environment"
+          echo "   - Start with 10% traffic"
+          echo ""
+          echo "3️⃣  PROMOTE GRADUALLY:"
+          echo "   - Monitor for 10-30 minutes"
+          echo "   - Use ⬆️ Promote Canary: 10% → 25% → 50% → 75%"
+          echo "   - Use ✅ Finalize Canary for 100%"
+          echo ""
+          echo "🚨 EMERGENCY ROLLBACK:"
+          echo "   - Use 🚨 Rollback Canary if issues detected"
+          echo "   - Returns to stable version in ~30 seconds"
+          echo ""
+          echo "💡 TIP: Use 'List Cloud Run Services' to see current deployments"
+          echo ""
+          echo "🔗 RELATED WORKFLOWS:"
+          echo "   - 📋 List Cloud Run Services (see current state)"
+          echo "   - 🚀 Deploy Canary (start deployment)"
+          echo "   - ⬆️ Promote Canary (increase traffic)"
+          echo "   - ✅ Finalize Canary (complete deployment)"
+          echo "   - 🚨 Rollback Canary (emergency recovery)"
