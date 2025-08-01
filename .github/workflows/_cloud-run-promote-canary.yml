@@ -103,19 +103,32 @@ jobs:
       - name: Get canary and stable revision info
         id: revisions
         run: |
-          # Get canary revision (tagged as 'canary')
-          CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:canary')
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
           
-          # Get stable revision (tagged as 'stable')  
-          STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          # Get the two most recent revisions (canary is newest, stable is second-newest)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:stable')
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          STABLE_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=2 \
+            --format='value(metadata.name)' | tail -1)
+          
+          echo "Identified revisions:"
+          echo "  Canary (newest): $CANARY_REVISION"
+          echo "  Stable (previous): $STABLE_REVISION"
           
           if [ -z "$CANARY_REVISION" ] || [ -z "$STABLE_REVISION" ]; then
             echo "ERROR: Could not find canary and/or stable revisions"
@@ -126,10 +139,6 @@ jobs:
           
           echo "canary_revision=$CANARY_REVISION" >> $GITHUB_OUTPUT
           echo "stable_revision=$STABLE_REVISION" >> $GITHUB_OUTPUT
-          
-          echo "Found revisions:"
-          echo "  Canary: $CANARY_REVISION"
-          echo "  Stable: $STABLE_REVISION"
 
       - name: Promote canary traffic
         id: promote
