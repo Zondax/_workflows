@@ -81,17 +81,34 @@ jobs:
             exit 1
           fi
           
-          # Get current canary traffic percentage
+          # Show current traffic allocation
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+          
+          # Get current canary traffic percentage (assuming newest revision is canary)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          # Find the traffic percentage for the canary revision
           CURRENT_CANARY_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].percent)' \
-            --filter='spec.traffic[].tag:canary')
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
           
+          echo "Current canary traffic: ${CURRENT_CANARY_TRAFFIC}%"
           echo "current_canary_traffic=$CURRENT_CANARY_TRAFFIC" >> $GITHUB_OUTPUT
           
           # Warning if canary traffic is low
-          if [ "$CURRENT_CANARY_TRAFFIC" -lt 50 ]; then
+          if [ "$CURRENT_CANARY_TRAFFIC" -lt 50 ] && [ "$CURRENT_CANARY_TRAFFIC" -gt 0 ]; then
             echo "WARNING: Canary currently has only ${CURRENT_CANARY_TRAFFIC}% traffic"
             echo "Consider promoting canary traffic to a higher percentage first"
             echo "Proceeding with finalization anyway..."
@@ -100,19 +117,26 @@ jobs:
       - name: Get revision information
         id: revisions
         run: |
-          # Get canary revision (tagged as 'canary')
-          CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          # Get the two most recent revisions (canary is newest, stable is second-newest)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:canary')
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
           
-          # Get old stable revision (tagged as 'stable')
-          OLD_STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          OLD_STABLE_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:stable')
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=2 \
+            --format='value(metadata.name)' | tail -1)
+          
+          echo "Identified revisions:"
+          echo "  Canary (to become stable): $CANARY_REVISION"
+          echo "  Old stable (to be retired): $OLD_STABLE_REVISION"
           
           if [ -z "$CANARY_REVISION" ]; then
             echo "ERROR: Could not find canary revision"
@@ -211,12 +235,13 @@ jobs:
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
           
-          # Verify 100% traffic to stable
+          # Verify 100% traffic to the (now stable) canary revision
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
           STABLE_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].percent)' \
-            --filter='spec.traffic[].tag:stable')
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
           
           if [ "$STABLE_TRAFFIC" != "100" ]; then
             echo "WARNING: Expected 100% traffic to stable but got ${STABLE_TRAFFIC}%"
@@ -246,12 +271,8 @@ jobs:
             --format='value(status.url)')
           echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           
-          # Get new stable revision
-          NEW_STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
-            --region=${{ vars.PULUMI_GAR_LOCATION }} \
-            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:stable')
+          # Get new stable revision (the canary that's now getting 100% traffic)
+          NEW_STABLE_REVISION="${{ steps.revisions.outputs.canary_revision }}"
           echo "new_stable_revision=$NEW_STABLE_REVISION" >> $GITHUB_OUTPUT
           
           echo "=== CANARY FINALIZATION SUMMARY ==="

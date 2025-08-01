@@ -95,12 +95,20 @@ jobs:
             fi
           fi
           
-          # Get current canary traffic percentage
+          # Get current canary traffic percentage (assuming newest revision is canary)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
           CURRENT_CANARY_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].percent)' \
-            --filter='spec.traffic[].tag:canary' || echo "0")
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
           
           echo "current_canary_traffic=$CURRENT_CANARY_TRAFFIC" >> $GITHUB_OUTPUT
           
@@ -109,29 +117,32 @@ jobs:
       - name: Get revision information
         id: revisions
         run: |
-          # Get canary revision (tagged as 'canary') if it exists
-          CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:canary' || echo "")
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
           
-          # Get stable revision (tagged as 'stable')
-          STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          # Get the two most recent revisions (canary is newest, stable is second-newest)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:stable' || echo "")
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
           
-          # If no stable tag, get the revision with highest traffic that's not canary
-          if [ -z "$STABLE_REVISION" ] || [ "$STABLE_REVISION" = "null" ]; then
-            echo "No stable tag found, finding revision with highest traffic (not canary)..."
-            STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
-              --region=${{ vars.PULUMI_GAR_LOCATION }} \
-              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-              --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' \
-              --sort-by='~spec.traffic[].percent' | grep -v canary | head -1 | awk '{print $1}')
-          fi
+          STABLE_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=2 \
+            --format='value(metadata.name)' | tail -1)
+          
+          echo "Identified revisions:"
+          echo "  Canary (to be removed): $CANARY_REVISION"
+          echo "  Stable (to get 100% traffic): $STABLE_REVISION"
           
           if [ -z "$STABLE_REVISION" ] || [ "$STABLE_REVISION" = "null" ]; then
             echo "ERROR: Could not find a stable revision to rollback to"
@@ -215,12 +226,13 @@ jobs:
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
           
-          # Verify 100% traffic to stable
+          # Verify 100% traffic to stable revision
+          STABLE_REVISION="${{ steps.revisions.outputs.stable_revision }}"
           STABLE_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].percent)' \
-            --filter='spec.traffic[].tag:stable')
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$STABLE_REVISION" | cut -d',' -f2 || echo "0")
           
           if [ "$STABLE_TRAFFIC" != "100" ]; then
             echo "WARNING: Expected 100% traffic to stable but got ${STABLE_TRAFFIC}%"
@@ -271,12 +283,8 @@ jobs:
             --format='value(status.url)')
           echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           
-          # Get rollback revision
-          ROLLBACK_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
-            --region=${{ vars.PULUMI_GAR_LOCATION }} \
-            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:stable')
+          # Get rollback revision (the stable revision that now has 100% traffic)
+          ROLLBACK_REVISION="${{ steps.revisions.outputs.stable_revision }}"
           echo "rollback_revision=$ROLLBACK_REVISION" >> $GITHUB_OUTPUT
           
           echo "=== EMERGENCY ROLLBACK SUMMARY ==="

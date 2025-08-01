@@ -170,11 +170,12 @@ jobs:
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
           
           # Verify the canary got the expected traffic
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
           ACTUAL_CANARY_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].percent)' \
-            --filter='spec.traffic[].tag:canary')
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
           
           if [ "$ACTUAL_CANARY_TRAFFIC" != "${{ inputs.traffic_percentage }}" ]; then
             echo "WARNING: Expected ${{ inputs.traffic_percentage }}% but got ${ACTUAL_CANARY_TRAFFIC}%"
