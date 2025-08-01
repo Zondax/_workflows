@@ -67,6 +67,11 @@ jobs:
           workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+
       - name: Install yq
         run: |
           go install github.com/mikefarah/yq/v4@latest
