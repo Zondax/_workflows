@@ -55,16 +55,6 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: Environment Logging
-        run: |
-          echo "Environment: ${{ inputs.environment }}"
-          echo "Service: ${{ inputs.service_name }}"
-          echo "Image: ${{ inputs.image_tag }}"
-          echo "Traffic: ${{ inputs.traffic_percentage }}%"
-          echo "Force replace canary: ${{ inputs.force_replace_canary }}"
-          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
-          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
-
       - uses: actions/checkout@v4
 
       - name: Authenticate with GCP
@@ -84,6 +74,10 @@ jobs:
 
       - name: Validate inputs
         run: |
+          # Construct actual service name (service-environment)
+          ACTUAL_SERVICE_NAME="${{ inputs.service_name }}-${{ inputs.environment }}"
+          echo "Looking for service: $ACTUAL_SERVICE_NAME"
+          
           # Validate traffic percentage
           if ! [[ "${{ inputs.traffic_percentage }}" =~ ^[0-9]+$ ]] || [ "${{ inputs.traffic_percentage }}" -lt 1 ] || [ "${{ inputs.traffic_percentage }}" -gt 99 ]; then
             echo "ERROR: Traffic percentage must be between 1-99"
@@ -91,26 +85,39 @@ jobs:
           fi
           
           # Check if service exists
-          if ! gcloud run services describe ${{ inputs.service_name }} \
+          if ! gcloud run services describe "$ACTUAL_SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --quiet >/dev/null 2>&1; then
-            echo "ERROR: Service ${{ inputs.service_name }} does not exist"
+            echo "ERROR: Service $ACTUAL_SERVICE_NAME does not exist"
             echo "Please deploy the service normally first before using canary"
             exit 1
           fi
+          
+          # Export for other steps
+          echo "ACTUAL_SERVICE_NAME=$ACTUAL_SERVICE_NAME" >> $GITHUB_ENV
+
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Service: $ACTUAL_SERVICE_NAME"
+          echo "Image: ${{ inputs.image_tag }}"
+          echo "Traffic: ${{ inputs.traffic_percentage }}%"
+          echo "Force replace canary: ${{ inputs.force_replace_canary }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
 
       - name: Check current traffic allocation
         id: current-traffic
         run: |
           echo "Current traffic allocation:"
-          gcloud run services describe ${{ inputs.service_name }} \
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
           
           # Check if there's already a canary deployment
-          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+          CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
@@ -238,14 +245,14 @@ jobs:
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
             # Get the current and new revision names
-            CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            CANARY_REVISION=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
               --format='value(status.latestReadyRevisionName)')
             
             # Get the second-to-latest revision (which was stable before this deployment)
             STABLE_REVISION=$(gcloud run revisions list \
-              --service=${{ inputs.service_name }} \
+              --service=$ACTUAL_SERVICE_NAME \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
               --sort-by="~metadata.creationTimestamp" \
@@ -256,28 +263,28 @@ jobs:
             echo "Stable revision (previous): $STABLE_REVISION"
             
             # Allocate traffic between canary and stable revisions
-            gcloud run services update-traffic ${{ inputs.service_name }} \
+            gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
               --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           else
             # Simple image-only deployment
             echo "Deploying image-only canary..."
-            gcloud run services update ${{ inputs.service_name }} \
+            gcloud run services update $ACTUAL_SERVICE_NAME \
               --image=${{ inputs.image_tag }} \
               --no-traffic \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
             # Get the current and new revision names
-            CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            CANARY_REVISION=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
               --format='value(status.latestReadyRevisionName)')
             
             # Get the second-to-latest revision (which was stable before this deployment)
             STABLE_REVISION=$(gcloud run revisions list \
-              --service=${{ inputs.service_name }} \
+              --service=$ACTUAL_SERVICE_NAME \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
               --sort-by="~metadata.creationTimestamp" \
@@ -288,14 +295,14 @@ jobs:
             echo "Stable revision (previous): $STABLE_REVISION"
             
             # Allocate traffic between canary and stable revisions  
-            gcloud run services update-traffic ${{ inputs.service_name }} \
+            gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
               --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           fi
           
           # Tag the new revision as canary
-          gcloud run services update-traffic ${{ inputs.service_name }} \
+          gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
             --set-tags=canary=LATEST \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
@@ -304,14 +311,14 @@ jobs:
         id: get-info
         run: |
           # Get service URL
-          SERVICE_URL=$(gcloud run services describe ${{ inputs.service_name }} \
+          SERVICE_URL=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(status.url)')
           echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           
           # Get canary revision name
-          CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+          CANARY_REVISION=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName)' | head -1)
@@ -321,7 +328,7 @@ jobs:
           echo "Service URL: $SERVICE_URL"
           echo "Canary Revision: $CANARY_REVISION"
           echo "Traffic allocation:"
-          gcloud run services describe ${{ inputs.service_name }} \
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'

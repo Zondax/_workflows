@@ -38,7 +38,7 @@ jobs:
       - name: Environment Logging
         run: |
           echo "Environment: ${{ inputs.environment }}"
-          echo "Service: ${{ inputs.service_name }}"
+          echo "Service: $ACTUAL_SERVICE_NAME"
           echo "Cleanup old revisions: ${{ inputs.cleanup_old_revisions }}"
           echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
           echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
@@ -51,46 +51,53 @@ jobs:
 
       - name: Validate service exists
         run: |
+          # Construct actual service name (service-environment)
+          ACTUAL_SERVICE_NAME="${{ inputs.service_name }}-${{ inputs.environment }}"
+          echo "Looking for service: $ACTUAL_SERVICE_NAME"
+          
           # Check if service exists
-          if ! gcloud run services describe ${{ inputs.service_name }} \
+          if ! gcloud run services describe "$ACTUAL_SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --quiet >/dev/null 2>&1; then
-            echo "ERROR: Service ${{ inputs.service_name }} does not exist"
+            echo "ERROR: Service $ACTUAL_SERVICE_NAME does not exist"
             exit 1
           fi
+          
+          # Export for other steps
+          echo "ACTUAL_SERVICE_NAME=$ACTUAL_SERVICE_NAME" >> $GITHUB_ENV
 
       - name: Check current canary status
         id: current-status
         run: |
           echo "Current traffic allocation:"
-          gcloud run services describe ${{ inputs.service_name }} \
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
           
           # Check if there's a canary deployment
-          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+          CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
           
           if [ "$CANARY_COUNT" -eq 0 ]; then
-            echo "ERROR: No canary deployment found for service ${{ inputs.service_name }}"
+            echo "ERROR: No canary deployment found for service $ACTUAL_SERVICE_NAME"
             echo "There's nothing to finalize."
             exit 1
           fi
           
           # Show current traffic allocation
           echo "Current traffic allocation:"
-          gcloud run services describe ${{ inputs.service_name }} \
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
           
           # Get current canary traffic percentage (assuming newest revision is canary)
           CANARY_REVISION=$(gcloud run revisions list \
-            --service=${{ inputs.service_name }} \
+            --service=$ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --sort-by="~metadata.creationTimestamp" \
@@ -98,7 +105,7 @@ jobs:
             --format='value(metadata.name)')
           
           # Find the traffic percentage for the canary revision
-          CURRENT_CANARY_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
+          CURRENT_CANARY_TRAFFIC=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
@@ -119,7 +126,7 @@ jobs:
         run: |
           # Get the two most recent revisions (canary is newest, stable is second-newest)
           CANARY_REVISION=$(gcloud run revisions list \
-            --service=${{ inputs.service_name }} \
+            --service=$ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --sort-by="~metadata.creationTimestamp" \
@@ -127,7 +134,7 @@ jobs:
             --format='value(metadata.name)')
           
           OLD_STABLE_REVISION=$(gcloud run revisions list \
-            --service=${{ inputs.service_name }} \
+            --service=$ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --sort-by="~metadata.creationTimestamp" \
@@ -159,13 +166,13 @@ jobs:
           echo "Promoting canary revision to 100% traffic: $CANARY_REVISION"
           
           # Promote canary to 100% traffic and remove other allocations
-          gcloud run services update-traffic ${{ inputs.service_name }} \
+          gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
             --to-revisions="$CANARY_REVISION=100" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           
           # Remove canary tag and add stable tag to the new revision
-          gcloud run services update-traffic ${{ inputs.service_name }} \
+          gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
             --remove-tags=canary \
             --set-tags=stable="$CANARY_REVISION" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
@@ -197,7 +204,7 @@ jobs:
           
           CURRENT_REVISION="${{ steps.revisions.outputs.canary_revision }}"
           OLD_REVISIONS=$(gcloud run revisions list \
-            --service=${{ inputs.service_name }} \
+            --service=$ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(metadata.name)' \
@@ -229,14 +236,14 @@ jobs:
           sleep 5  # Give it a moment to propagate
           
           echo "Final traffic allocation:"
-          gcloud run services describe ${{ inputs.service_name }} \
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
           
           # Verify 100% traffic to the (now stable) canary revision
           CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
-          STABLE_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
+          STABLE_TRAFFIC=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
@@ -249,7 +256,7 @@ jobs:
           fi
           
           # Verify no canary tag exists
-          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+          CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
@@ -264,7 +271,7 @@ jobs:
         id: get-info
         run: |
           # Get service URL
-          SERVICE_URL=$(gcloud run services describe ${{ inputs.service_name }} \
+          SERVICE_URL=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(status.url)')
@@ -281,7 +288,7 @@ jobs:
           echo "Current traffic: 100% to stable"
           echo "Old revisions cleanup: ${{ inputs.cleanup_old_revisions }}"
           echo "Final traffic allocation:"
-          gcloud run services describe ${{ inputs.service_name }} \
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
