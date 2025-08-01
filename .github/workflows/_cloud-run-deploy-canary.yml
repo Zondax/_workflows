@@ -184,10 +184,24 @@ jobs:
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
-            # Now allocate traffic to the new revision
+            # Get revision names for traffic allocation
+            LATEST_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+            
+            STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(spec.traffic[].revisionName)' \
+              --filter='spec.traffic[].tag:stable')
+            
+            echo "Latest revision: $LATEST_REVISION"
+            echo "Stable revision: $STABLE_REVISION"
+            
+            # Allocate traffic to revisions
             gcloud run services update-traffic ${{ inputs.service_name }} \
-              --to-latest=${{ inputs.traffic_percentage }} \
-              --to-tags=stable=${STABLE_PERCENT} \
+              --to-revisions="$LATEST_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           else
@@ -199,10 +213,24 @@ jobs:
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
-            # Allocate traffic
+            # Get revision names for traffic allocation
+            LATEST_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+            
+            STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(spec.traffic[].revisionName)' \
+              --filter='spec.traffic[].tag:stable')
+            
+            echo "Latest revision: $LATEST_REVISION"
+            echo "Stable revision: $STABLE_REVISION"
+            
+            # Allocate traffic to revisions  
             gcloud run services update-traffic ${{ inputs.service_name }} \
-              --to-latest=${{ inputs.traffic_percentage }} \
-              --to-tags=stable=${STABLE_PERCENT} \
+              --to-revisions="$LATEST_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           fi
