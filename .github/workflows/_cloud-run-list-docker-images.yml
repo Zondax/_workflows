@@ -42,8 +42,7 @@ jobs:
           
           echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
           gcloud artifacts docker images list \
-            --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
-            --filter="package=api" \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/api \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
             --format='table(
@@ -68,8 +67,7 @@ jobs:
           
           echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
           gcloud artifacts docker images list \
-            --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
-            --filter="package=store" \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/store \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
             --format='table(
@@ -94,8 +92,7 @@ jobs:
           
           echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
           gcloud artifacts docker images list \
-            --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
-            --filter="package=api-relay" \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/api-relay \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
             --format='table(
@@ -125,8 +122,7 @@ jobs:
           for service in api store api-relay; do
             echo "🔸 $service:"
             LATEST_IMAGE=$(gcloud artifacts docker images list \
-              --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
-              --filter="package=$service" \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/$service \
               --sort-by="~CREATE_TIME" \
               --limit="1" \
               --format='value(IMAGE)' 2>/dev/null || echo "")
@@ -135,8 +131,7 @@ jobs:
               # Extract just the tag (sha-xxx part)
               TAG=$(echo "$LATEST_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "$LATEST_IMAGE")
               CREATED=$(gcloud artifacts docker images list \
-                --repository="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax" \
-                --filter="package=$service" \
+                ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/$service \
                 --sort-by="~CREATE_TIME" \
                 --limit="1" \
                 --format='value(CREATE_TIME.date())' 2>/dev/null || echo "Unknown")
