@@ -4,7 +4,11 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Environment to analyze'
+        description: 'Environment to analyze (dev/pro/both)'
+        required: true
+        type: string
+      services:
+        description: 'Services to check (JSON array, e.g., ["api", "store", "api-relay"])'
         required: true
         type: string
 
@@ -39,8 +43,8 @@ jobs:
           echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
           echo "----------------------------------------"
           
-          # Check each service
-          for service_type in api store api-relay; do
+          # Parse services from input
+          echo '${{ inputs.services }}' | jq -r '.[]' | while read -r service_type; do
             service_name="${service_type}-dev"
             echo ""
             echo "🔸 SERVICE: $service_name"
@@ -146,8 +150,8 @@ jobs:
           echo "Project: $PULUMI_GCP_PROJECT_ID_PRO"
           echo "----------------------------------------"
           
-          # Check each service
-          for service_type in api store api-relay; do
+          # Parse services from input
+          echo '${{ inputs.services }}' | jq -r '.[]' | while read -r service_type; do
             service_name="${service_type}-main"
             echo ""
             echo "🔸 SERVICE: $service_name"
@@ -267,9 +271,9 @@ jobs:
           
           # Count dev canaries
           if [ "${{ inputs.environment }}" = "dev" ] || [ "${{ inputs.environment }}" = "both" ]; then
-            for service_type in api store api-relay; do
+            echo '${{ inputs.services }}' | jq -r '.[]' | while read -r service_type; do
               service_name="${service_type}-dev"
-              if gcloud run services describe "$service_name" \
+                if gcloud run services describe "$service_name" \
                 --region=${{ vars.PULUMI_GAR_LOCATION }} \
                 --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
                 --quiet >/dev/null 2>&1; then

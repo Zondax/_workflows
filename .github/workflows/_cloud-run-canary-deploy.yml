@@ -236,7 +236,7 @@ jobs:
             echo "Deploying with configuration updates..."
             
             # Update the image in the YAML
-            yq e '.spec.template.spec.containers[] |= select(.name == "${{ inputs.service_name }}" or .name == "api" or .name == "store" or .name == "api-relay").image = "${{ inputs.image_tag }}"' -i service.update.yaml
+            yq e '.spec.template.spec.containers[] |= select(.name == "${{ inputs.service_name }}").image = "${{ inputs.image_tag }}"' -i service.update.yaml
             
             # Deploy the updated service without traffic (0% initially)
             yq e '.spec.traffic = [{"percent": 100, "tag": "stable"}]' -i service.update.yaml
