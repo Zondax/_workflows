@@ -41,37 +41,37 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
-          if gcloud artifacts docker tags list \
+          if gcloud artifacts docker images list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --format='table(
-              TAG:label="🏷️  TAG",
-              IMAGE:label="🐳 IMAGE",
-              CREATE_TIME.date():label="📅 CREATED"
-            )' 2>/dev/null; then
-            
-            echo ""
-            echo "📝 COMMIT INFORMATION:"
-            # Extract commit info from tags  
-            gcloud artifacts docker tags list \
-              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
-              --sort-by="~CREATE_TIME" \
-              --limit="${{ inputs.limit }}" \
-              --format='value(TAG)' 2>/dev/null | while read -r tag; do
-              if [ -n "$tag" ]; then
-                # GitHub SHA is 40 characters long (full SHA from build workflow)
-                if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
-                  SHORT_SHA=$(echo "$tag" | cut -c1-8)
-                  echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
-                elif echo "$tag" | grep -q '^sha-'; then
-                  COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
-                  echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
+            --format='value(IMAGE,CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null | while IFS=$'\t' read -r image created updated; do
+            if [ -n "$image" ]; then
+              # Extract tag from image URL
+              IMAGE_TAG=$(echo "$image" | sed 's/.*://')
+              
+              # Parse commit info from tag
+              if echo "$IMAGE_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-8)
+                COMMIT_INFO="(📝 $SHORT_SHA)"
+              elif echo "$IMAGE_TAG" | grep -q '^sha-'; then
+                COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                if [ ${#COMMIT_SHA} -eq 40 ]; then
+                  SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                  COMMIT_INFO="(📝 $SHORT_SHA)"
                 else
-                  echo "   🔗 $tag"
+                  COMMIT_INFO="(📝 $COMMIT_SHA)"
                 fi
+              else
+                COMMIT_INFO=""
               fi
-            done
+              
+              echo "   🏷️  $IMAGE_TAG $COMMIT_INFO"
+              echo "      📅 Created: $created"
+              echo "      🔄 Updated: $updated"
+              echo ""
+            fi
+          done; then
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
@@ -92,37 +92,37 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
-          if gcloud artifacts docker tags list \
+          if gcloud artifacts docker images list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --format='table(
-              TAG:label="🏷️  TAG",
-              IMAGE:label="🐳 IMAGE",
-              CREATE_TIME.date():label="📅 CREATED"
-            )' 2>/dev/null; then
-            
-            echo ""
-            echo "📝 COMMIT INFORMATION:"
-            # Extract commit info from tags  
-            gcloud artifacts docker tags list \
-              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
-              --sort-by="~CREATE_TIME" \
-              --limit="${{ inputs.limit }}" \
-              --format='value(TAG)' 2>/dev/null | while read -r tag; do
-              if [ -n "$tag" ]; then
-                # GitHub SHA is 40 characters long (full SHA from build workflow)
-                if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
-                  SHORT_SHA=$(echo "$tag" | cut -c1-8)
-                  echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
-                elif echo "$tag" | grep -q '^sha-'; then
-                  COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
-                  echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
+            --format='value(IMAGE,CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null | while IFS=$'\t' read -r image created updated; do
+            if [ -n "$image" ]; then
+              # Extract tag from image URL
+              IMAGE_TAG=$(echo "$image" | sed 's/.*://')
+              
+              # Parse commit info from tag
+              if echo "$IMAGE_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-8)
+                COMMIT_INFO="(📝 $SHORT_SHA)"
+              elif echo "$IMAGE_TAG" | grep -q '^sha-'; then
+                COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                if [ ${#COMMIT_SHA} -eq 40 ]; then
+                  SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                  COMMIT_INFO="(📝 $SHORT_SHA)"
                 else
-                  echo "   🔗 $tag"
+                  COMMIT_INFO="(📝 $COMMIT_SHA)"
                 fi
+              else
+                COMMIT_INFO=""
               fi
-            done
+              
+              echo "   🏷️  $IMAGE_TAG $COMMIT_INFO"
+              echo "      📅 Created: $created"
+              echo "      🔄 Updated: $updated"
+              echo ""
+            fi
+          done; then
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
@@ -143,37 +143,37 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
-          if gcloud artifacts docker tags list \
+          if gcloud artifacts docker images list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --format='table(
-              TAG:label="🏷️  TAG",
-              IMAGE:label="🐳 IMAGE",
-              CREATE_TIME.date():label="📅 CREATED"
-            )' 2>/dev/null; then
-            
-            echo ""
-            echo "📝 COMMIT INFORMATION:"
-            # Extract commit info from tags  
-            gcloud artifacts docker tags list \
-              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
-              --sort-by="~CREATE_TIME" \
-              --limit="${{ inputs.limit }}" \
-              --format='value(TAG)' 2>/dev/null | while read -r tag; do
-              if [ -n "$tag" ]; then
-                # GitHub SHA is 40 characters long (full SHA from build workflow)
-                if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
-                  SHORT_SHA=$(echo "$tag" | cut -c1-8)
-                  echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
-                elif echo "$tag" | grep -q '^sha-'; then
-                  COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
-                  echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
+            --format='value(IMAGE,CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null | while IFS=$'\t' read -r image created updated; do
+            if [ -n "$image" ]; then
+              # Extract tag from image URL
+              IMAGE_TAG=$(echo "$image" | sed 's/.*://')
+              
+              # Parse commit info from tag
+              if echo "$IMAGE_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                SHORT_SHA=$(echo "$IMAGE_TAG" | cut -c1-8)
+                COMMIT_INFO="(📝 $SHORT_SHA)"
+              elif echo "$IMAGE_TAG" | grep -q '^sha-'; then
+                COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                if [ ${#COMMIT_SHA} -eq 40 ]; then
+                  SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                  COMMIT_INFO="(📝 $SHORT_SHA)"
                 else
-                  echo "   🔗 $tag"
+                  COMMIT_INFO="(📝 $COMMIT_SHA)"
                 fi
+              else
+                COMMIT_INFO=""
               fi
-            done
+              
+              echo "   🏷️  $IMAGE_TAG $COMMIT_INFO"
+              echo "      📅 Created: $created"
+              echo "      🔄 Updated: $updated"
+              echo ""
+            fi
+          done; then
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
