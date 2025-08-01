@@ -133,6 +133,40 @@ jobs:
             fi
           fi
 
+      - name: Checkout code at image commit
+        if: inputs.knative_yaml != ''
+        run: |
+          # Extract git hash from image tag (format: registry/path/service:abc123 or just abc123)
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          echo "Extracting git hash from image tag: $IMAGE_TAG"
+          
+          # Extract SHA from the tag (after the colon, or the whole string if no colon)
+          if [[ "$IMAGE_TAG" == *":"* ]]; then
+            # Full image path with tag (e.g., us-central1-docker.pkg.dev/project/repo/service:abc123)
+            GIT_HASH="${IMAGE_TAG##*:}"
+          else
+            # Just the hash (e.g., abc123def456)
+            GIT_HASH="$IMAGE_TAG"
+          fi
+          
+          # Validate it looks like a git hash (40 hex chars or 7+ hex chars)
+          if [[ "$GIT_HASH" =~ ^[a-f0-9]{7,40}$ ]]; then
+            echo "Found git hash: $GIT_HASH"
+            
+            # Checkout the specific commit to ensure config matches the deployed image
+            echo "Checking out commit $GIT_HASH to sync configuration..."
+            git fetch origin
+            git checkout "$GIT_HASH"
+            
+            echo "✅ Repository checked out at commit $GIT_HASH"
+            echo "Configuration will now match the deployed image exactly"
+          else
+            echo "⚠️  Could not extract valid git hash from image tag: $IMAGE_TAG"
+            echo "Extracted: '$GIT_HASH' (expected 7-40 hex characters)"
+            echo "Using current repository state for configuration"
+            echo "Expected format: registry/path/service:abc123 or abc123"
+          fi
+
       - name: Prepare configuration (if provided)
         if: inputs.knative_yaml != ''
         run: |
