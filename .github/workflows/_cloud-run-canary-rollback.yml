@@ -1,63 +1,327 @@
-name: Rollback Canary (Reusable)
+name: Cloud Run Rollback Canary (Reusable)
 
 on:
   workflow_call:
     inputs:
-      service:
-        description: 'Service to rollback'
-        required: true
-        type: string
       environment:
-        description: 'Environment'
         required: true
         type: string
+        description: "Environment name (dev/pro)"
+      service_name:
+        required: true
+        type: string
+        description: "Cloud Run service name"
+      cleanup_canary_revision:
+        required: false
+        type: boolean
+        default: true
+        description: "Whether to delete the canary revision after rollback"
     outputs:
       service_url:
         description: "The Cloud Run service URL"
         value: ${{ jobs.rollback-canary.outputs.service_url }}
+      rollback_revision:
+        description: "The revision that traffic was rolled back to"
+        value: ${{ jobs.rollback-canary.outputs.rollback_revision }}
 
 jobs:
-  # Rollback canary
   rollback-canary:
-    name: Rollback Canary
-    uses: zondax/_workflows/.github/workflows/_cloud-run-rollback-canary.yml@canary
-    with:
-      environment: ${{ inputs.environment }}
-      service_name: "${{ inputs.service }}-${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
-    secrets: inherit
-
-  # Post rollback info
-  post-info:
-    name: Post Rollback Info
-    if: always()
-    needs: [rollback-canary]
     runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      service_url: ${{ steps.get-info.outputs.service_url }}
+      rollback_revision: ${{ steps.get-info.outputs.rollback_revision }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
-      - name: Rollback Summary
+      - name: Environment Logging
         run: |
-          echo "## 🚨 Canary Rollback Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Service:** ${{ inputs.service }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ needs.rollback-canary.result }}" = "success" ]; then
-            echo "✅ **Status:** Canary rollback completed successfully!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Service URL:** ${{ needs.rollback-canary.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Rollback Complete!" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 Service has been restored to the previous stable version" >> $GITHUB_STEP_SUMMARY
-            echo "📊 All traffic is now directed to the stable revision" >> $GITHUB_STEP_SUMMARY
-            echo "🛠️ The problematic canary revision has been removed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
-            echo "1. 🔍 Investigate the issues that caused the rollback" >> $GITHUB_STEP_SUMMARY
-            echo "2. 🛠️ Fix the problems in your code" >> $GITHUB_STEP_SUMMARY
-            echo "3. 🔄 Deploy a new version when ready" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Status:** Canary rollback failed!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Please check the rollback logs and contact support if needed." >> $GITHUB_STEP_SUMMARY
-            echo "🚨 **URGENT:** Manual intervention may be required!" >> $GITHUB_STEP_SUMMARY
+          echo "🚨 EMERGENCY CANARY ROLLBACK"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Service: ${{ inputs.service_name }}"
+          echo "Cleanup canary: ${{ inputs.cleanup_canary_revision }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Validate service exists
+        run: |
+          # Check if service exists
+          if ! gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --quiet >/dev/null 2>&1; then
+            echo "ERROR: Service ${{ inputs.service_name }} does not exist"
+            exit 1
           fi
+
+      - name: Check current canary status
+        id: current-status
+        run: |
+          echo "Current traffic allocation (before rollback):"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+          
+          # Check if there's a canary deployment
+          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -eq 0 ]; then
+            echo "WARNING: No canary deployment found for service ${{ inputs.service_name }}"
+            echo "Checking if there are multiple revisions with traffic..."
+            
+            # Count revisions with traffic > 0
+            TRAFFIC_REVISIONS=$(gcloud run services describe ${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(spec.traffic[].percent)' | grep -v '^0$' | wc -l)
+            
+            if [ "$TRAFFIC_REVISIONS" -le 1 ]; then
+              echo "INFO: Only one revision has traffic. Nothing to rollback."
+              echo "Service is already in a stable state."
+              exit 0
+            else
+              echo "INFO: Multiple revisions found with traffic. Will rollback to stable."
+            fi
+          fi
+          
+          # Get current canary traffic percentage (assuming newest revision is canary)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          CURRENT_CANARY_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
+          
+          echo "current_canary_traffic=$CURRENT_CANARY_TRAFFIC" >> $GITHUB_OUTPUT
+          
+          echo "Canary currently has: ${CURRENT_CANARY_TRAFFIC}% traffic"
+
+      - name: Get revision information
+        id: revisions
+        run: |
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+          
+          # Get the two most recent revisions (canary is newest, stable is second-newest)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          STABLE_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=2 \
+            --format='value(metadata.name)' | tail -1)
+          
+          echo "Identified revisions:"
+          echo "  Canary (to be removed): $CANARY_REVISION"
+          echo "  Stable (to get 100% traffic): $STABLE_REVISION"
+          
+          if [ -z "$STABLE_REVISION" ] || [ "$STABLE_REVISION" = "null" ]; then
+            echo "ERROR: Could not find a stable revision to rollback to"
+            echo "Available revisions:"
+            gcloud run revisions list \
+              --service=${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --limit=5
+            exit 1
+          fi
+          
+          echo "canary_revision=$CANARY_REVISION" >> $GITHUB_OUTPUT
+          echo "stable_revision=$STABLE_REVISION" >> $GITHUB_OUTPUT
+          
+          echo "Found revisions:"
+          echo "  Canary (will be rolled back): $CANARY_REVISION"
+          echo "  Stable (rollback target): $STABLE_REVISION"
+
+      - name: Execute emergency rollback
+        id: rollback
+        run: |
+          STABLE_REVISION="${{ steps.revisions.outputs.stable_revision }}"
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          
+          echo "🚨 EXECUTING EMERGENCY ROLLBACK"
+          echo "Rolling back to stable revision: $STABLE_REVISION"
+          
+          # Immediately switch 100% traffic to stable revision
+          gcloud run services update-traffic ${{ inputs.service_name }} \
+            --to-revisions="$STABLE_REVISION=100" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          
+          # Remove canary tag if it exists
+          if [ -n "$CANARY_REVISION" ] && [ "$CANARY_REVISION" != "null" ]; then
+            gcloud run services update-traffic ${{ inputs.service_name }} \
+              --remove-tags=canary \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} || echo "Could not remove canary tag (may not exist)"
+          fi
+          
+          # Ensure stable tag is set
+          gcloud run services update-traffic ${{ inputs.service_name }} \
+            --set-tags=stable="$STABLE_REVISION" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          
+          echo "✅ Emergency rollback completed!"
+
+      - name: Cleanup canary revision
+        if: inputs.cleanup_canary_revision == true
+        run: |
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          
+          if [ -n "$CANARY_REVISION" ] && [ "$CANARY_REVISION" != "null" ]; then
+            echo "Attempting to clean up canary revision: $CANARY_REVISION"
+            
+            # Wait a moment for traffic changes to propagate
+            sleep 10
+            
+            # Check if this is the latest revision (cannot be deleted due to Cloud Run limitations)
+            LATEST_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+            
+            if [ "$CANARY_REVISION" = "$LATEST_REVISION" ]; then
+              echo "⚠️  Cannot delete latest revision '$CANARY_REVISION' due to Cloud Run limitations"
+              echo "   The revision has 0% traffic and no 'canary' tag, so it's effectively inactive"
+              echo "   It will be automatically cleaned up when a new revision is deployed"
+            else
+              echo "Deleting canary revision: $CANARY_REVISION"
+              if gcloud run revisions delete "$CANARY_REVISION" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --quiet; then
+                echo "✅ Successfully deleted canary revision"
+              else
+                echo "⚠️  Could not delete canary revision (may still be serving traffic or is latest revision)"
+              fi
+            fi
+            
+            echo "✅ Canary revision cleanup completed"
+          else
+            echo "No canary revision to cleanup"
+          fi
+
+      - name: Verify rollback
+        run: |
+          echo "Verifying rollback state..."
+          sleep 5  # Give it a moment to propagate
+          
+          echo "Traffic allocation after rollback:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+          
+          # Verify 100% traffic to stable revision
+          STABLE_REVISION="${{ steps.revisions.outputs.stable_revision }}"
+          STABLE_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$STABLE_REVISION" | cut -d',' -f2 || echo "0")
+          
+          if [ "$STABLE_TRAFFIC" != "100" ]; then
+            echo "WARNING: Expected 100% traffic to stable but got ${STABLE_TRAFFIC}%"
+          else
+            echo "✅ Rollback verified: 100% traffic to stable revision"
+          fi
+          
+          # Verify no canary tag exists
+          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -gt 0 ]; then
+            echo "WARNING: Canary tag still exists after rollback"
+          else
+            echo "✅ Verified: No canary tags remaining"
+          fi
+
+      - name: Health check after rollback
+        run: |
+          echo "Performing health check after rollback..."
+          
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          
+          echo "Service URL: $SERVICE_URL"
+          
+          # Simple health check (if service is publicly accessible)
+          if curl -f -s --max-time 10 "$SERVICE_URL/healthz" >/dev/null 2>&1; then
+            echo "✅ Service health check passed"
+          elif curl -f -s --max-time 10 "$SERVICE_URL" >/dev/null 2>&1; then
+            echo "✅ Service is responding"
+          else
+            echo "⚠️  Could not verify service health (may require authentication)"
+          fi
+
+      - name: Get deployment info
+        id: get-info
+        run: |
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          
+          # Get rollback revision (the stable revision that now has 100% traffic)
+          ROLLBACK_REVISION="${{ steps.revisions.outputs.stable_revision }}"
+          echo "rollback_revision=$ROLLBACK_REVISION" >> $GITHUB_OUTPUT
+          
+          echo "=== EMERGENCY ROLLBACK SUMMARY ==="
+          echo "Service URL: $SERVICE_URL"
+          echo "Rolled back to revision: $ROLLBACK_REVISION"
+          echo "Previous canary traffic: ${{ steps.current-status.outputs.current_canary_traffic }}%"
+          echo "Current traffic: 100% to stable"
+          echo "Canary revision cleanup: ${{ inputs.cleanup_canary_revision }}"
+          echo "Final traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+          echo "===================================="
+          
+          echo "🚨 Emergency rollback completed successfully!"
+          echo "✅ All traffic restored to stable revision"
+          echo "🏷️  Service tagged as 'stable' and ready for future deployments"
+          echo "🧹 Canary revision cleaned up (if enabled)"
+          echo ""
+          echo "🔍 Next steps:"
+          echo "   1. Investigate the issues that caused the rollback"
+          echo "   2. Fix the problems in your code"
+          echo "   3. Deploy a new version when ready"

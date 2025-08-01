@@ -1,58 +1,293 @@
-name: Finalize Canary (Reusable)
+name: Cloud Run Finalize Canary (Reusable)
 
 on:
   workflow_call:
     inputs:
-      service:
-        description: 'Service to finalize'
-        required: true  
-        type: string
       environment:
-        description: 'Environment'
         required: true
         type: string
+        description: "Environment name (dev/pro)"
+      service_name:
+        required: true
+        type: string
+        description: "Cloud Run service name"
+      cleanup_old_revisions:
+        required: false
+        type: boolean
+        default: true
+        description: "Whether to cleanup old revisions after finalization"
     outputs:
       service_url:
         description: "The Cloud Run service URL"
         value: ${{ jobs.finalize-canary.outputs.service_url }}
+      new_stable_revision:
+        description: "The new stable revision name"
+        value: ${{ jobs.finalize-canary.outputs.new_stable_revision }}
 
 jobs:
-  # Finalize canary
   finalize-canary:
-    name: Finalize Canary
-    uses: zondax/_workflows/.github/workflows/_cloud-run-finalize-canary.yml@canary
-    with:
-      environment: ${{ inputs.environment }}
-      service_name: "${{ inputs.service }}-${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
-    secrets: inherit
-
-  # Post finalization info
-  post-info:
-    name: Post Finalization Info
-    if: always()
-    needs: [finalize-canary]
     runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      service_url: ${{ steps.get-info.outputs.service_url }}
+      new_stable_revision: ${{ steps.get-info.outputs.new_stable_revision }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
-      - name: Finalization Summary
+      - name: Environment Logging
         run: |
-          echo "## ✅ Canary Finalization Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Service:** ${{ inputs.service }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ needs.finalize-canary.result }}" = "success" ]; then
-            echo "✅ **Status:** Canary finalized successfully!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Service URL:** ${{ needs.finalize-canary.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Deployment Complete!" >> $GITHUB_STEP_SUMMARY
-            echo "🎉 Your canary deployment is now receiving 100% traffic" >> $GITHUB_STEP_SUMMARY
-            echo "📊 The previous stable revision has been replaced" >> $GITHUB_STEP_SUMMARY
-            echo "🔄 Future deployments will use this revision as the new stable base" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Status:** Canary finalization failed!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Please check the finalization logs and try again." >> $GITHUB_STEP_SUMMARY
-            echo "🚨 Consider using **Rollback Canary** if issues persist." >> $GITHUB_STEP_SUMMARY
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Service: ${{ inputs.service_name }}"
+          echo "Cleanup old revisions: ${{ inputs.cleanup_old_revisions }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Validate service exists
+        run: |
+          # Check if service exists
+          if ! gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --quiet >/dev/null 2>&1; then
+            echo "ERROR: Service ${{ inputs.service_name }} does not exist"
+            exit 1
           fi
+
+      - name: Check current canary status
+        id: current-status
+        run: |
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+          
+          # Check if there's a canary deployment
+          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -eq 0 ]; then
+            echo "ERROR: No canary deployment found for service ${{ inputs.service_name }}"
+            echo "There's nothing to finalize."
+            exit 1
+          fi
+          
+          # Show current traffic allocation
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+          
+          # Get current canary traffic percentage (assuming newest revision is canary)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          # Find the traffic percentage for the canary revision
+          CURRENT_CANARY_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
+          
+          echo "Current canary traffic: ${CURRENT_CANARY_TRAFFIC}%"
+          echo "current_canary_traffic=$CURRENT_CANARY_TRAFFIC" >> $GITHUB_OUTPUT
+          
+          # Warning if canary traffic is low
+          if [ "$CURRENT_CANARY_TRAFFIC" -lt 50 ] && [ "$CURRENT_CANARY_TRAFFIC" -gt 0 ]; then
+            echo "WARNING: Canary currently has only ${CURRENT_CANARY_TRAFFIC}% traffic"
+            echo "Consider promoting canary traffic to a higher percentage first"
+            echo "Proceeding with finalization anyway..."
+          fi
+
+      - name: Get revision information
+        id: revisions
+        run: |
+          # Get the two most recent revisions (canary is newest, stable is second-newest)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          OLD_STABLE_REVISION=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=2 \
+            --format='value(metadata.name)' | tail -1)
+          
+          echo "Identified revisions:"
+          echo "  Canary (to become stable): $CANARY_REVISION"
+          echo "  Old stable (to be retired): $OLD_STABLE_REVISION"
+          
+          if [ -z "$CANARY_REVISION" ]; then
+            echo "ERROR: Could not find canary revision"
+            exit 1
+          fi
+          
+          echo "canary_revision=$CANARY_REVISION" >> $GITHUB_OUTPUT
+          echo "old_stable_revision=$OLD_STABLE_REVISION" >> $GITHUB_OUTPUT
+          
+          echo "Found revisions:"
+          echo "  Canary (will become new stable): $CANARY_REVISION"
+          echo "  Old stable (will be removed): $OLD_STABLE_REVISION"
+
+      - name: Finalize canary deployment
+        id: finalize
+        run: |
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          
+          echo "Finalizing canary deployment..."
+          echo "Promoting canary revision to 100% traffic: $CANARY_REVISION"
+          
+          # Promote canary to 100% traffic and remove other allocations
+          gcloud run services update-traffic ${{ inputs.service_name }} \
+            --to-revisions="$CANARY_REVISION=100" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          
+          # Remove canary tag and add stable tag to the new revision
+          gcloud run services update-traffic ${{ inputs.service_name }} \
+            --remove-tags=canary \
+            --set-tags=stable="$CANARY_REVISION" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          
+          echo "✅ Canary finalization completed!"
+
+      - name: Cleanup old revisions
+        if: inputs.cleanup_old_revisions == true
+        run: |
+          OLD_STABLE_REVISION="${{ steps.revisions.outputs.old_stable_revision }}"
+          
+          if [ -n "$OLD_STABLE_REVISION" ] && [ "$OLD_STABLE_REVISION" != "null" ]; then
+            echo "Cleaning up old stable revision: $OLD_STABLE_REVISION"
+            
+            # Delete old stable revision
+            gcloud run revisions delete "$OLD_STABLE_REVISION" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --quiet || echo "Could not delete old revision (may already be gone)"
+            
+            echo "✅ Old revision cleanup completed"
+          else
+            echo "No old stable revision to cleanup"
+          fi
+          
+          # Clean up any other old revisions (keep only the latest stable)
+          echo "Checking for other old revisions to cleanup..."
+          
+          CURRENT_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          OLD_REVISIONS=$(gcloud run revisions list \
+            --service=${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(metadata.name)' \
+            --limit=10 | grep -v "^$CURRENT_REVISION$" || true)
+          
+          if [ -n "$OLD_REVISIONS" ]; then
+            echo "Found old revisions to cleanup:"
+            echo "$OLD_REVISIONS"
+            
+            # Delete old revisions (keep only current)
+            echo "$OLD_REVISIONS" | while IFS= read -r revision; do
+              if [ -n "$revision" ]; then
+                echo "Deleting old revision: $revision"
+                gcloud run revisions delete "$revision" \
+                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                  --quiet || echo "Could not delete revision $revision"
+              fi
+            done
+            
+            echo "✅ Additional revision cleanup completed"
+          else
+            echo "No additional old revisions found"
+          fi
+
+      - name: Verify final state
+        run: |
+          echo "Verifying final deployment state..."
+          sleep 5  # Give it a moment to propagate
+          
+          echo "Final traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+          
+          # Verify 100% traffic to the (now stable) canary revision
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          STABLE_TRAFFIC=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
+          
+          if [ "$STABLE_TRAFFIC" != "100" ]; then
+            echo "WARNING: Expected 100% traffic to stable but got ${STABLE_TRAFFIC}%"
+          else
+            echo "✅ Traffic allocation verified: 100% to stable revision"
+          fi
+          
+          # Verify no canary tag exists
+          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -gt 0 ]; then
+            echo "WARNING: Canary tag still exists after finalization"
+          else
+            echo "✅ Verified: No canary tags remaining"
+          fi
+
+      - name: Get deployment info
+        id: get-info
+        run: |
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          
+          # Get new stable revision (the canary that's now getting 100% traffic)
+          NEW_STABLE_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          echo "new_stable_revision=$NEW_STABLE_REVISION" >> $GITHUB_OUTPUT
+          
+          echo "=== CANARY FINALIZATION SUMMARY ==="
+          echo "Service URL: $SERVICE_URL"
+          echo "New stable revision: $NEW_STABLE_REVISION"
+          echo "Previous canary traffic: ${{ steps.current-status.outputs.current_canary_traffic }}%"
+          echo "Current traffic: 100% to stable"
+          echo "Old revisions cleanup: ${{ inputs.cleanup_old_revisions }}"
+          echo "Final traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+          echo "====================================="
+          
+          echo "🎉 Canary deployment finalized successfully!"
+          echo "✅ Your new version is now serving 100% of traffic"
+          echo "🏷️  Revision tagged as 'stable' for future canary deployments"
+          echo "🧹 Old revisions cleaned up (if enabled)"
