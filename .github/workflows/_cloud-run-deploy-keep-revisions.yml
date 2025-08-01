@@ -215,7 +215,7 @@ jobs:
             
             # Give all traffic to the latest revision (but keep old ones)
             gcloud run services update-traffic "$SERVICE_NAME" \
-              --to-latest=100 \
+              --to-latest \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
