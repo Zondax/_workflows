@@ -199,16 +199,32 @@ jobs:
           CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
           
           if [ -n "$CANARY_REVISION" ] && [ "$CANARY_REVISION" != "null" ]; then
-            echo "Cleaning up canary revision: $CANARY_REVISION"
+            echo "Attempting to clean up canary revision: $CANARY_REVISION"
             
             # Wait a moment for traffic changes to propagate
             sleep 10
             
-            # Delete canary revision
-            gcloud run revisions delete "$CANARY_REVISION" \
+            # Check if this is the latest revision (cannot be deleted due to Cloud Run limitations)
+            LATEST_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-              --quiet || echo "Could not delete canary revision (may still be serving traffic)"
+              --format='value(status.latestReadyRevisionName)')
+            
+            if [ "$CANARY_REVISION" = "$LATEST_REVISION" ]; then
+              echo "⚠️  Cannot delete latest revision '$CANARY_REVISION' due to Cloud Run limitations"
+              echo "   The revision has 0% traffic and no 'canary' tag, so it's effectively inactive"
+              echo "   It will be automatically cleaned up when a new revision is deployed"
+            else
+              echo "Deleting canary revision: $CANARY_REVISION"
+              if gcloud run revisions delete "$CANARY_REVISION" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --quiet; then
+                echo "✅ Successfully deleted canary revision"
+              else
+                echo "⚠️  Could not delete canary revision (may still be serving traffic or is latest revision)"
+              fi
+            fi
             
             echo "✅ Canary revision cleanup completed"
           else

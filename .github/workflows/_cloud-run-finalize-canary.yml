@@ -201,8 +201,7 @@ jobs:
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(metadata.name)' \
-            --filter="metadata.name!=$CURRENT_REVISION" \
-            --limit=10)
+            --limit=10 | grep -v "^$CURRENT_REVISION$" || true)
           
           if [ -n "$OLD_REVISIONS" ]; then
             echo "Found old revisions to cleanup:"

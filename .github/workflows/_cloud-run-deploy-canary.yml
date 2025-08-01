@@ -31,6 +31,11 @@ on:
         required: false
         type: string
         description: "JSON array of containers needing auth config"
+      force_replace_canary:
+        required: false
+        type: boolean
+        default: false
+        description: "Force deployment even if active canary exists"
     outputs:
       service_url:
         description: "The Cloud Run service URL"
@@ -56,6 +61,7 @@ jobs:
           echo "Service: ${{ inputs.service_name }}"
           echo "Image: ${{ inputs.image_tag }}"
           echo "Traffic: ${{ inputs.traffic_percentage }}%"
+          echo "Force replace canary: ${{ inputs.force_replace_canary }}"
           echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
           echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
 
@@ -110,8 +116,21 @@ jobs:
             --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
           
           if [ "$CANARY_COUNT" -gt 0 ]; then
-            echo "WARNING: There is already a canary deployment active"
-            echo "Consider using the promote-canary workflow instead"
+            if [ "${{ inputs.force_replace_canary }}" != "true" ]; then
+              echo "ERROR: Active canary deployment detected"
+              echo ""
+              echo "Current traffic allocation shows an active canary."
+              echo "Please complete the current canary lifecycle first:"
+              echo "  • Use 'canary-finalize' to promote current canary to 100%"
+              echo "  • Use 'canary-rollback' to remove current canary"
+              echo "  • Or set 'force_replace_canary: true' to override this check"
+              echo ""
+              echo "This prevents confusing traffic states and ensures proper canary management."
+              exit 1
+            else
+              echo "⚠️  FORCE OVERRIDE: Replacing existing canary deployment"
+              echo "The previous canary will lose its tag and may retain traffic allocation"
+            fi
           fi
 
       - name: Prepare configuration (if provided)
