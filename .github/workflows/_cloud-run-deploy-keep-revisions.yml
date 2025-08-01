@@ -303,53 +303,81 @@ jobs:
           echo "🧹 STEP 5: Cleaning up old revisions (keeping only 2 total)..."
           
           # Get current revision by looking for the one with 100% traffic
+          echo "🔍 Finding current active revision..."
           CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[0].revisionName)')
           
-          echo "🏷️  Current stable revision: $CURRENT_REVISION"
+          if [ -z "$CURRENT_REVISION" ]; then
+            echo "⚠️  Could not determine current revision, trying alternative method..."
+            # Try to get the latest revision from the service
+            CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+          fi
           
-          # Get all revisions except the current stable one
-          echo "🔍 Finding old revisions to clean up..."
-          OLD_REVISIONS=$(gcloud run revisions list \
+          echo "🏷️  Current active revision: $CURRENT_REVISION"
+          
+          # Get all revisions for this service
+          echo "🔍 Finding all revisions for cleanup analysis..."
+          ALL_REVISIONS=$(gcloud run revisions list \
             --service="$SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(metadata.name)' \
-            --filter="metadata.name!=$CURRENT_REVISION" \
             --sort-by="~metadata.creationTimestamp" \
             --limit=50)
           
+          # Filter out the current revision manually
+          OLD_REVISIONS=""
+          if [ -n "$ALL_REVISIONS" ] && [ -n "$CURRENT_REVISION" ]; then
+            OLD_REVISIONS=$(echo "$ALL_REVISIONS" | grep -v "^$CURRENT_REVISION$" || echo "")
+          elif [ -n "$ALL_REVISIONS" ]; then
+            # If we couldn't determine current revision, get all but the first (newest)
+            OLD_REVISIONS=$(echo "$ALL_REVISIONS" | tail -n +2)
+          fi
+          
           if [ -z "$OLD_REVISIONS" ]; then
-            echo "ℹ️  No old revisions found - this might be the first deployment"
+            echo "ℹ️  No old revisions found - this might be the first deployment or only one revision exists"
           else
-            echo "📝 Old revisions found:"
-            echo "$OLD_REVISIONS" | head -5
+            echo "📝 Found revisions for cleanup analysis:"
+            echo "   All revisions: $(echo "$ALL_REVISIONS" | wc -l) total"
+            echo "   Current revision: $CURRENT_REVISION"
+            echo "   Old revisions to process: $(echo "$OLD_REVISIONS" | wc -l)"
+            
+            # Show first few old revisions for debugging
+            echo "📋 Old revisions list:"
+            echo "$OLD_REVISIONS" | head -3 | sed 's/^/   /'
+            if [ $(echo "$OLD_REVISIONS" | wc -l) -gt 3 ]; then
+              echo "   ... and $(( $(echo "$OLD_REVISIONS" | wc -l) - 3 )) more"
+            fi
             
             # Keep only 1 old revision (delete the rest)
             REVISION_COUNT=0
             echo ""
             echo "🗑️  Processing old revisions (keeping 1, deleting others)..."
-            echo "$OLD_REVISIONS" | while IFS= read -r revision; do
+            
+            # Use a different approach for the loop to avoid subshell issues
+            while IFS= read -r revision; do
               if [ -n "$revision" ]; then
                 REVISION_COUNT=$((REVISION_COUNT + 1))
                 if [ $REVISION_COUNT -gt 1 ]; then
-                  echo "🗑️  Deleting old revision: $revision"
-                  gcloud run revisions delete "$revision" \
+                  echo "🗑️  Deleting old revision #$REVISION_COUNT: $revision"
+                  if gcloud run revisions delete "$revision" \
                     --region=${{ vars.PULUMI_GAR_LOCATION }} \
                     --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-                    --quiet
-                  if [ $? -eq 0 ]; then
-                    echo "   ✅ Deleted: $revision"
+                    --quiet; then
+                    echo "   ✅ Successfully deleted: $revision"
                   else
-                    echo "   ⚠️  Could not delete: $revision (may be in use)"
+                    echo "   ⚠️  Could not delete: $revision (may be in use or already deleted)"
                   fi
                 else
-                  echo "🛡️  Keeping previous revision for canary testing: $revision"
+                  echo "🛡️  Keeping previous revision #$REVISION_COUNT for canary testing: $revision"
                 fi
               fi
-            done
+            done <<< "$OLD_REVISIONS"
           fi
           
           echo ""
