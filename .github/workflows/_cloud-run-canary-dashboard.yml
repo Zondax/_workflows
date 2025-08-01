@@ -103,7 +103,7 @@ jobs:
               
               # Get latest available image
               LATEST_AVAILABLE=$(gcloud artifacts docker images list \
-                ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/$service_type \
+                ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service_type \
                 --sort-by="~CREATE_TIME" \
                 --limit="1" \
                 --format='value(IMAGE)' 2>/dev/null | grep -o 'sha-[a-f0-9]*' || echo "none")

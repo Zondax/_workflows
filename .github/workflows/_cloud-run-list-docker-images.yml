@@ -37,24 +37,27 @@ jobs:
         run: |
           echo "================================================"
           echo "🔸 API SERVICE DOCKER IMAGES"
-          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}"
           echo "================================================"
           
           echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
-          gcloud artifacts docker images list \
-            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/api \
+          if gcloud artifacts docker images list \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
             --format='table(
               IMAGE:label="🐳 IMAGE TAG",
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
-            )'
-          
-          echo ""
-          echo "💡 USAGE EXAMPLES:"
-          echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
-          echo "   Example: sha-abc123 or full URL from above"
+            )' 2>/dev/null; then
+            echo ""
+            echo "💡 USAGE EXAMPLES:"
+            echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
+            echo "   Example: sha-abc123 or full URL from above"
+          else
+            echo "⚠️  No API images found or repository doesn't exist yet"
+            echo "💡 Images will appear here after the first successful build"
+          fi
           echo ""
 
       - name: List Store Images
@@ -62,24 +65,27 @@ jobs:
         run: |
           echo "================================================"
           echo "🔸 STORE SERVICE DOCKER IMAGES"
-          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}"
           echo "================================================"
           
           echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
-          gcloud artifacts docker images list \
-            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/store \
+          if gcloud artifacts docker images list \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
             --format='table(
               IMAGE:label="🐳 IMAGE TAG",
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
-            )'
-          
-          echo ""
-          echo "💡 USAGE EXAMPLES:"
-          echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
-          echo "   Example: sha-xyz789 or full URL from above"
+            )' 2>/dev/null; then
+            echo ""
+            echo "💡 USAGE EXAMPLES:"
+            echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
+            echo "   Example: sha-xyz789 or full URL from above"
+          else
+            echo "⚠️  No Store images found or repository doesn't exist yet"
+            echo "💡 Images will appear here after the first successful build"
+          fi
           echo ""
 
       - name: List API Relay Images
@@ -87,24 +93,27 @@ jobs:
         run: |
           echo "================================================"
           echo "🔸 API-RELAY SERVICE DOCKER IMAGES"
-          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}"
           echo "================================================"
           
           echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
-          gcloud artifacts docker images list \
-            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/api-relay \
+          if gcloud artifacts docker images list \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
             --format='table(
               IMAGE:label="🐳 IMAGE TAG",
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
-            )' || echo "⚠️  No api-relay images found or access denied"
-          
-          echo ""
-          echo "💡 USAGE EXAMPLES:"
-          echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
-          echo "   Example: sha-def456 or full URL from above"
+            )' 2>/dev/null; then
+            echo ""
+            echo "💡 USAGE EXAMPLES:"
+            echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
+            echo "   Example: sha-def456 or full URL from above"
+          else
+            echo "⚠️  No API-Relay images found or repository doesn't exist yet"
+            echo "💡 Images will appear here after the first successful build"
+          fi
           echo ""
 
       - name: Show Recent Builds Summary
@@ -122,7 +131,7 @@ jobs:
           for service in api store api-relay; do
             echo "🔸 $service:"
             LATEST_IMAGE=$(gcloud artifacts docker images list \
-              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/$service \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service \
               --sort-by="~CREATE_TIME" \
               --limit="1" \
               --format='value(IMAGE)' 2>/dev/null || echo "")
@@ -131,7 +140,7 @@ jobs:
               # Extract just the tag (sha-xxx part)
               TAG=$(echo "$LATEST_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "$LATEST_IMAGE")
               CREATED=$(gcloud artifacts docker images list \
-                ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/zondax/$service \
+                ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service \
                 --sort-by="~CREATE_TIME" \
                 --limit="1" \
                 --format='value(CREATE_TIME.date())' 2>/dev/null || echo "Unknown")
