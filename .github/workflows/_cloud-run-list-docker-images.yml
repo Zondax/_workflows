@@ -45,28 +45,49 @@ jobs:
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
+            --include-tags \
             --format='table(
-              IMAGE:label="🐳 IMAGE TAG",
+              IMAGE:label="🐳 IMAGE:TAG",
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
             )' 2>/dev/null; then
             
             echo ""
-            echo "📝 COMMIT INFORMATION:"
-            # Extract commit SHAs from image tags and show commit info
+            echo "📝 IMAGE DETAILS WITH TAGS:"
+            # Show images with their tags and digests
             gcloud artifacts docker images list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
               --sort-by="~CREATE_TIME" \
               --limit="${{ inputs.limit }}" \
-              --format='value(IMAGE)' 2>/dev/null | while read -r image; do
+              --format='table[no-heading](
+                IMAGE:label="IMAGE",
+                TAGS.list():label="TAGS",
+                DIGEST:label="DIGEST"
+              )' 2>/dev/null | while IFS=$'\t' read -r image tags digest; do
               if [ -n "$image" ]; then
-                # Extract SHA from image tag (format: repo/service:sha-abc123 or repo/service:full-sha)
-                COMMIT_SHA=$(echo "$image" | sed 's/.*://' | sed 's/^sha-//')
-                IMAGE_TAG=$(echo "$image" | sed 's/.*://')
-                if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
-                  echo "   🔗 $IMAGE_TAG → commit: $COMMIT_SHA"
+                # Extract short digest for display
+                SHORT_DIGEST=$(echo "$digest" | cut -c1-16)
+                
+                if [ -n "$tags" ] && [ "$tags" != "" ]; then
+                  # Show each tag with potential commit info
+                  echo "$tags" | tr ',' '\n' | while read -r tag; do
+                    tag=$(echo "$tag" | xargs) # trim whitespace
+                    if [ -n "$tag" ]; then
+                      # GitHub SHA is 40 characters long (full SHA from build workflow)
+                      if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
+                        SHORT_SHA=$(echo "$tag" | cut -c1-8)
+                        echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
+                      elif echo "$tag" | grep -q '^sha-'; then
+                        COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
+                        echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
+                      else
+                        echo "   🔗 $tag"
+                      fi
+                    fi
+                  done
                 else
-                  echo "   🔗 $IMAGE_TAG"
+                  # No tags, show digest
+                  echo "   🔗 <untagged> (📋 digest: $SHORT_DIGEST...)"
                 fi
               fi
             done
@@ -94,28 +115,49 @@ jobs:
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
+            --include-tags \
             --format='table(
-              IMAGE:label="🐳 IMAGE TAG",
+              IMAGE:label="🐳 IMAGE:TAG",
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
             )' 2>/dev/null; then
             
             echo ""
-            echo "📝 COMMIT INFORMATION:"
-            # Extract commit SHAs from image tags and show commit info
+            echo "📝 IMAGE DETAILS WITH TAGS:"
+            # Show images with their tags and digests
             gcloud artifacts docker images list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
               --sort-by="~CREATE_TIME" \
               --limit="${{ inputs.limit }}" \
-              --format='value(IMAGE)' 2>/dev/null | while read -r image; do
+              --format='table[no-heading](
+                IMAGE:label="IMAGE",
+                TAGS.list():label="TAGS",
+                DIGEST:label="DIGEST"
+              )' 2>/dev/null | while IFS=$'\t' read -r image tags digest; do
               if [ -n "$image" ]; then
-                # Extract SHA from image tag (format: repo/service:sha-abc123 or repo/service:full-sha)
-                COMMIT_SHA=$(echo "$image" | sed 's/.*://' | sed 's/^sha-//')
-                IMAGE_TAG=$(echo "$image" | sed 's/.*://')
-                if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
-                  echo "   🔗 $IMAGE_TAG → commit: $COMMIT_SHA"
+                # Extract short digest for display
+                SHORT_DIGEST=$(echo "$digest" | cut -c1-16)
+                
+                if [ -n "$tags" ] && [ "$tags" != "" ]; then
+                  # Show each tag with potential commit info
+                  echo "$tags" | tr ',' '\n' | while read -r tag; do
+                    tag=$(echo "$tag" | xargs) # trim whitespace
+                    if [ -n "$tag" ]; then
+                      # GitHub SHA is 40 characters long (full SHA from build workflow)
+                      if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
+                        SHORT_SHA=$(echo "$tag" | cut -c1-8)
+                        echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
+                      elif echo "$tag" | grep -q '^sha-'; then
+                        COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
+                        echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
+                      else
+                        echo "   🔗 $tag"
+                      fi
+                    fi
+                  done
                 else
-                  echo "   🔗 $IMAGE_TAG"
+                  # No tags, show digest
+                  echo "   🔗 <untagged> (📋 digest: $SHORT_DIGEST...)"
                 fi
               fi
             done
@@ -143,28 +185,49 @@ jobs:
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
+            --include-tags \
             --format='table(
-              IMAGE:label="🐳 IMAGE TAG",
-              CREATE_TIME.date():label="📅 CREATED",
+              IMAGE:label="🐳 IMAGE:TAG",
+              CREATE_TIME.date():label="📅 CREATED", 
               UPDATE_TIME.date():label="🔄 UPDATED"
             )' 2>/dev/null; then
             
             echo ""
-            echo "📝 COMMIT INFORMATION:"
-            # Extract commit SHAs from image tags and show commit info
+            echo "📝 IMAGE DETAILS WITH TAGS:"
+            # Show images with their tags and digests
             gcloud artifacts docker images list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
               --sort-by="~CREATE_TIME" \
               --limit="${{ inputs.limit }}" \
-              --format='value(IMAGE)' 2>/dev/null | while read -r image; do
+              --format='table[no-heading](
+                IMAGE:label="IMAGE",
+                TAGS.list():label="TAGS",
+                DIGEST:label="DIGEST"
+              )' 2>/dev/null | while IFS=$'\t' read -r image tags digest; do
               if [ -n "$image" ]; then
-                # Extract SHA from image tag (format: repo/service:sha-abc123 or repo/service:full-sha)
-                COMMIT_SHA=$(echo "$image" | sed 's/.*://' | sed 's/^sha-//')
-                IMAGE_TAG=$(echo "$image" | sed 's/.*://')
-                if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
-                  echo "   🔗 $IMAGE_TAG → commit: $COMMIT_SHA"
+                # Extract short digest for display
+                SHORT_DIGEST=$(echo "$digest" | cut -c1-16)
+                
+                if [ -n "$tags" ] && [ "$tags" != "" ]; then
+                  # Show each tag with potential commit info
+                  echo "$tags" | tr ',' '\n' | while read -r tag; do
+                    tag=$(echo "$tag" | xargs) # trim whitespace
+                    if [ -n "$tag" ]; then
+                      # GitHub SHA is 40 characters long (full SHA from build workflow)
+                      if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
+                        SHORT_SHA=$(echo "$tag" | cut -c1-8)
+                        echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
+                      elif echo "$tag" | grep -q '^sha-'; then
+                        COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
+                        echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
+                      else
+                        echo "   🔗 $tag"
+                      fi
+                    fi
+                  done
                 else
-                  echo "   🔗 $IMAGE_TAG"
+                  # No tags, show digest
+                  echo "   🔗 <untagged> (📋 digest: $SHORT_DIGEST...)"
                 fi
               fi
             done
