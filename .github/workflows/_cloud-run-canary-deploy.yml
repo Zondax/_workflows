@@ -56,6 +56,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history to allow checkout of any commit
 
       - name: Authenticate with GCP
         uses: zondax/actions/gcp-wif-auth@v1
@@ -162,11 +164,21 @@ jobs:
             
             # Checkout the specific commit to ensure config matches the deployed image
             echo "Checking out commit $GIT_HASH to sync configuration..."
-            git fetch origin
-            git checkout "$GIT_HASH"
             
-            echo "✅ Repository checked out at commit $GIT_HASH"
-            echo "Configuration will now match the deployed image exactly"
+            # Try to checkout the commit, with fallback handling
+            if git checkout "$GIT_HASH" 2>/dev/null; then
+              echo "✅ Repository checked out at commit $GIT_HASH"
+              echo "Configuration will now match the deployed image exactly"
+            else
+              echo "⚠️  Could not checkout commit $GIT_HASH"
+              echo "This might happen if:"
+              echo "  - The commit doesn't exist in this repository"
+              echo "  - The commit is from a different branch/fork"
+              echo "  - The image tag doesn't match the repository commit"
+              echo ""
+              echo "Falling back to current repository state for configuration"
+              echo "⚠️  Configuration may not exactly match the deployed image"
+            fi
           else
             echo "⚠️  Could not extract valid git hash from image tag: $IMAGE_TAG"
             echo "Extracted: '$GIT_HASH' (expected 7-40 hex characters)"
