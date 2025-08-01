@@ -50,10 +50,31 @@ jobs:
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
             )' 2>/dev/null; then
+            
+            echo ""
+            echo "📝 COMMIT INFORMATION:"
+            # Extract commit SHAs from image tags and show commit info
+            gcloud artifacts docker images list \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
+              --sort-by="~CREATE_TIME" \
+              --limit="${{ inputs.limit }}" \
+              --format='value(IMAGE)' 2>/dev/null | while read -r image; do
+              if [ -n "$image" ]; then
+                # Extract SHA from image tag (format: repo/service:sha-abc123 or repo/service:full-sha)
+                COMMIT_SHA=$(echo "$image" | sed 's/.*://' | sed 's/^sha-//')
+                IMAGE_TAG=$(echo "$image" | sed 's/.*://')
+                if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                  echo "   🔗 $IMAGE_TAG → commit: $COMMIT_SHA"
+                else
+                  echo "   🔗 $IMAGE_TAG"
+                fi
+              fi
+            done
+            
             echo ""
             echo "💡 USAGE EXAMPLES:"
-            echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
-            echo "   Example: sha-abc123 or full URL from above"
+            echo "   🚀 Deploy Canary: Use the image tag from above"
+            echo "   Example: Copy the tag after 🔗 (e.g., sha-abc123 or full SHA)"
           else
             echo "⚠️  No API images found or repository doesn't exist yet"
             echo "💡 Images will appear here after the first successful build"
@@ -78,10 +99,31 @@ jobs:
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
             )' 2>/dev/null; then
+            
+            echo ""
+            echo "📝 COMMIT INFORMATION:"
+            # Extract commit SHAs from image tags and show commit info
+            gcloud artifacts docker images list \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
+              --sort-by="~CREATE_TIME" \
+              --limit="${{ inputs.limit }}" \
+              --format='value(IMAGE)' 2>/dev/null | while read -r image; do
+              if [ -n "$image" ]; then
+                # Extract SHA from image tag (format: repo/service:sha-abc123 or repo/service:full-sha)
+                COMMIT_SHA=$(echo "$image" | sed 's/.*://' | sed 's/^sha-//')
+                IMAGE_TAG=$(echo "$image" | sed 's/.*://')
+                if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                  echo "   🔗 $IMAGE_TAG → commit: $COMMIT_SHA"
+                else
+                  echo "   🔗 $IMAGE_TAG"
+                fi
+              fi
+            done
+            
             echo ""
             echo "💡 USAGE EXAMPLES:"
-            echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
-            echo "   Example: sha-xyz789 or full URL from above"
+            echo "   🚀 Deploy Canary: Use the image tag from above"
+            echo "   Example: Copy the tag after 🔗 (e.g., sha-xyz789 or full SHA)"
           else
             echo "⚠️  No Store images found or repository doesn't exist yet"
             echo "💡 Images will appear here after the first successful build"
@@ -106,10 +148,31 @@ jobs:
               CREATE_TIME.date():label="📅 CREATED",
               UPDATE_TIME.date():label="🔄 UPDATED"
             )' 2>/dev/null; then
+            
+            echo ""
+            echo "📝 COMMIT INFORMATION:"
+            # Extract commit SHAs from image tags and show commit info
+            gcloud artifacts docker images list \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
+              --sort-by="~CREATE_TIME" \
+              --limit="${{ inputs.limit }}" \
+              --format='value(IMAGE)' 2>/dev/null | while read -r image; do
+              if [ -n "$image" ]; then
+                # Extract SHA from image tag (format: repo/service:sha-abc123 or repo/service:full-sha)
+                COMMIT_SHA=$(echo "$image" | sed 's/.*://' | sed 's/^sha-//')
+                IMAGE_TAG=$(echo "$image" | sed 's/.*://')
+                if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                  echo "   🔗 $IMAGE_TAG → commit: $COMMIT_SHA"
+                else
+                  echo "   🔗 $IMAGE_TAG"
+                fi
+              fi
+            done
+            
             echo ""
             echo "💡 USAGE EXAMPLES:"
-            echo "   🚀 Deploy Canary: Use full image path or just the sha-* tag"
-            echo "   Example: sha-def456 or full URL from above"
+            echo "   🚀 Deploy Canary: Use the image tag from above"
+            echo "   Example: Copy the tag after 🔗 (e.g., sha-def456 or full SHA)"
           else
             echo "⚠️  No API-Relay images found or repository doesn't exist yet"
             echo "💡 Images will appear here after the first successful build"
@@ -137,15 +200,19 @@ jobs:
               --format='value(IMAGE)' 2>/dev/null || echo "")
             
             if [ -n "$LATEST_IMAGE" ]; then
-              # Extract just the tag (sha-xxx part)
-              TAG=$(echo "$LATEST_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "$LATEST_IMAGE")
+              # Extract the full tag and commit SHA
+              IMAGE_TAG=$(echo "$LATEST_IMAGE" | sed 's/.*://')
+              COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
               CREATED=$(gcloud artifacts docker images list \
                 ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service \
                 --sort-by="~CREATE_TIME" \
                 --limit="1" \
                 --format='value(CREATE_TIME.date())' 2>/dev/null || echo "Unknown")
               
-              echo "   🏷️  Tag: $TAG"
+              echo "   🏷️  Tag: $IMAGE_TAG"
+              if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                echo "   🔗 Commit: $COMMIT_SHA"
+              fi
               echo "   📅 Created: $CREATED"
             else
               echo "   ⚠️  No images found"

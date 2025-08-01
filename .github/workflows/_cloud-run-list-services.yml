@@ -89,12 +89,29 @@ jobs:
                   echo "   ⚠️  Canary ready: No (no stable tag)"
                 fi
                 
-                # Get latest image
-                LATEST_IMAGE=$(gcloud run services describe "$service" \
+                # Get all container images
+                echo "   🐳 Container images:"
+                gcloud run services describe "$service" \
                   --region=${{ vars.PULUMI_GAR_LOCATION }} \
                   --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-                  --format='value(spec.template.spec.containers[0].image)' || echo "N/A")
-                echo "   🐳 Current image: $LATEST_IMAGE"
+                  --format='value(spec.template.spec.containers[].name,spec.template.spec.containers[].image)' | \
+                  paste -d' ' - - | while read -r container_name container_image; do
+                  if [ -n "$container_name" ] && [ -n "$container_image" ]; then
+                    # Extract commit info if it's from our registry
+                    if echo "$container_image" | grep -q "${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}"; then
+                      IMAGE_TAG=$(echo "$container_image" | sed 's/.*://')
+                      COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                      if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                        echo "      📦 $container_name: $IMAGE_TAG (commit: $COMMIT_SHA)"
+                      else
+                        echo "      📦 $container_name: $IMAGE_TAG"
+                      fi
+                    else
+                      # External image (like Envoy)
+                      echo "      📦 $container_name: $(echo "$container_image" | sed 's/.*\///')"
+                    fi
+                  fi
+                done
               fi
               
               echo ""
@@ -172,12 +189,29 @@ jobs:
                   echo "   ⚠️  Status: Not ready for canary (no stable tag)"
                 fi
                 
-                # Get latest image
-                LATEST_IMAGE=$(gcloud run services describe "$service" \
+                # Get all container images
+                echo "   🐳 Container images:"
+                gcloud run services describe "$service" \
                   --region=${{ vars.PULUMI_GAR_LOCATION }} \
                   --project="$PULUMI_GCP_PROJECT_ID_PRO" \
-                  --format='value(spec.template.spec.containers[0].image)' || echo "N/A")
-                echo "   🐳 Current image: $LATEST_IMAGE"
+                  --format='value(spec.template.spec.containers[].name,spec.template.spec.containers[].image)' | \
+                  paste -d' ' - - | while read -r container_name container_image; do
+                  if [ -n "$container_name" ] && [ -n "$container_image" ]; then
+                    # Extract commit info if it's from our registry
+                    if echo "$container_image" | grep -q "${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}"; then
+                      IMAGE_TAG=$(echo "$container_image" | sed 's/.*://')
+                      COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                      if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                        echo "      📦 $container_name: $IMAGE_TAG (commit: $COMMIT_SHA)"
+                      else
+                        echo "      📦 $container_name: $IMAGE_TAG"
+                      fi
+                    else
+                      # External image (like Envoy)
+                      echo "      📦 $container_name: $(echo "$container_image" | sed 's/.*\///')"
+                    fi
+                  fi
+                done
               fi
               
               echo ""

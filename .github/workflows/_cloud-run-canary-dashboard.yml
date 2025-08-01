@@ -57,13 +57,6 @@ jobs:
                 --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
                 --format='value(status.url)')
               
-              CURRENT_IMAGE=$(gcloud run services describe "$service_name" \
-                --region=${{ vars.PULUMI_GAR_LOCATION }} \
-                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-                --format='value(spec.template.spec.containers[0].image)')
-              
-              CURRENT_TAG=$(echo "$CURRENT_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "custom")
-              
               REVISION_COUNT=$(gcloud run revisions list \
                 --service="$service_name" \
                 --region=${{ vars.PULUMI_GAR_LOCATION }} \
@@ -83,8 +76,31 @@ jobs:
               
               echo "   ✅ Status: DEPLOYED"
               echo "   🔗 URL: $CURRENT_URL"
-              echo "   🏷️  Current: $CURRENT_TAG"
               echo "   🔢 Revisions: $REVISION_COUNT"
+              
+              # Show all container images
+              echo "   🐳 Containers:"
+              gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                --format='value(spec.template.spec.containers[].name,spec.template.spec.containers[].image)' | \
+                paste -d' ' - - | while read -r container_name container_image; do
+                if [ -n "$container_name" ] && [ -n "$container_image" ]; then
+                  # Extract commit info if it's from our registry
+                  if echo "$container_image" | grep -q "${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}"; then
+                    IMAGE_TAG=$(echo "$container_image" | sed 's/.*://')
+                    COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                    if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                      echo "      📦 $container_name: $IMAGE_TAG (📝 $COMMIT_SHA)"
+                    else
+                      echo "      📦 $container_name: $IMAGE_TAG"
+                    fi
+                  else
+                    # External image (like Envoy)
+                    echo "      📦 $container_name: $(echo "$container_image" | sed 's/.*\///')"
+                  fi
+                fi
+              done
               
               if [ -n "$CANARY_TAG" ]; then
                 echo "   🚀 Canary: ACTIVE"
@@ -148,13 +164,6 @@ jobs:
                 --project="$PULUMI_GCP_PROJECT_ID_PRO" \
                 --format='value(status.url)')
               
-              CURRENT_IMAGE=$(gcloud run services describe "$service_name" \
-                --region=${{ vars.PULUMI_GAR_LOCATION }} \
-                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
-                --format='value(spec.template.spec.containers[0].image)')
-              
-              CURRENT_TAG=$(echo "$CURRENT_IMAGE" | grep -o 'sha-[a-f0-9]*' || echo "custom")
-              
               REVISION_COUNT=$(gcloud run revisions list \
                 --service="$service_name" \
                 --region=${{ vars.PULUMI_GAR_LOCATION }} \
@@ -174,8 +183,31 @@ jobs:
               
               echo "   ✅ Status: DEPLOYED"
               echo "   🔗 URL: $CURRENT_URL"
-              echo "   🏷️  Current: $CURRENT_TAG"
               echo "   🔢 Revisions: $REVISION_COUNT"
+              
+              # Show all container images
+              echo "   🐳 Containers:"
+              gcloud run services describe "$service_name" \
+                --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                --project="$PULUMI_GCP_PROJECT_ID_PRO" \
+                --format='value(spec.template.spec.containers[].name,spec.template.spec.containers[].image)' | \
+                paste -d' ' - - | while read -r container_name container_image; do
+                if [ -n "$container_name" ] && [ -n "$container_image" ]; then
+                  # Extract commit info if it's from our registry
+                  if echo "$container_image" | grep -q "${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}"; then
+                    IMAGE_TAG=$(echo "$container_image" | sed 's/.*://')
+                    COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
+                    if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
+                      echo "      📦 $container_name: $IMAGE_TAG (📝 $COMMIT_SHA)"
+                    else
+                      echo "      📦 $container_name: $IMAGE_TAG"
+                    fi
+                  else
+                    # External image (like Envoy)
+                    echo "      📦 $container_name: $(echo "$container_image" | sed 's/.*\///')"
+                  fi
+                fi
+              done
               
               if [ -n "$CANARY_TAG" ]; then
                 echo "   🚀 Canary: ACTIVE ⚠️"
