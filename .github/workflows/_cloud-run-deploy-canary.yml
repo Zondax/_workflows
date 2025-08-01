@@ -184,24 +184,27 @@ jobs:
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
-            # Get revision names for traffic allocation
-            LATEST_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            # Get the current and new revision names
+            CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
               --format='value(status.latestReadyRevisionName)')
             
-            STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            # Get the second-to-latest revision (which was stable before this deployment)
+            STABLE_REVISION=$(gcloud run revisions list \
+              --service=${{ inputs.service_name }} \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-              --format='value(spec.traffic[].revisionName)' \
-              --filter='spec.traffic[].tag:stable')
+              --sort-by="~metadata.creationTimestamp" \
+              --limit=2 \
+              --format='value(metadata.name)' | tail -1)
             
-            echo "Latest revision: $LATEST_REVISION"
-            echo "Stable revision: $STABLE_REVISION"
+            echo "Canary revision (new): $CANARY_REVISION"
+            echo "Stable revision (previous): $STABLE_REVISION"
             
-            # Allocate traffic to revisions
+            # Allocate traffic between canary and stable revisions
             gcloud run services update-traffic ${{ inputs.service_name }} \
-              --to-revisions="$LATEST_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
+              --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           else
@@ -213,24 +216,27 @@ jobs:
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
-            # Get revision names for traffic allocation
-            LATEST_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            # Get the current and new revision names
+            CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
               --format='value(status.latestReadyRevisionName)')
             
-            STABLE_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            # Get the second-to-latest revision (which was stable before this deployment)
+            STABLE_REVISION=$(gcloud run revisions list \
+              --service=${{ inputs.service_name }} \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-              --format='value(spec.traffic[].revisionName)' \
-              --filter='spec.traffic[].tag:stable')
+              --sort-by="~metadata.creationTimestamp" \
+              --limit=2 \
+              --format='value(metadata.name)' | tail -1)
             
-            echo "Latest revision: $LATEST_REVISION"
-            echo "Stable revision: $STABLE_REVISION"
+            echo "Canary revision (new): $CANARY_REVISION"
+            echo "Stable revision (previous): $STABLE_REVISION"
             
-            # Allocate traffic to revisions  
+            # Allocate traffic between canary and stable revisions  
             gcloud run services update-traffic ${{ inputs.service_name }} \
-              --to-revisions="$LATEST_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
+              --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           fi
