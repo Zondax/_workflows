@@ -41,61 +41,42 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
-          if gcloud artifacts docker images list \
+          if gcloud artifacts docker tags list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --include-tags \
             --format='table(
-              IMAGE:label="🐳 IMAGE:TAG",
-              CREATE_TIME.date():label="📅 CREATED",
-              UPDATE_TIME.date():label="🔄 UPDATED"
+              TAG:label="🏷️  TAG",
+              IMAGE:label="🐳 IMAGE",
+              CREATE_TIME.date():label="📅 CREATED"
             )' 2>/dev/null; then
             
             echo ""
-            echo "📝 IMAGE DETAILS WITH TAGS:"
-            # Show images with their tags and digests
-            gcloud artifacts docker images list \
+            echo "📝 COMMIT INFORMATION:"
+            # Extract commit info from tags  
+            gcloud artifacts docker tags list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
               --sort-by="~CREATE_TIME" \
               --limit="${{ inputs.limit }}" \
-              --format='table[no-heading](
-                IMAGE:label="IMAGE",
-                TAGS.list():label="TAGS",
-                DIGEST:label="DIGEST"
-              )' 2>/dev/null | while IFS=$'\t' read -r image tags digest; do
-              if [ -n "$image" ]; then
-                # Extract short digest for display
-                SHORT_DIGEST=$(echo "$digest" | cut -c1-16)
-                
-                if [ -n "$tags" ] && [ "$tags" != "" ]; then
-                  # Show each tag with potential commit info
-                  echo "$tags" | tr ',' '\n' | while read -r tag; do
-                    tag=$(echo "$tag" | xargs) # trim whitespace
-                    if [ -n "$tag" ]; then
-                      # GitHub SHA is 40 characters long (full SHA from build workflow)
-                      if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
-                        SHORT_SHA=$(echo "$tag" | cut -c1-8)
-                        echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
-                      elif echo "$tag" | grep -q '^sha-'; then
-                        COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
-                        echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
-                      else
-                        echo "   🔗 $tag"
-                      fi
-                    fi
-                  done
+              --format='value(TAG)' 2>/dev/null | while read -r tag; do
+              if [ -n "$tag" ]; then
+                # GitHub SHA is 40 characters long (full SHA from build workflow)
+                if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$tag" | cut -c1-8)
+                  echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
+                elif echo "$tag" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
+                  echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
                 else
-                  # No tags, show digest
-                  echo "   🔗 <untagged> (📋 digest: $SHORT_DIGEST...)"
+                  echo "   🔗 $tag"
                 fi
               fi
             done
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
-            echo "   🚀 Deploy Canary: Use the image tag from above"
-            echo "   Example: Copy the tag after 🔗 (e.g., sha-abc123 or full SHA)"
+            echo "   🚀 Deploy Canary: Use the commit SHA tag from above"
+            echo "   Example: Copy the full SHA after 🔗 (e.g., abc123def456...)"
           else
             echo "⚠️  No API images found or repository doesn't exist yet"
             echo "💡 Images will appear here after the first successful build"
@@ -111,61 +92,42 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
-          if gcloud artifacts docker images list \
+          if gcloud artifacts docker tags list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --include-tags \
             --format='table(
-              IMAGE:label="🐳 IMAGE:TAG",
-              CREATE_TIME.date():label="📅 CREATED",
-              UPDATE_TIME.date():label="🔄 UPDATED"
+              TAG:label="🏷️  TAG",
+              IMAGE:label="🐳 IMAGE",
+              CREATE_TIME.date():label="📅 CREATED"
             )' 2>/dev/null; then
             
             echo ""
-            echo "📝 IMAGE DETAILS WITH TAGS:"
-            # Show images with their tags and digests
-            gcloud artifacts docker images list \
+            echo "📝 COMMIT INFORMATION:"
+            # Extract commit info from tags  
+            gcloud artifacts docker tags list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
               --sort-by="~CREATE_TIME" \
               --limit="${{ inputs.limit }}" \
-              --format='table[no-heading](
-                IMAGE:label="IMAGE",
-                TAGS.list():label="TAGS",
-                DIGEST:label="DIGEST"
-              )' 2>/dev/null | while IFS=$'\t' read -r image tags digest; do
-              if [ -n "$image" ]; then
-                # Extract short digest for display
-                SHORT_DIGEST=$(echo "$digest" | cut -c1-16)
-                
-                if [ -n "$tags" ] && [ "$tags" != "" ]; then
-                  # Show each tag with potential commit info
-                  echo "$tags" | tr ',' '\n' | while read -r tag; do
-                    tag=$(echo "$tag" | xargs) # trim whitespace
-                    if [ -n "$tag" ]; then
-                      # GitHub SHA is 40 characters long (full SHA from build workflow)
-                      if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
-                        SHORT_SHA=$(echo "$tag" | cut -c1-8)
-                        echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
-                      elif echo "$tag" | grep -q '^sha-'; then
-                        COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
-                        echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
-                      else
-                        echo "   🔗 $tag"
-                      fi
-                    fi
-                  done
+              --format='value(TAG)' 2>/dev/null | while read -r tag; do
+              if [ -n "$tag" ]; then
+                # GitHub SHA is 40 characters long (full SHA from build workflow)
+                if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$tag" | cut -c1-8)
+                  echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
+                elif echo "$tag" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
+                  echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
                 else
-                  # No tags, show digest
-                  echo "   🔗 <untagged> (📋 digest: $SHORT_DIGEST...)"
+                  echo "   🔗 $tag"
                 fi
               fi
             done
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
-            echo "   🚀 Deploy Canary: Use the image tag from above"
-            echo "   Example: Copy the tag after 🔗 (e.g., sha-xyz789 or full SHA)"
+            echo "   🚀 Deploy Canary: Use the commit SHA tag from above"
+            echo "   Example: Copy the full SHA after 🔗 (e.g., xyz789abc123...)"
           else
             echo "⚠️  No Store images found or repository doesn't exist yet"
             echo "💡 Images will appear here after the first successful build"
@@ -181,61 +143,42 @@ jobs:
           echo "================================================"
           
           echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
-          if gcloud artifacts docker images list \
+          if gcloud artifacts docker tags list \
             ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
             --sort-by="~CREATE_TIME" \
             --limit="${{ inputs.limit }}" \
-            --include-tags \
             --format='table(
-              IMAGE:label="🐳 IMAGE:TAG",
-              CREATE_TIME.date():label="📅 CREATED", 
-              UPDATE_TIME.date():label="🔄 UPDATED"
+              TAG:label="🏷️  TAG",
+              IMAGE:label="🐳 IMAGE",
+              CREATE_TIME.date():label="📅 CREATED"
             )' 2>/dev/null; then
             
             echo ""
-            echo "📝 IMAGE DETAILS WITH TAGS:"
-            # Show images with their tags and digests
-            gcloud artifacts docker images list \
+            echo "📝 COMMIT INFORMATION:"
+            # Extract commit info from tags  
+            gcloud artifacts docker tags list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
               --sort-by="~CREATE_TIME" \
               --limit="${{ inputs.limit }}" \
-              --format='table[no-heading](
-                IMAGE:label="IMAGE",
-                TAGS.list():label="TAGS",
-                DIGEST:label="DIGEST"
-              )' 2>/dev/null | while IFS=$'\t' read -r image tags digest; do
-              if [ -n "$image" ]; then
-                # Extract short digest for display
-                SHORT_DIGEST=$(echo "$digest" | cut -c1-16)
-                
-                if [ -n "$tags" ] && [ "$tags" != "" ]; then
-                  # Show each tag with potential commit info
-                  echo "$tags" | tr ',' '\n' | while read -r tag; do
-                    tag=$(echo "$tag" | xargs) # trim whitespace
-                    if [ -n "$tag" ]; then
-                      # GitHub SHA is 40 characters long (full SHA from build workflow)
-                      if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
-                        SHORT_SHA=$(echo "$tag" | cut -c1-8)
-                        echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
-                      elif echo "$tag" | grep -q '^sha-'; then
-                        COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
-                        echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
-                      else
-                        echo "   🔗 $tag"
-                      fi
-                    fi
-                  done
+              --format='value(TAG)' 2>/dev/null | while read -r tag; do
+              if [ -n "$tag" ]; then
+                # GitHub SHA is 40 characters long (full SHA from build workflow)
+                if echo "$tag" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$tag" | cut -c1-8)
+                  echo "   🔗 $tag (📝 commit: $SHORT_SHA)"
+                elif echo "$tag" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$tag" | sed 's/^sha-//')
+                  echo "   🔗 $tag (📝 commit: $COMMIT_SHA)"
                 else
-                  # No tags, show digest
-                  echo "   🔗 <untagged> (📋 digest: $SHORT_DIGEST...)"
+                  echo "   🔗 $tag"
                 fi
               fi
             done
             
             echo ""
             echo "💡 USAGE EXAMPLES:"
-            echo "   🚀 Deploy Canary: Use the image tag from above"
-            echo "   Example: Copy the tag after 🔗 (e.g., sha-def456 or full SHA)"
+            echo "   🚀 Deploy Canary: Use the commit SHA tag from above"
+            echo "   Example: Copy the full SHA after 🔗 (e.g., def456abc789...)"
           else
             echo "⚠️  No API-Relay images found or repository doesn't exist yet"
             echo "💡 Images will appear here after the first successful build"
