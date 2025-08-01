@@ -1,0 +1,68 @@
+name: Promote Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'Service to promote'
+        required: true
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+      traffic_percentage:
+        description: 'New traffic percentage for canary'
+        required: true
+        type: string
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.promote-canary.outputs.service_url }}
+      previous_traffic:
+        description: "Previous canary traffic percentage"
+        value: ${{ jobs.promote-canary.outputs.previous_traffic }}
+
+jobs:
+  # Promote canary
+  promote-canary:
+    name: Promote Canary
+    uses: zondax/_workflows/.github/workflows/_cloud-run-promote-canary.yml@canary
+    with:
+      environment: ${{ inputs.environment }}
+      service_name: "${{ inputs.service }}-${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
+      traffic_percentage: ${{ inputs.traffic_percentage }}
+    secrets: inherit
+
+  # Post promotion info
+  post-info:
+    name: Post Promotion Info
+    if: always()
+    needs: [promote-canary]
+    runs-on: zondax-runners
+    steps:
+      - name: Promotion Summary
+        run: |
+          echo "## ⬆️ Canary Promotion Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ inputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Previous Traffic:** ${{ needs.promote-canary.outputs.previous_traffic }}%" >> $GITHUB_STEP_SUMMARY
+          echo "**New Traffic:** ${{ inputs.traffic_percentage }}% to canary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.promote-canary.result }}" = "success" ]; then
+            echo "✅ **Status:** Canary promoted successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Service URL:** ${{ needs.promote-canary.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. 📊 Continue monitoring your service metrics and logs" >> $GITHUB_STEP_SUMMARY
+            echo "2. ⬆️ Use **Promote Canary** again to increase traffic further" >> $GITHUB_STEP_SUMMARY
+            echo "3. ✅ Use **Finalize Canary** when ready for 100%" >> $GITHUB_STEP_SUMMARY
+            echo "4. 🚨 Use **Rollback Canary** if issues detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Canary promotion failed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the promotion logs and try again." >> $GITHUB_STEP_SUMMARY
+          fi

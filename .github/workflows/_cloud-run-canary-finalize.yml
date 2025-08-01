@@ -1,0 +1,58 @@
+name: Finalize Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'Service to finalize'
+        required: true  
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.finalize-canary.outputs.service_url }}
+
+jobs:
+  # Finalize canary
+  finalize-canary:
+    name: Finalize Canary
+    uses: zondax/_workflows/.github/workflows/_cloud-run-finalize-canary.yml@canary
+    with:
+      environment: ${{ inputs.environment }}
+      service_name: "${{ inputs.service }}-${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
+    secrets: inherit
+
+  # Post finalization info
+  post-info:
+    name: Post Finalization Info
+    if: always()
+    needs: [finalize-canary]
+    runs-on: zondax-runners
+    steps:
+      - name: Finalization Summary
+        run: |
+          echo "## ✅ Canary Finalization Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ inputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.finalize-canary.result }}" = "success" ]; then
+            echo "✅ **Status:** Canary finalized successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Service URL:** ${{ needs.finalize-canary.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Deployment Complete!" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 Your canary deployment is now receiving 100% traffic" >> $GITHUB_STEP_SUMMARY
+            echo "📊 The previous stable revision has been replaced" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 Future deployments will use this revision as the new stable base" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Canary finalization failed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the finalization logs and try again." >> $GITHUB_STEP_SUMMARY
+            echo "🚨 Consider using **Rollback Canary** if issues persist." >> $GITHUB_STEP_SUMMARY
+          fi

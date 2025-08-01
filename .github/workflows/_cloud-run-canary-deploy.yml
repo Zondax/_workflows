@@ -1,0 +1,186 @@
+name: Deploy Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'Service to deploy'
+        required: true
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+      image_tag:
+        description: 'Docker image tag (e.g., sha-abc123 or latest built from recent push)'
+        required: true
+        type: string
+      traffic_percentage:
+        description: 'Initial canary traffic percentage'
+        required: true
+        type: string
+        default: '10'
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.deploy-canary.outputs.service_url }}
+      canary_revision:
+        description: "The new canary revision name" 
+        value: ${{ jobs.deploy-canary.outputs.canary_revision }}
+
+jobs:
+  # Get the latest image if not specified
+  get-image:
+    name: Get Docker Image
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      image_url: ${{ steps.get-image.outputs.image_url }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Get image URL
+        id: get-image
+        run: |
+          # Construct the full image URL
+          if [[ "${{ inputs.image_tag }}" == sha-* ]]; then
+            # Full tag provided
+            IMAGE_URL="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service }}:${{ inputs.image_tag }}"
+          elif [[ "${{ inputs.image_tag }}" == *"-docker.pkg.dev"* ]]; then
+            # Full URL provided
+            IMAGE_URL="${{ inputs.image_tag }}"
+          else
+            # Try to find the image with the tag
+            IMAGE_URL="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service }}:${{ inputs.image_tag }}"
+          fi
+          
+          echo "Checking image: $IMAGE_URL"
+          
+          # Verify image exists
+          if gcloud artifacts docker images describe "$IMAGE_URL" --quiet >/dev/null 2>&1; then
+            echo "✅ Image found: $IMAGE_URL"
+            echo "image_url=$IMAGE_URL" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Image not found: $IMAGE_URL"
+            echo "Available images for ${{ inputs.service }}:"
+            gcloud artifacts docker images list \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service }} \
+              --sort-by="~CREATE_TIME" \
+              --limit=10 \
+              --format='table(TAGS.list(),CREATE_TIME.date())' || echo "Could not list images"
+            exit 1
+          fi
+
+  # Prepare configuration
+  prepare-config:
+    name: Prepare Configuration
+    runs-on: zondax-runners
+    outputs:
+      container_configs: ${{ steps.container_configs.outputs.container_configs }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare service configs
+        id: container_configs
+        run: |
+          SERVICE="${{ inputs.service }}"
+          ENV="${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
+          
+          case "$SERVICE" in
+            api)
+              # API service needs app config, sidecar config, auth model, auth policy, and otel config
+              if [ ! -f ".github/services/api/configs/$ENV/api_app_config_file.yaml" ]; then
+                echo "ERROR: API config file not found for environment: $ENV"
+                exit 1
+              fi
+              
+              API_CONFIG_B64=$(base64 -w 0 .github/services/api/configs/$ENV/api_app_config_file.yaml)
+              SIDECAR_CONFIG_B64=$(base64 -w 0 .github/services/api/configs/$ENV/api_sidecar_config_file.yaml)
+              AUTH_MODEL_B64=$(base64 -w 0 .github/services/api/configs/$ENV/auth_model.conf)
+              AUTH_POLICY_B64=$(base64 -w 0 .github/services/api/configs/$ENV/auth_policy.csv)
+              OTEL_CONFIG_B64=$(base64 -w 0 .github/services/api/configs/$ENV/otel_collector_config.yaml)
+              
+              CONTAINER_CONFIGS="{\"api\":\"$API_CONFIG_B64\",\"envoy\":\"$SIDECAR_CONFIG_B64\",\"auth_model\":\"$AUTH_MODEL_B64\",\"auth_policy\":\"$AUTH_POLICY_B64\",\"otel-collector\":\"$OTEL_CONFIG_B64\"}"
+              ;;
+            store)
+              # Store service needs app config, auth model, and auth policy
+              if [ ! -f ".github/services/store/configs/$ENV/store_app_config_file.yaml" ]; then
+                echo "ERROR: Store config file not found for environment: $ENV"
+                exit 1
+              fi
+              
+              STORE_CONFIG_B64=$(base64 -w 0 .github/services/store/configs/$ENV/store_app_config_file.yaml)
+              AUTH_MODEL_B64=$(base64 -w 0 .github/services/store/configs/$ENV/auth_model.conf)
+              AUTH_POLICY_B64=$(base64 -w 0 .github/services/store/configs/$ENV/auth_policy.csv)
+              
+              CONTAINER_CONFIGS="{\"store\":\"$STORE_CONFIG_B64\",\"auth_model\":\"$AUTH_MODEL_B64\",\"auth_policy\":\"$AUTH_POLICY_B64\"}"
+              ;;
+            api-relay)
+              # API Relay service doesn't need config files
+              CONTAINER_CONFIGS="{}"
+              ;;
+            *)
+              echo "ERROR: Unknown service: $SERVICE"
+              exit 1
+              ;;
+          esac
+          
+          echo "container_configs=$CONTAINER_CONFIGS" >> $GITHUB_OUTPUT
+          echo "✅ Configuration prepared for $SERVICE"
+
+  # Deploy canary
+  deploy-canary:
+    name: Deploy Canary
+    needs: [get-image, prepare-config]
+    uses: zondax/_workflows/.github/workflows/_cloud-run-deploy-canary.yml@canary
+    with:
+      environment: ${{ inputs.environment }}
+      service_name: "${{ inputs.service }}-${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
+      image_tag: ${{ needs.get-image.outputs.image_url }}
+      traffic_percentage: ${{ inputs.traffic_percentage }}
+      knative_yaml: ".github/services/${{ inputs.service }}/environments/${{ inputs.service }}_${{ inputs.environment == 'pro' && 'main' || inputs.environment }}.yml"
+      container_configs: ${{ needs.prepare-config.outputs.container_configs }}
+      auth_containers: ${{ inputs.service == 'api-relay' && '[]' || '["api", "store"]' }}
+    secrets: inherit
+
+  # Post deployment info
+  post-info:
+    name: Post Deployment Info
+    if: always()
+    needs: [get-image, deploy-canary]
+    runs-on: zondax-runners
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "## 🚀 Canary Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ inputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ needs.get-image.outputs.image_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Traffic:** ${{ inputs.traffic_percentage }}% to canary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.deploy-canary.result }}" = "success" ]; then
+            echo "✅ **Status:** Canary deployed successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Service URL:** ${{ needs.deploy-canary.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Canary Revision:** ${{ needs.deploy-canary.outputs.canary_revision }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. 📊 Monitor your service metrics and logs" >> $GITHUB_STEP_SUMMARY
+            echo "2. ⬆️ Use **Promote Canary** workflow to increase traffic" >> $GITHUB_STEP_SUMMARY
+            echo "3. ✅ Use **Finalize Canary** when ready for 100%" >> $GITHUB_STEP_SUMMARY
+            echo "4. 🚨 Use **Rollback Canary** if issues detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Canary deployment failed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the deployment logs and try again." >> $GITHUB_STEP_SUMMARY
+          fi

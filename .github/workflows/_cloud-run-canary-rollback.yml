@@ -1,0 +1,63 @@
+name: Rollback Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'Service to rollback'
+        required: true
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.rollback-canary.outputs.service_url }}
+
+jobs:
+  # Rollback canary
+  rollback-canary:
+    name: Rollback Canary
+    uses: zondax/_workflows/.github/workflows/_cloud-run-rollback-canary.yml@canary
+    with:
+      environment: ${{ inputs.environment }}
+      service_name: "${{ inputs.service }}-${{ inputs.environment == 'pro' && 'main' || inputs.environment }}"
+    secrets: inherit
+
+  # Post rollback info
+  post-info:
+    name: Post Rollback Info
+    if: always()
+    needs: [rollback-canary]
+    runs-on: zondax-runners
+    steps:
+      - name: Rollback Summary
+        run: |
+          echo "## 🚨 Canary Rollback Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Service:** ${{ inputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.rollback-canary.result }}" = "success" ]; then
+            echo "✅ **Status:** Canary rollback completed successfully!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Service URL:** ${{ needs.rollback-canary.outputs.service_url }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Rollback Complete!" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 Service has been restored to the previous stable version" >> $GITHUB_STEP_SUMMARY
+            echo "📊 All traffic is now directed to the stable revision" >> $GITHUB_STEP_SUMMARY
+            echo "🛠️ The problematic canary revision has been removed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. 🔍 Investigate the issues that caused the rollback" >> $GITHUB_STEP_SUMMARY
+            echo "2. 🛠️ Fix the problems in your code" >> $GITHUB_STEP_SUMMARY
+            echo "3. 🔄 Deploy a new version when ready" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Canary rollback failed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the rollback logs and contact support if needed." >> $GITHUB_STEP_SUMMARY
+            echo "🚨 **URGENT:** Manual intervention may be required!" >> $GITHUB_STEP_SUMMARY
+          fi
