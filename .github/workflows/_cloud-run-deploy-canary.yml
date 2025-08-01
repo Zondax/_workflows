@@ -1,0 +1,241 @@
+name: Cloud Run Deploy Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name (dev/pro)"
+      service_name:
+        required: true
+        type: string
+        description: "Cloud Run service name"
+      image_tag:
+        required: true
+        type: string
+        description: "Docker image tag to deploy"
+      traffic_percentage:
+        required: true
+        type: string
+        description: "Initial traffic percentage for canary (e.g., '10')"
+      knative_yaml:
+        required: false
+        type: string
+        description: "Path to Knative YAML manifest (for config updates)"
+      container_configs:
+        required: false
+        type: string
+        description: "JSON map of container configs (same as regular deploy)"
+      auth_containers:
+        required: false
+        type: string
+        description: "JSON array of containers needing auth config"
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.deploy-canary.outputs.service_url }}
+      canary_revision:
+        description: "The new canary revision name"
+        value: ${{ jobs.deploy-canary.outputs.canary_revision }}
+
+jobs:
+  deploy-canary:
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      service_url: ${{ steps.get-info.outputs.service_url }}
+      canary_revision: ${{ steps.get-info.outputs.canary_revision }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Service: ${{ inputs.service_name }}"
+          echo "Image: ${{ inputs.image_tag }}"
+          echo "Traffic: ${{ inputs.traffic_percentage }}%"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+
+      - uses: actions/checkout@v4
+
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Validate inputs
+        run: |
+          # Validate traffic percentage
+          if ! [[ "${{ inputs.traffic_percentage }}" =~ ^[0-9]+$ ]] || [ "${{ inputs.traffic_percentage }}" -lt 1 ] || [ "${{ inputs.traffic_percentage }}" -gt 99 ]; then
+            echo "ERROR: Traffic percentage must be between 1-99"
+            exit 1
+          fi
+          
+          # Check if service exists
+          if ! gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --quiet >/dev/null 2>&1; then
+            echo "ERROR: Service ${{ inputs.service_name }} does not exist"
+            echo "Please deploy the service normally first before using canary"
+            exit 1
+          fi
+
+      - name: Check current traffic allocation
+        id: current-traffic
+        run: |
+          echo "Current traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+          
+          # Check if there's already a canary deployment
+          CANARY_COUNT=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -gt 0 ]; then
+            echo "WARNING: There is already a canary deployment active"
+            echo "Consider using the promote-canary workflow instead"
+          fi
+
+      - name: Prepare configuration (if provided)
+        if: inputs.knative_yaml != ''
+        run: |
+          # Process configuration updates if Knative YAML is provided
+          cp ${{ inputs.knative_yaml }} service.update.yaml
+          
+          # Process container configs if specified
+          if [ -n "${{ inputs.container_configs }}" ]; then
+            echo "Processing container configs..."
+            echo '${{ inputs.container_configs }}' > container_configs.json
+            jq empty container_configs.json 2>/dev/null || { echo "ERROR: Invalid container_configs JSON"; exit 1; }
+            
+            # Similar config processing as the regular deploy workflow
+            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r name config; do
+              case "$name" in
+                auth_model)
+                  if [ -z "${{ inputs.auth_containers }}" ]; then
+                    echo "ERROR: auth_containers required for auth_model"
+                    exit 1
+                  fi
+                  echo '${{ inputs.auth_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "AUTH_MODEL_FILE_B64")' service.update.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "AUTH_MODEL_FILE_B64").value = "'"$config"'"' -i service.update.yaml
+                      echo "✓ Updated auth model for container: $container_name"
+                    fi
+                  done
+                  ;;
+                auth_policy)
+                  if [ -z "${{ inputs.auth_containers }}" ]; then
+                    echo "ERROR: auth_containers required for auth_policy"
+                    exit 1
+                  fi
+                  echo '${{ inputs.auth_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "AUTH_POLICY_FILE_B64")' service.update.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "AUTH_POLICY_FILE_B64").value = "'"$config"'"' -i service.update.yaml
+                      echo "✓ Updated auth policy for container: $container_name"
+                    fi
+                  done
+                  ;;
+                *)
+                  if yq e '.spec.template.spec.containers[] | select(.name == "'"$name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.update.yaml &>/dev/null; then
+                    yq e '.spec.template.spec.containers[] |= select(.name == "'"$name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config"'"' -i service.update.yaml
+                    echo "✓ Updated config for $name"
+                  fi
+                  ;;
+              esac
+            done
+          fi
+
+      - name: Deploy canary revision
+        id: deploy
+        run: |
+          STABLE_PERCENT=$((100 - ${{ inputs.traffic_percentage }}))
+          
+          echo "Deploying canary with ${{ inputs.traffic_percentage }}% traffic..."
+          echo "Stable revision will get ${STABLE_PERCENT}% traffic"
+          
+          if [ -f "service.update.yaml" ]; then
+            # Deploy with configuration updates
+            echo "Deploying with configuration updates..."
+            
+            # Update the image in the YAML
+            yq e '.spec.template.spec.containers[] |= select(.name == "${{ inputs.service_name }}" or .name == "api" or .name == "store" or .name == "api-relay").image = "${{ inputs.image_tag }}"' -i service.update.yaml
+            
+            # Deploy the updated service without traffic (0% initially)
+            yq e '.spec.traffic = [{"percent": 100, "tag": "stable"}]' -i service.update.yaml
+            gcloud run services replace service.update.yaml \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            # Now allocate traffic to the new revision
+            gcloud run services update-traffic ${{ inputs.service_name }} \
+              --to-latest=${{ inputs.traffic_percentage }} \
+              --to-tags=stable=${STABLE_PERCENT} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          else
+            # Simple image-only deployment
+            echo "Deploying image-only canary..."
+            gcloud run services update ${{ inputs.service_name }} \
+              --image=${{ inputs.image_tag }} \
+              --no-traffic \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            # Allocate traffic
+            gcloud run services update-traffic ${{ inputs.service_name }} \
+              --to-latest=${{ inputs.traffic_percentage }} \
+              --to-tags=stable=${STABLE_PERCENT} \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          fi
+          
+          # Tag the new revision as canary
+          gcloud run services update-traffic ${{ inputs.service_name }} \
+            --set-tags=canary=LATEST \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Get deployment info
+        id: get-info
+        run: |
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          
+          # Get canary revision name
+          CANARY_REVISION=$(gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName)' | head -1)
+          echo "canary_revision=$CANARY_REVISION" >> $GITHUB_OUTPUT
+          
+          echo "=== CANARY DEPLOYMENT SUMMARY ==="
+          echo "Service URL: $SERVICE_URL"
+          echo "Canary Revision: $CANARY_REVISION"
+          echo "Traffic allocation:"
+          gcloud run services describe ${{ inputs.service_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+          echo "================================="
+          
+          echo "✅ Canary deployment completed successfully!"
+          echo "🔍 Monitor your metrics and use canary-promote workflow to increase traffic"
+          echo "🚨 Use canary-rollback workflow if issues are detected"
