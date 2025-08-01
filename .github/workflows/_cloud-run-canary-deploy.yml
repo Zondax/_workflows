@@ -247,8 +247,20 @@ jobs:
             # Deploy with configuration updates
             echo "Deploying with configuration updates..."
             
+            # Construct full image path if only commit hash provided
+            IMAGE_TAG="${{ inputs.image_tag }}"
+            if [[ "$IMAGE_TAG" =~ ^[a-f0-9]{7,40}$ ]]; then
+              # Just a commit hash, construct full image path
+              FULL_IMAGE="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service_name }}:$IMAGE_TAG"
+              echo "Constructed full image path: $FULL_IMAGE"
+            else
+              # Already a full image path
+              FULL_IMAGE="$IMAGE_TAG"
+              echo "Using provided image path: $FULL_IMAGE"
+            fi
+            
             # Update the image in the YAML
-            yq e '.spec.template.spec.containers[] |= select(.name == "${{ inputs.service_name }}").image = "${{ inputs.image_tag }}"' -i service.update.yaml
+            yq e '.spec.template.spec.containers[] |= select(.name == "${{ inputs.service_name }}").image = "'"$FULL_IMAGE"'"' -i service.update.yaml
             
             # Deploy the updated service without traffic (0% initially)
             yq e '.spec.traffic = [{"percent": 100, "tag": "stable"}]' -i service.update.yaml
@@ -282,8 +294,21 @@ jobs:
           else
             # Simple image-only deployment
             echo "Deploying image-only canary..."
+            
+            # Construct full image path if only commit hash provided
+            IMAGE_TAG="${{ inputs.image_tag }}"
+            if [[ "$IMAGE_TAG" =~ ^[a-f0-9]{7,40}$ ]]; then
+              # Just a commit hash, construct full image path
+              FULL_IMAGE="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service_name }}:$IMAGE_TAG"
+              echo "Constructed full image path: $FULL_IMAGE"
+            else
+              # Already a full image path
+              FULL_IMAGE="$IMAGE_TAG"
+              echo "Using provided image path: $FULL_IMAGE"
+            fi
+            
             gcloud run services update $ACTUAL_SERVICE_NAME \
-              --image=${{ inputs.image_tag }} \
+              --image="$FULL_IMAGE" \
               --no-traffic \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
