@@ -189,64 +189,129 @@ jobs:
         run: |
           SERVICE_NAME="${{ steps.set-service-name.outputs.final_service_name }}"
           
+          echo "================================================"
+          echo "🚀 STARTING CLOUD RUN DEPLOYMENT WITH REVISION MANAGEMENT"
+          echo "Service: $SERVICE_NAME"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "================================================"
+          
           # Check if service exists
+          echo "🔍 Checking if service exists..."
           if gcloud run services describe "$SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --quiet >/dev/null 2>&1; then
             
-            echo "Service exists, updating with traffic management to keep old revisions..."
+            echo "✅ Service exists! Updating with traffic management to keep old revisions..."
+            
+            # Show current state before changes
+            echo ""
+            echo "📊 CURRENT SERVICE STATE (BEFORE DEPLOYMENT):"
+            gcloud run services describe "$SERVICE_NAME" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' || echo "Could not get current traffic state"
             
             # Get the image from our YAML
             NEW_IMAGE=$(yq -r '.spec.template.spec.containers[0].image' service.deploy.yaml)
+            echo ""
+            echo "🐳 New image to deploy: $NEW_IMAGE"
             
             # Update service with new image but no traffic initially
+            echo ""
+            echo "📦 STEP 1: Deploying new revision with 0% traffic..."
             gcloud run services update "$SERVICE_NAME" \
               --image="$NEW_IMAGE" \
               --no-traffic \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 1 completed: New revision deployed with 0% traffic"
+            else
+              echo "❌ Step 1 failed: Could not deploy new revision"
+              exit 1
+            fi
+            
             # Apply any configuration updates by replacing the service template
-            # This will update configs but keep traffic allocation
+            echo ""
+            echo "⚙️  STEP 2: Applying configuration updates..."
             gcloud run services replace service.deploy.yaml \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 2 completed: Configuration updates applied"
+            else
+              echo "❌ Step 2 failed: Could not apply configuration updates"
+              exit 1
+            fi
+            
             # Give all traffic to the latest revision (but keep old ones)
+            echo ""
+            echo "🔄 STEP 3: Directing 100% traffic to new revision..."
             gcloud run services update-traffic "$SERVICE_NAME" \
               --to-latest \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 3 completed: 100% traffic directed to new revision"
+            else
+              echo "❌ Step 3 failed: Could not update traffic allocation"
+              exit 1
+            fi
+            
             # Tag the new revision as stable for future canary deployments
+            echo ""
+            echo "🏷️  STEP 4: Tagging new revision as 'stable'..."
             gcloud run services update-traffic "$SERVICE_NAME" \
               --set-tags=stable=LATEST \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 4 completed: New revision tagged as 'stable'"
+            else
+              echo "⚠️  Step 4 warning: Could not tag revision (deployment still successful)"
+            fi
+            
+            echo ""
             echo "✅ Service updated with revision management enabled!"
             
           else
-            echo "Service doesn't exist, creating new service..."
+            echo "🆕 Service doesn't exist, creating new service..."
             # For new services, use replace as normal
             gcloud run services replace service.deploy.yaml \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ New service created successfully!"
+            else
+              echo "❌ Failed to create new service"
+              exit 1
+            fi
           fi
           
-          echo "Service deployed successfully with revision management!"
+          echo ""
+          echo "🎉 Service deployed successfully with revision management!"
           
           # Clean up old revisions (keep only current + 1 previous)
-          echo "Cleaning up old revisions (keeping only 2 total)..."
+          echo ""
+          echo "🧹 STEP 5: Cleaning up old revisions (keeping only 2 total)..."
           
+          # Get current revision by looking for the one with 100% traffic
           CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='value(spec.traffic[].revisionName)' \
-            --filter='spec.traffic[].tag:stable')
+            --format='value(spec.traffic[0].revisionName)')
+          
+          echo "🏷️  Current stable revision: $CURRENT_REVISION"
           
           # Get all revisions except the current stable one
+          echo "🔍 Finding old revisions to clean up..."
           OLD_REVISIONS=$(gcloud run revisions list \
             --service="$SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
@@ -256,38 +321,105 @@ jobs:
             --sort-by="~metadata.creationTimestamp" \
             --limit=50)
           
-          # Keep only 1 old revision (delete the rest)
-          REVISION_COUNT=0
-          echo "$OLD_REVISIONS" | while IFS= read -r revision; do
-            if [ -n "$revision" ]; then
-              REVISION_COUNT=$((REVISION_COUNT + 1))
-              if [ $REVISION_COUNT -gt 1 ]; then
-                echo "Deleting old revision: $revision"
-                gcloud run revisions delete "$revision" \
-                  --region=${{ vars.PULUMI_GAR_LOCATION }} \
-                  --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-                  --quiet || echo "Could not delete revision $revision"
-              else
-                echo "Keeping previous revision for canary testing: $revision"
+          if [ -z "$OLD_REVISIONS" ]; then
+            echo "ℹ️  No old revisions found - this might be the first deployment"
+          else
+            echo "📝 Old revisions found:"
+            echo "$OLD_REVISIONS" | head -5
+            
+            # Keep only 1 old revision (delete the rest)
+            REVISION_COUNT=0
+            echo ""
+            echo "🗑️  Processing old revisions (keeping 1, deleting others)..."
+            echo "$OLD_REVISIONS" | while IFS= read -r revision; do
+              if [ -n "$revision" ]; then
+                REVISION_COUNT=$((REVISION_COUNT + 1))
+                if [ $REVISION_COUNT -gt 1 ]; then
+                  echo "🗑️  Deleting old revision: $revision"
+                  gcloud run revisions delete "$revision" \
+                    --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                    --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                    --quiet
+                  if [ $? -eq 0 ]; then
+                    echo "   ✅ Deleted: $revision"
+                  else
+                    echo "   ⚠️  Could not delete: $revision (may be in use)"
+                  fi
+                else
+                  echo "🛡️  Keeping previous revision for canary testing: $revision"
+                fi
               fi
-            fi
-          done
+            done
+          fi
           
-          echo "✅ Revision cleanup completed - kept current + 1 previous revision"
+          echo ""
+          echo "✅ Step 5 completed: Revision cleanup finished"
 
-      - name: Get service URL
+      - name: Get service URL and Final Status
         id: get-url
         run: |
-          URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
+          SERVICE_NAME="${{ steps.set-service-name.outputs.final_service_name }}"
+          
+          echo "================================================"
+          echo "📊 FINAL DEPLOYMENT STATUS"
+          echo "================================================"
+          
+          # Get service URL
+          echo "🔗 Getting service URL..."
+          URL=$(gcloud run services describe "$SERVICE_NAME" \
             --platform=managed \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(status.url)')
-          echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "Service URL: $URL"
           
-          echo "Current revisions and traffic:"
-          gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
+          if [ -n "$URL" ]; then
+            echo "✅ Service URL: $URL"
+            echo "url=$URL" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Could not retrieve service URL"
+            echo "url=" >> $GITHUB_OUTPUT
+          fi
+          
+          echo ""
+          echo "📋 CURRENT REVISIONS AND TRAFFIC ALLOCATION:"
+          gcloud run services describe "$SERVICE_NAME" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' || echo "Could not get traffic allocation"
+          
+          echo ""
+          echo "🔢 REVISION COUNT:"
+          REVISION_COUNT=$(gcloud run revisions list \
+            --service="$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(metadata.name)' | wc -l)
+          echo "Total revisions: $REVISION_COUNT"
+          
+          if [ "$REVISION_COUNT" -le 2 ]; then
+            echo "✅ Revision count optimal (≤2 revisions)"
+          else
+            echo "⚠️  More than 2 revisions exist - cleanup may not have worked fully"
+          fi
+          
+          echo ""
+          echo "🎯 CANARY READINESS CHECK:"
+          # Check if stable tag exists by looking at the traffic configuration
+          STABLE_TAG_EXISTS=$(gcloud run services describe "$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep "stable" || echo "")
+          
+          if [ -n "$STABLE_TAG_EXISTS" ]; then
+            echo "✅ Service ready for canary deployments (stable tag found: $STABLE_TAG_EXISTS)"
+          else
+            echo "⚠️  Service may not be fully ready for canary (no stable tag found)"
+            echo "ℹ️  This is normal for the first deployment - stable tag will be created"
+          fi
+          
+          echo ""
+          echo "================================================"
+          echo "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!"
+          echo "Your service is now running with revision management enabled."
+          echo "You can now use the canary deployment workflows for safe production rollouts."
+          echo "================================================"
