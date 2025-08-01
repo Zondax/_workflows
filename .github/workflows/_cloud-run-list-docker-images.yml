@@ -229,27 +229,51 @@ jobs:
           
           for service in api store api-relay; do
             echo "🔸 $service:"
-            LATEST_IMAGE=$(gcloud artifacts docker images list \
+            
+            # Get latest image with tags and timestamp
+            TEMP_FILE="/tmp/latest_${service}_$$"
+            if gcloud artifacts docker images list \
               ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service \
               --sort-by="~CREATE_TIME" \
               --limit="1" \
-              --format='value(IMAGE)' 2>/dev/null || echo "")
-            
-            if [ -n "$LATEST_IMAGE" ]; then
-              # Extract the full tag and commit SHA
-              IMAGE_TAG=$(echo "$LATEST_IMAGE" | sed 's/.*://')
-              COMMIT_SHA=$(echo "$IMAGE_TAG" | sed 's/^sha-//')
-              CREATED=$(gcloud artifacts docker images list \
-                ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service \
-                --sort-by="~CREATE_TIME" \
-                --limit="1" \
-                --format='value(CREATE_TIME.date())' 2>/dev/null || echo "Unknown")
+              --include-tags \
+              --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
               
-              echo "   🏷️  Tag: $IMAGE_TAG"
-              if [ ${#COMMIT_SHA} -eq 40 ] || [ ${#COMMIT_SHA} -eq 7 ]; then
-                echo "   🔗 Commit: $COMMIT_SHA"
+              # Read the latest image data
+              if [ -s "$TEMP_FILE" ]; then
+                while IFS=',' read -r tags_raw created updated; do
+                  if [ -n "$tags_raw" ]; then
+                    # Clean up the tags (remove quotes and brackets)  
+                    CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                    
+                    echo "   🏷️  Tags: $CLEAN_TAGS"
+                    
+                    # Parse commit info from the first tag
+                    FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                    if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                      SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                      echo "   📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                    elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                      COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                      if [ ${#COMMIT_SHA} -eq 40 ]; then
+                        SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                        echo "   📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                      else
+                        echo "   📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                      fi
+                    else
+                      echo "   📝 Tag: $FIRST_TAG"
+                    fi
+                    
+                    echo "   📅 Created: $created"
+                    break # Only process the first (latest) image
+                  fi
+                done < "$TEMP_FILE"
+              else
+                echo "   ⚠️  No images found"
               fi
-              echo "   📅 Created: $CREATED"
+              
+              rm -f "$TEMP_FILE"
             else
               echo "   ⚠️  No images found"
             fi
