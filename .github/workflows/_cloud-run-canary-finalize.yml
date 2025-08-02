@@ -171,9 +171,14 @@ jobs:
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
           
-          # Remove canary tag and add stable tag to the new revision
+          # Remove canary tag
           gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
             --remove-tags=canary \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          
+          # Add stable tag to the new revision
+          gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
             --set-tags=stable="$CANARY_REVISION" \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
