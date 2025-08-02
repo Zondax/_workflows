@@ -80,11 +80,16 @@ jobs:
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
-            while IFS=$'\t' read -r revision percent tag url; do
-              if [ -n "$revision" ]; then
-                echo "  $revision: ${percent:-0}% ${tag:+(tag: $tag)} ${url:+($url)}"
-              fi
-            done
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";"); split($4, urls, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") {
+                  tag_str = (tags[i] && tags[i] != "") ? " (tag: " tags[i] ")" : "";
+                  url_str = (urls[i] && urls[i] != "") ? " (" urls[i] ")" : "";
+                  printf "  %s: %s%%%s%s\n", revs[i], (percs[i] ? percs[i] : "0"), tag_str, url_str;
+                }
+              }
+            }'
           
           # Check if there's a canary deployment
           CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
@@ -120,11 +125,12 @@ jobs:
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
-            while IFS=$'\t' read -r revision percent tag; do
-              if [ -n "$revision" ]; then
-                printf "  %-24s  %-7s  %s\n" "$revision" "${percent:-0}%" "${tag:--}"
-              fi
-            done
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
+              }
+            }'
           
           # Get the two most recent revisions (canary is newest, stable is second-newest)
           CANARY_REVISION=$(gcloud run revisions list \
@@ -185,11 +191,16 @@ jobs:
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
-            while IFS=$'\t' read -r revision percent tag url; do
-              if [ -n "$revision" ]; then
-                echo "  $revision: ${percent:-0}% ${tag:+(tag: $tag)} ${url:+($url)}"
-              fi
-            done
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";"); split($4, urls, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") {
+                  tag_str = (tags[i] && tags[i] != "") ? " (tag: " tags[i] ")" : "";
+                  url_str = (urls[i] && urls[i] != "") ? " (" urls[i] ")" : "";
+                  printf "  %s: %s%%%s%s\n", revs[i], (percs[i] ? percs[i] : "0"), tag_str, url_str;
+                }
+              }
+            }'
           
           # Verify the canary got the expected traffic
           CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
@@ -227,11 +238,12 @@ jobs:
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
-            while IFS=$'\t' read -r revision percent tag; do
-              if [ -n "$revision" ]; then
-                printf "  %-24s  %-7s  %s\n" "$revision" "${percent:-0}%" "${tag:--}"
-              fi
-            done
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
+              }
+            }'
           echo "================================="
           
           echo "✅ Canary promotion completed successfully!"
