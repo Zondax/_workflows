@@ -234,7 +234,7 @@ jobs:
           echo "Previous canary traffic: ${{ steps.current-status.outputs.current_canary_traffic }}%"
           echo "New canary traffic: ${{ inputs.traffic_percentage }}%"
           echo "Current traffic allocation:"
-          gcloud run services describe $ACTUAL_SERVICE_NAME \
+          TRAFFIC_OUTPUT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
@@ -243,7 +243,8 @@ jobs:
               for(i=1; i<=length(revs); i++) {
                 if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
               }
-            }'
+            }')
+          echo "$TRAFFIC_OUTPUT"
           echo "================================="
           
           echo "✅ Canary promotion completed successfully!"
@@ -251,3 +252,25 @@ jobs:
           echo "⬆️  Use canary-promote again to increase traffic further"
           echo "✅ Use canary-finalize when ready for 100% traffic"
           echo "🚨 Use canary-rollback if issues are detected"
+          
+          # Add summary to GitHub Step Summary
+          {
+            echo "## 📈 Canary Promotion Summary"
+            echo ""
+            echo "✅ **Status**: Canary promotion completed successfully!"
+            echo "📊 **Service URL**: [$SERVICE_URL]($SERVICE_URL)"
+            echo "📈 **Traffic Updated**: ${{ steps.current-status.outputs.current_canary_traffic }}% → ${{ inputs.traffic_percentage }}%"
+            echo ""
+            echo "### 📊 Current Traffic Allocation"
+            echo "\`\`\`"
+            echo "$TRAFFIC_OUTPUT"
+            echo "\`\`\`"
+            echo ""
+            echo "### 🎯 Next Steps"
+            echo "- 📊 Continue monitoring metrics before next promotion"
+            echo "- ⬆️ Use **canary-promote** again to increase traffic further"
+            echo "- ✅ Use **canary-finalize** when ready for 100% traffic"
+            echo "- 🚨 Use **canary-rollback** if issues are detected"
+            echo ""
+            echo "_Canary URL_: [$SERVICE_URL?tag=canary]($SERVICE_URL?tag=canary)"
+          } >> $GITHUB_STEP_SUMMARY
