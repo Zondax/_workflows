@@ -74,7 +74,12 @@ jobs:
           gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
+            while IFS=$'\t' read -r revision percent tag url; do
+              if [ -n "$revision" ]; then
+                echo "  $revision: ${percent:-0}% ${tag:+(tag: $tag)} ${url:+($url)}"
+              fi
+            done
           
           # Check if there's a canary deployment
           CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
@@ -93,7 +98,12 @@ jobs:
           gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
+            while IFS=$'\t' read -r revision percent tag; do
+              if [ -n "$revision" ]; then
+                printf "  %-24s  %-7s  %s\n" "$revision" "${percent:-0}%" "${tag:--}"
+              fi
+            done
           
           # Get current canary traffic percentage (assuming newest revision is canary)
           CANARY_REVISION=$(gcloud run revisions list \
@@ -244,7 +254,12 @@ jobs:
           gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
+            while IFS=$'\t' read -r revision percent tag url; do
+              if [ -n "$revision" ]; then
+                echo "  $revision: ${percent:-0}% ${tag:+(tag: $tag)} ${url:+($url)}"
+              fi
+            done
           
           # Verify 100% traffic to the (now stable) canary revision
           CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
@@ -296,7 +311,12 @@ jobs:
           gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
+            while IFS=$'\t' read -r revision percent tag; do
+              if [ -n "$revision" ]; then
+                printf "  %-24s  %-7s  %s\n" "$revision" "${percent:-0}%" "${tag:--}"
+              fi
+            done
           echo "====================================="
           
           echo "🎉 Canary deployment finalized successfully!"

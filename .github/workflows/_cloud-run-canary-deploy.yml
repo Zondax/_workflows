@@ -113,10 +113,17 @@ jobs:
         id: current-traffic
         run: |
           echo "Current traffic allocation:"
+          echo "REVISION                    PERCENT  TAG"
+          echo "──────────────────────────  ───────  ──────"
           gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)'
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
+            while IFS=$'\t' read -r revision percent tag; do
+              if [ -n "$revision" ]; then
+                printf "%-26s  %-7s  %s\n" "$revision" "${percent:-0}" "${tag:--}"
+              fi
+            done
           
           # Check if there's already a canary deployment
           CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
@@ -368,7 +375,12 @@ jobs:
           gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
-            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)'
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
+            while IFS=$'\t' read -r revision percent tag url; do
+              if [ -n "$revision" ]; then
+                echo "  $revision: ${percent:-0}% ${tag:+(tag: $tag)} ${url:+($url)}"
+              fi
+            done
           echo "================================="
           
           echo "✅ Canary deployment completed successfully!"
