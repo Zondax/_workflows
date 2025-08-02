@@ -1,0 +1,253 @@
+name: Cloud Run Promote Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name (dev/pro)"
+      service_name:
+        required: true
+        type: string
+        description: "Cloud Run service name"
+      traffic_percentage:
+        required: true
+        type: string
+        description: "New traffic percentage for canary (e.g., '25')"
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.promote-canary.outputs.service_url }}
+      previous_traffic:
+        description: "Previous canary traffic percentage"
+        value: ${{ jobs.promote-canary.outputs.previous_traffic }}
+
+jobs:
+  promote-canary:
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      service_url: ${{ steps.get-info.outputs.service_url }}
+      previous_traffic: ${{ steps.get-info.outputs.previous_traffic }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Service: $ACTUAL_SERVICE_NAME"
+          echo "New Traffic: ${{ inputs.traffic_percentage }}%"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Validate inputs
+        run: |
+          # Construct actual service name (service-environment)
+          ACTUAL_SERVICE_NAME="${{ inputs.service_name }}-${{ inputs.environment }}"
+          echo "Looking for service: $ACTUAL_SERVICE_NAME"
+          
+          # Validate traffic percentage
+          if ! [[ "${{ inputs.traffic_percentage }}" =~ ^[0-9]+$ ]] || [ "${{ inputs.traffic_percentage }}" -lt 1 ] || [ "${{ inputs.traffic_percentage }}" -gt 99 ]; then
+            echo "ERROR: Traffic percentage must be between 1-99"
+            exit 1
+          fi
+          
+          # Check if service exists
+          if ! gcloud run services describe "$ACTUAL_SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --quiet >/dev/null 2>&1; then
+            echo "ERROR: Service $ACTUAL_SERVICE_NAME does not exist"
+            exit 1
+          fi
+          
+          # Export for other steps
+          echo "ACTUAL_SERVICE_NAME=$ACTUAL_SERVICE_NAME" >> $GITHUB_ENV
+
+      - name: Check current canary status
+        id: current-status
+        run: |
+          echo "Current traffic allocation:"
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";"); split($4, urls, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") {
+                  tag_str = (tags[i] && tags[i] != "") ? " (tag: " tags[i] ")" : "";
+                  url_str = (urls[i] && urls[i] != "") ? " (" urls[i] ")" : "";
+                  printf "  %s: %s%%%s%s\n", revs[i], (percs[i] ? percs[i] : "0"), tag_str, url_str;
+                }
+              }
+            }'
+          
+          # Check if there's a canary deployment
+          CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -eq 0 ]; then
+            echo "ERROR: No canary deployment found for service $ACTUAL_SERVICE_NAME"
+            echo "Please run the canary-deploy workflow first"
+            exit 1
+          fi
+          
+          # Get current canary traffic percentage
+          CURRENT_CANARY_TRAFFIC=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].percent)' | head -1)
+          
+          echo "current_canary_traffic=$CURRENT_CANARY_TRAFFIC" >> $GITHUB_OUTPUT
+          
+          # Validate traffic direction (should be increasing for promotion)
+          if [ "${{ inputs.traffic_percentage }}" -le "$CURRENT_CANARY_TRAFFIC" ]; then
+            echo "WARNING: New traffic percentage (${{ inputs.traffic_percentage }}%) is not higher than current ($CURRENT_CANARY_TRAFFIC%)"
+            echo "This will decrease canary traffic. Consider using canary-rollback if you want to reduce traffic."
+          fi
+
+      - name: Get canary and stable revision info
+        id: revisions
+        run: |
+          echo "Current traffic allocation:"
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
+              }
+            }'
+          
+          # Get the two most recent revisions (canary is newest, stable is second-newest)
+          CANARY_REVISION=$(gcloud run revisions list \
+            --service=$ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=1 \
+            --format='value(metadata.name)')
+          
+          STABLE_REVISION=$(gcloud run revisions list \
+            --service=$ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=2 \
+            --format='value(metadata.name)' | tail -1)
+          
+          echo "Identified revisions:"
+          echo "  Canary (newest): $CANARY_REVISION"
+          echo "  Stable (previous): $STABLE_REVISION"
+          
+          if [ -z "$CANARY_REVISION" ] || [ -z "$STABLE_REVISION" ]; then
+            echo "ERROR: Could not find canary and/or stable revisions"
+            echo "Canary: $CANARY_REVISION"
+            echo "Stable: $STABLE_REVISION"
+            exit 1
+          fi
+          
+          echo "canary_revision=$CANARY_REVISION" >> $GITHUB_OUTPUT
+          echo "stable_revision=$STABLE_REVISION" >> $GITHUB_OUTPUT
+
+      - name: Promote canary traffic
+        id: promote
+        run: |
+          STABLE_PERCENT=$((100 - ${{ inputs.traffic_percentage }}))
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          STABLE_REVISION="${{ steps.revisions.outputs.stable_revision }}"
+          
+          echo "Promoting canary traffic to ${{ inputs.traffic_percentage }}%..."
+          echo "Stable will get ${STABLE_PERCENT}% traffic"
+          
+          # Update traffic allocation
+          gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
+            --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          
+          echo "✅ Traffic promotion completed!"
+
+      - name: Verify traffic allocation
+        run: |
+          echo "Verifying new traffic allocation..."
+          sleep 5  # Give it a moment to propagate
+          
+          echo "New traffic allocation:"
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";"); split($4, urls, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") {
+                  tag_str = (tags[i] && tags[i] != "") ? " (tag: " tags[i] ")" : "";
+                  url_str = (urls[i] && urls[i] != "") ? " (" urls[i] ")" : "";
+                  printf "  %s: %s%%%s%s\n", revs[i], (percs[i] ? percs[i] : "0"), tag_str, url_str;
+                }
+              }
+            }'
+          
+          # Verify the canary got the expected traffic
+          CANARY_REVISION="${{ steps.revisions.outputs.canary_revision }}"
+          ACTUAL_CANARY_TRAFFIC=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='csv[no-heading](spec.traffic[].revisionName,spec.traffic[].percent)' | \
+            grep "$CANARY_REVISION" | cut -d',' -f2 || echo "0")
+          
+          if [ "$ACTUAL_CANARY_TRAFFIC" != "${{ inputs.traffic_percentage }}" ]; then
+            echo "WARNING: Expected ${{ inputs.traffic_percentage }}% but got ${ACTUAL_CANARY_TRAFFIC}%"
+          else
+            echo "✅ Traffic allocation verified: ${ACTUAL_CANARY_TRAFFIC}% to canary"
+          fi
+
+      - name: Get deployment info
+        id: get-info
+        run: |
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          
+          # Get previous traffic from the status check
+          echo "previous_traffic=${{ steps.current-status.outputs.current_canary_traffic }}" >> $GITHUB_OUTPUT
+          
+          echo "=== CANARY PROMOTION SUMMARY ==="
+          echo "Service URL: $SERVICE_URL"
+          echo "Previous canary traffic: ${{ steps.current-status.outputs.current_canary_traffic }}%"
+          echo "New canary traffic: ${{ inputs.traffic_percentage }}%"
+          echo "Current traffic allocation:"
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
+              }
+            }'
+          echo "================================="
+          
+          echo "✅ Canary promotion completed successfully!"
+          echo "📊 Continue monitoring metrics before next promotion"
+          echo "⬆️  Use canary-promote again to increase traffic further"
+          echo "✅ Use canary-finalize when ready for 100% traffic"
+          echo "🚨 Use canary-rollback if issues are detected"

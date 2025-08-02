@@ -1,0 +1,453 @@
+name: Cloud Run Deploy Keep Revisions (Reusable)
+
+# This workflow is similar to _cloud-run-deploy.yml but keeps old revisions
+# instead of replacing them completely. This allows canary testing in dev.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name"
+      knative_yaml:
+        required: true
+        type: string
+        description: Path to the Knative YAML manifest for deployment
+      container_images:
+        required: false
+        type: string
+        description: JSON map of container name to image (for multi-container deploys)
+      container_configs:
+        required: false
+        type: string
+        description: >-
+          JSON map of container name to base64-encoded config content.
+          Example: {"api":"base64content","envoy":"base64content","other-sidecar":"base64content"}
+          The workflow will find the APP_CONFIG_FILE_B64 env var in each container and inject the config.
+          
+          Special keys for authorization configuration (RBAC/ABAC):
+          - "auth_model": Injects into AUTH_MODEL_FILE_B64 env var in containers specified by auth_containers input
+          - "auth_policy": Injects into AUTH_POLICY_FILE_B64 env var in containers specified by auth_containers input
+          
+          Example with auth: {"api":"base64content","envoy":"base64content","auth_model":"base64content","auth_policy":"base64content"}
+      auth_containers:
+        required: false
+        type: string
+        description: >-
+          JSON array of container names that need authorization configuration injection (RBAC/ABAC).
+          Example: ["api", "store", "custom-service"]
+          Required when using auth_model or auth_policy in container_configs.
+    outputs:
+      url:
+        description: "The deployed Cloud Run service URL."
+        value: ${{ jobs.deploy.outputs.url }}
+jobs:
+  deploy:
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
+    permissions:
+      id-token: write # Enables automatic ID token injection for google-github-actions/auth
+      contents: read # Required for actions/checkout and GitHub API access
+      pull-requests: write # Required for commenting on PRs
+    steps:
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "WIF Provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}"
+          echo "Service Account: ${{ vars.PULUMI_SA_CLOUDRUN }}"
+          echo "GCP Project ID: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "GAR Location: ${{ vars.PULUMI_GAR_LOCATION }}"
+
+      - uses: actions/checkout@v4
+
+      - name: Authenticate with GCP
+        id: auth
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+          log_jwt_info: true
+        
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+        
+      - name: Install yq
+        run: |
+          go install github.com/mikefarah/yq/v4@latest
+          
+      - name: Prepare Knative YAML for deploy
+        id: prepare-yaml
+        run: |
+          # 1. Copy the Knative YAML manifest
+          cp ${{ inputs.knative_yaml }} service.deploy.yaml
+
+          # Replace PR_NUMBER placeholder if present (only for knative.yaml file, not config)
+          sed -i "s#<PR_NUMBER>#${{ github.event.number }}#g" service.deploy.yaml
+          # Replace <REGION> placeholder if present
+          sed -i "s#<REGION>#${{ vars.PULUMI_GAR_LOCATION }}#g" service.deploy.yaml
+
+          # Process container images if specified
+          if [ -n "${{ inputs.container_images }}" ]; then
+            echo "Processing container images..."
+            echo '${{ inputs.container_images }}' > container_images.json
+            
+            # Validate JSON before processing
+            jq empty container_images.json 2>/dev/null || { echo "ERROR: Invalid container_images JSON format"; exit 1; }
+            
+            # Process each container image
+            jq -r 'to_entries[] | [.key, .value] | @tsv' container_images.json | while read -r container_name image_url; do
+              echo "Updating image for container: $container_name → $image_url"
+              
+              # Try placeholder replacement first
+              placeholder="<${container_name^^}_IMAGE>"
+              if grep -q "$placeholder" service.deploy.yaml; then
+                sed -i "s#$placeholder#$image_url#g" service.deploy.yaml
+              # Then try direct container name update if it has a placeholder
+              elif yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .image' service.deploy.yaml | grep -q '<.*>'; then
+                yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").image = "'"$image_url"'"' -i service.deploy.yaml
+              else
+                echo "  Skipping container with static image"
+              fi
+            done
+          fi
+
+          # Inject configs if specified
+          if [ -n "${{ inputs.container_configs }}" ]; then
+            echo "Processing container configs..."
+            echo '${{ inputs.container_configs }}' > container_configs.json
+            jq empty container_configs.json 2>/dev/null || { echo "ERROR: Invalid container_configs JSON format"; exit 1; }
+            
+            # Process each configuration entry
+            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r name config; do
+              # Replace PR number if needed
+              [ -n "${{ github.event.number }}" ] && config=$(echo "$config" | base64 -d | sed "s/<github_event_number>/${{ github.event.number }}/g" | base64 -w 0)
+              
+              case "$name" in
+                auth_model)
+                  # Inject authorization model into specified containers (RBAC/ABAC)
+                  if [ -z "${{ inputs.auth_containers }}" ]; then
+                    echo "ERROR: auth_containers input is required when using auth_model"
+                    exit 1
+                  fi
+                  echo '${{ inputs.auth_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "AUTH_MODEL_FILE_B64")' service.deploy.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "AUTH_MODEL_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                      echo "✓ Updated authorization model config for container: $container_name"
+                    else
+                      echo "⚠️  Container '$container_name' does not have AUTH_MODEL_FILE_B64 env var, skipping"
+                    fi
+                  done
+                  ;;
+                auth_policy)
+                  # Inject authorization policy into specified containers (RBAC/ABAC)
+                  if [ -z "${{ inputs.auth_containers }}" ]; then
+                    echo "ERROR: auth_containers input is required when using auth_policy"
+                    exit 1
+                  fi
+                  echo '${{ inputs.auth_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "AUTH_POLICY_FILE_B64")' service.deploy.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "AUTH_POLICY_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                      echo "✓ Updated authorization policy config for container: $container_name"
+                    else
+                      echo "⚠️  Container '$container_name' does not have AUTH_POLICY_FILE_B64 env var, skipping"
+                    fi
+                  done
+                  ;;
+                *)
+                  # Validate container exists
+                  yq e '.spec.template.spec.containers[] | select(.name == "'"$name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.deploy.yaml &>/dev/null || { echo "❌ Container '$name' or APP_CONFIG_FILE_B64 not found"; exit 1; }
+                  yq e '.spec.template.spec.containers[] |= select(.name == "'"$name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config"'"' -i service.deploy.yaml
+                  echo "✓ Updated config for $name"
+                  ;;
+              esac
+            done
+          fi
+
+          # Print deployment summary
+          echo "\n===== DEPLOYMENT SUMMARY ====="
+          SERVICE_NAME=$(yq -r '.metadata.name' service.deploy.yaml)
+          echo "Service: $SERVICE_NAME"
+          echo "Container images:"
+          yq '.spec.template.spec.containers[] | [.name, .image] | join(": ")' service.deploy.yaml
+          echo "============================="
+
+      - name: Extract service name from YAML
+        id: set-service-name
+        run: |
+          SERVICE_NAME=$(yq -r '.metadata.name' service.deploy.yaml)
+          echo "final_service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+          echo "Deploying service: $SERVICE_NAME"
+
+      - name: Deploy to Cloud Run (Keep Revisions)
+        id: deploy
+        run: |
+          SERVICE_NAME="${{ steps.set-service-name.outputs.final_service_name }}"
+          
+          echo "================================================"
+          echo "🚀 STARTING CLOUD RUN DEPLOYMENT WITH REVISION MANAGEMENT"
+          echo "Service: $SERVICE_NAME"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+          echo "================================================"
+          
+          # Check if service exists
+          echo "🔍 Checking if service exists..."
+          if gcloud run services describe "$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --quiet >/dev/null 2>&1; then
+            
+            echo "✅ Service exists! Updating with traffic management to keep old revisions..."
+            
+            # Show current state before changes
+            echo ""
+            echo "📊 CURRENT SERVICE STATE (BEFORE DEPLOYMENT):"
+            gcloud run services describe "$SERVICE_NAME" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' || echo "Could not get current traffic state"
+            
+            # Get the image from our YAML
+            NEW_IMAGE=$(yq -r '.spec.template.spec.containers[0].image' service.deploy.yaml)
+            echo ""
+            echo "🐳 New image to deploy: $NEW_IMAGE"
+            
+            # Update service with new image but no traffic initially
+            echo ""
+            echo "📦 STEP 1: Deploying new revision with 0% traffic..."
+            gcloud run services update "$SERVICE_NAME" \
+              --image="$NEW_IMAGE" \
+              --no-traffic \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 1 completed: New revision deployed with 0% traffic"
+            else
+              echo "❌ Step 1 failed: Could not deploy new revision"
+              exit 1
+            fi
+            
+            # Apply any configuration updates by replacing the service template
+            echo ""
+            echo "⚙️  STEP 2: Applying configuration updates..."
+            gcloud run services replace service.deploy.yaml \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 2 completed: Configuration updates applied"
+            else
+              echo "❌ Step 2 failed: Could not apply configuration updates"
+              exit 1
+            fi
+            
+            # Give all traffic to the latest revision (but keep old ones)
+            echo ""
+            echo "🔄 STEP 3: Directing 100% traffic to new revision..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --to-latest \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 3 completed: 100% traffic directed to new revision"
+            else
+              echo "❌ Step 3 failed: Could not update traffic allocation"
+              exit 1
+            fi
+            
+            # Tag the new revision as stable for future canary deployments
+            echo ""
+            echo "🏷️  STEP 4: Tagging new revision as 'stable'..."
+            gcloud run services update-traffic "$SERVICE_NAME" \
+              --set-tags=stable=LATEST \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Step 4 completed: New revision tagged as 'stable'"
+            else
+              echo "⚠️  Step 4 warning: Could not tag revision (deployment still successful)"
+            fi
+            
+            echo ""
+            echo "✅ Service updated with revision management enabled!"
+            
+          else
+            echo "🆕 Service doesn't exist, creating new service..."
+            # For new services, use replace as normal
+            gcloud run services replace service.deploy.yaml \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ New service created successfully!"
+            else
+              echo "❌ Failed to create new service"
+              exit 1
+            fi
+          fi
+          
+          echo ""
+          echo "🎉 Service deployed successfully with revision management!"
+          
+          # Clean up old revisions (keep only current + 1 previous)
+          echo ""
+          echo "🧹 STEP 5: Cleaning up old revisions (keeping only 2 total)..."
+          
+          # Get current revision by looking for the one with 100% traffic
+          echo "🔍 Finding current active revision..."
+          CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[0].revisionName)')
+          
+          if [ -z "$CURRENT_REVISION" ]; then
+            echo "⚠️  Could not determine current revision, trying alternative method..."
+            # Try to get the latest revision from the service
+            CURRENT_REVISION=$(gcloud run services describe "$SERVICE_NAME" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+          fi
+          
+          echo "🏷️  Current active revision: $CURRENT_REVISION"
+          
+          # Get all revisions for this service
+          echo "🔍 Finding all revisions for cleanup analysis..."
+          ALL_REVISIONS=$(gcloud run revisions list \
+            --service="$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(metadata.name)' \
+            --sort-by="~metadata.creationTimestamp" \
+            --limit=50)
+          
+          # Filter out the current revision manually
+          OLD_REVISIONS=""
+          if [ -n "$ALL_REVISIONS" ] && [ -n "$CURRENT_REVISION" ]; then
+            OLD_REVISIONS=$(echo "$ALL_REVISIONS" | grep -v "^$CURRENT_REVISION$" || echo "")
+          elif [ -n "$ALL_REVISIONS" ]; then
+            # If we couldn't determine current revision, get all but the first (newest)
+            OLD_REVISIONS=$(echo "$ALL_REVISIONS" | tail -n +2)
+          fi
+          
+          if [ -z "$OLD_REVISIONS" ]; then
+            echo "ℹ️  No old revisions found - this might be the first deployment or only one revision exists"
+          else
+            echo "📝 Found revisions for cleanup analysis:"
+            echo "   All revisions: $(echo "$ALL_REVISIONS" | wc -l) total"
+            echo "   Current revision: $CURRENT_REVISION"
+            echo "   Old revisions to process: $(echo "$OLD_REVISIONS" | wc -l)"
+            
+            # Show first few old revisions for debugging
+            echo "📋 Old revisions list:"
+            echo "$OLD_REVISIONS" | head -3 | sed 's/^/   /'
+            if [ $(echo "$OLD_REVISIONS" | wc -l) -gt 3 ]; then
+              echo "   ... and $(( $(echo "$OLD_REVISIONS" | wc -l) - 3 )) more"
+            fi
+            
+            # Keep only 1 old revision (delete the rest)
+            REVISION_COUNT=0
+            echo ""
+            echo "🗑️  Processing old revisions (keeping 1, deleting others)..."
+            
+            # Use a different approach for the loop to avoid subshell issues
+            while IFS= read -r revision; do
+              if [ -n "$revision" ]; then
+                REVISION_COUNT=$((REVISION_COUNT + 1))
+                if [ $REVISION_COUNT -gt 1 ]; then
+                  echo "🗑️  Deleting old revision #$REVISION_COUNT: $revision"
+                  if gcloud run revisions delete "$revision" \
+                    --region=${{ vars.PULUMI_GAR_LOCATION }} \
+                    --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+                    --quiet; then
+                    echo "   ✅ Successfully deleted: $revision"
+                  else
+                    echo "   ⚠️  Could not delete: $revision (may be in use or already deleted)"
+                  fi
+                else
+                  echo "🛡️  Keeping previous revision #$REVISION_COUNT for canary testing: $revision"
+                fi
+              fi
+            done <<< "$OLD_REVISIONS"
+          fi
+          
+          echo ""
+          echo "✅ Step 5 completed: Revision cleanup finished"
+
+      - name: Get service URL and Final Status
+        id: get-url
+        run: |
+          SERVICE_NAME="${{ steps.set-service-name.outputs.final_service_name }}"
+          
+          echo "================================================"
+          echo "📊 FINAL DEPLOYMENT STATUS"
+          echo "================================================"
+          
+          # Get service URL
+          echo "🔗 Getting service URL..."
+          URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --platform=managed \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          
+          if [ -n "$URL" ]; then
+            echo "✅ Service URL: $URL"
+            echo "url=$URL" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Could not retrieve service URL"
+            echo "url=" >> $GITHUB_OUTPUT
+          fi
+          
+          echo ""
+          echo "📋 CURRENT REVISIONS AND TRAFFIC ALLOCATION:"
+          gcloud run services describe "$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='table(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' || echo "Could not get traffic allocation"
+          
+          echo ""
+          echo "🔢 REVISION COUNT:"
+          REVISION_COUNT=$(gcloud run revisions list \
+            --service="$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(metadata.name)' | wc -l)
+          echo "Total revisions: $REVISION_COUNT"
+          
+          if [ "$REVISION_COUNT" -le 2 ]; then
+            echo "✅ Revision count optimal (≤2 revisions)"
+          else
+            echo "⚠️  More than 2 revisions exist - cleanup may not have worked fully"
+          fi
+          
+          echo ""
+          echo "🎯 CANARY READINESS CHECK:"
+          # Check if stable tag exists by looking at the traffic configuration
+          STABLE_TAG_EXISTS=$(gcloud run services describe "$SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep "stable" || echo "")
+          
+          if [ -n "$STABLE_TAG_EXISTS" ]; then
+            echo "✅ Service ready for canary deployments (stable tag found: $STABLE_TAG_EXISTS)"
+          else
+            echo "⚠️  Service may not be fully ready for canary (no stable tag found)"
+            echo "ℹ️  This is normal for the first deployment - stable tag will be created"
+          fi
+          
+          echo ""
+          echo "================================================"
+          echo "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!"
+          echo "Your service is now running with revision management enabled."
+          echo "You can now use the canary deployment workflows for safe production rollouts."
+          echo "================================================"

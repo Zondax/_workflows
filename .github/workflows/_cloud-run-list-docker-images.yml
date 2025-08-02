@@ -1,0 +1,317 @@
+name: List Docker Images (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: 'Service to list images for'
+        required: true
+        type: string
+      environment:
+        description: 'Environment context (affects which registry to check)'
+        required: true
+        type: string
+      limit:
+        description: 'Number of recent images to show per service'
+        required: false
+        type: string
+        default: '10'
+
+jobs:
+  list-images:
+    name: List Docker Images
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment == 'both' && 'dev' || inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: List API Images
+        if: inputs.service == 'api' || inputs.service == 'all'
+        run: |
+          echo "================================================"
+          echo "🔸 API SERVICE DOCKER IMAGES"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}"
+          echo "================================================"
+          
+          echo "📋 Recent API images (limit: ${{ inputs.limit }}):"
+          # First get the image data with timestamps
+          TEMP_FILE="/tmp/api_images_$$"
+          if gcloud artifacts docker images list \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api \
+            --sort-by="~CREATE_TIME" \
+            --limit="${{ inputs.limit }}" \
+            --include-tags \
+            --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+            
+            # Process each line to display both tags and timestamps
+            while IFS=',' read -r tags_raw created updated; do
+              if [ -n "$tags_raw" ]; then
+                # Clean up the tags (remove quotes and brackets)
+                CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                
+                echo "   🏷️  Tags: $CLEAN_TAGS"
+                
+                # Parse commit info from the first tag
+                FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                  echo "      📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                  if [ ${#COMMIT_SHA} -eq 40 ]; then
+                    SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                    echo "      📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                  else
+                    echo "      📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                  fi
+                else
+                  echo "      📝 Tag: $FIRST_TAG"
+                fi
+                
+                echo "      📅 Created: $created"
+                echo "      🔄 Updated: $updated"
+                echo ""
+              fi
+            done < "$TEMP_FILE"
+            
+            rm -f "$TEMP_FILE"
+            
+            echo ""
+            echo "💡 USAGE EXAMPLES:"
+            echo "   🚀 Deploy Canary: Use the commit SHA tag from above"
+            echo "   Example: Copy the full SHA after 🔗 (e.g., abc123def456...)"
+          else
+            echo "⚠️  No API images found or repository doesn't exist yet"
+            echo "💡 Images will appear here after the first successful build"
+          fi
+          echo ""
+
+      - name: List Store Images
+        if: inputs.service == 'store' || inputs.service == 'all'
+        run: |
+          echo "================================================"
+          echo "🔸 STORE SERVICE DOCKER IMAGES"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}"
+          echo "================================================"
+          
+          echo "📋 Recent Store images (limit: ${{ inputs.limit }}):"
+          # First get the image data with timestamps
+          TEMP_FILE="/tmp/store_images_$$"
+          if gcloud artifacts docker images list \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/store \
+            --sort-by="~CREATE_TIME" \
+            --limit="${{ inputs.limit }}" \
+            --include-tags \
+            --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+            
+            # Process each line to display both tags and timestamps
+            while IFS=',' read -r tags_raw created updated; do
+              if [ -n "$tags_raw" ]; then
+                # Clean up the tags (remove quotes and brackets)
+                CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                
+                echo "   🏷️  Tags: $CLEAN_TAGS"
+                
+                # Parse commit info from the first tag
+                FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                  echo "      📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                  if [ ${#COMMIT_SHA} -eq 40 ]; then
+                    SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                    echo "      📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                  else
+                    echo "      📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                  fi
+                else
+                  echo "      📝 Tag: $FIRST_TAG"
+                fi
+                
+                echo "      📅 Created: $created"
+                echo "      🔄 Updated: $updated"
+                echo ""
+              fi
+            done < "$TEMP_FILE"
+            
+            rm -f "$TEMP_FILE"
+            
+            echo ""
+            echo "💡 USAGE EXAMPLES:"
+            echo "   🚀 Deploy Canary: Use the commit SHA tag from above"
+            echo "   Example: Copy the full SHA after 🔗 (e.g., xyz789abc123...)"
+          else
+            echo "⚠️  No Store images found or repository doesn't exist yet"
+            echo "💡 Images will appear here after the first successful build"
+          fi
+          echo ""
+
+      - name: List API Relay Images
+        if: inputs.service == 'api-relay' || inputs.service == 'all'
+        run: |
+          echo "================================================"
+          echo "🔸 API-RELAY SERVICE DOCKER IMAGES"
+          echo "Registry: ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}"
+          echo "================================================"
+          
+          echo "📋 Recent API-Relay images (limit: ${{ inputs.limit }}):"
+          # First get the image data with timestamps
+          TEMP_FILE="/tmp/api_relay_images_$$"
+          if gcloud artifacts docker images list \
+            ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/api-relay \
+            --sort-by="~CREATE_TIME" \
+            --limit="${{ inputs.limit }}" \
+            --include-tags \
+            --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+            
+            # Process each line to display both tags and timestamps
+            while IFS=',' read -r tags_raw created updated; do
+              if [ -n "$tags_raw" ]; then
+                # Clean up the tags (remove quotes and brackets)
+                CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                
+                echo "   🏷️  Tags: $CLEAN_TAGS"
+                
+                # Parse commit info from the first tag
+                FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                  SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                  echo "      📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                  COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                  if [ ${#COMMIT_SHA} -eq 40 ]; then
+                    SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                    echo "      📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                  else
+                    echo "      📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                  fi
+                else
+                  echo "      📝 Tag: $FIRST_TAG"
+                fi
+                
+                echo "      📅 Created: $created"
+                echo "      🔄 Updated: $updated"
+                echo ""
+              fi
+            done < "$TEMP_FILE"
+            
+            rm -f "$TEMP_FILE"
+            
+            echo ""
+            echo "💡 USAGE EXAMPLES:"
+            echo "   🚀 Deploy Canary: Use the commit SHA tag from above"
+            echo "   Example: Copy the full SHA after 🔗 (e.g., def456abc789...)"
+          else
+            echo "⚠️  No API-Relay images found or repository doesn't exist yet"
+            echo "💡 Images will appear here after the first successful build"
+          fi
+          echo ""
+
+      - name: Show Recent Builds Summary
+        run: |
+          echo "================================================"
+          echo "📊 RECENT BUILDS SUMMARY"
+          echo "================================================"
+          
+          echo "🔍 Finding most recent images across all services..."
+          
+          # Get most recent image for each service
+          echo ""
+          echo "🕒 LATEST IMAGES BY SERVICE:"
+          
+          for service in api store api-relay; do
+            echo "🔸 $service:"
+            
+            # Get latest image with tags and timestamp
+            TEMP_FILE="/tmp/latest_${service}_$$"
+            if gcloud artifacts docker images list \
+              ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/$service \
+              --sort-by="~CREATE_TIME" \
+              --limit="1" \
+              --include-tags \
+              --format='csv[no-heading](TAGS.list(),CREATE_TIME.date(),UPDATE_TIME.date())' 2>/dev/null > "$TEMP_FILE"; then
+              
+              # Read the latest image data
+              if [ -s "$TEMP_FILE" ]; then
+                while IFS=',' read -r tags_raw created updated; do
+                  if [ -n "$tags_raw" ]; then
+                    # Clean up the tags (remove quotes and brackets)  
+                    CLEAN_TAGS=$(echo "$tags_raw" | sed 's/^"\[//; s/\]"$//; s/","/,/g; s/"//g')
+                    
+                    echo "   🏷️  Tags: $CLEAN_TAGS"
+                    
+                    # Parse commit info from the first tag
+                    FIRST_TAG=$(echo "$CLEAN_TAGS" | cut -d',' -f1)
+                    if echo "$FIRST_TAG" | grep -q '^[a-f0-9]\{40\}$'; then
+                      SHORT_SHA=$(echo "$FIRST_TAG" | cut -c1-8)
+                      echo "   📝 Commit: $SHORT_SHA (full: $FIRST_TAG)"
+                    elif echo "$FIRST_TAG" | grep -q '^sha-'; then
+                      COMMIT_SHA=$(echo "$FIRST_TAG" | sed 's/^sha-//')
+                      if [ ${#COMMIT_SHA} -eq 40 ]; then
+                        SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-8)
+                        echo "   📝 Commit: $SHORT_SHA (tag: $FIRST_TAG)"
+                      else
+                        echo "   📝 Commit: $COMMIT_SHA (tag: $FIRST_TAG)"
+                      fi
+                    else
+                      echo "   📝 Tag: $FIRST_TAG"
+                    fi
+                    
+                    echo "   📅 Created: $created"
+                    break # Only process the first (latest) image
+                  fi
+                done < "$TEMP_FILE"
+              else
+                echo "   ⚠️  No images found"
+              fi
+              
+              rm -f "$TEMP_FILE"
+            else
+              echo "   ⚠️  No images found"
+            fi
+            echo ""
+          done
+
+      - name: Generate Usage Instructions
+        run: |
+          echo "================================================"
+          echo "🎯 CANARY DEPLOYMENT USAGE"
+          echo "================================================"
+          echo ""
+          echo "📝 HOW TO USE THESE IMAGES:"
+          echo ""
+          echo "1️⃣  COPY THE IMAGE TAG:"
+          echo "   - Use the SHA tag (e.g., sha-abc123)"
+          echo "   - Or use the full image URL"
+          echo ""
+          echo "2️⃣  DEPLOY CANARY:"
+          echo "   - Go to Actions → 🚀 Deploy Canary"
+          echo "   - Paste the image tag in 'Image Tag' field"
+          echo "   - Select service and environment"
+          echo "   - Start with 10% traffic"
+          echo ""
+          echo "3️⃣  PROMOTE GRADUALLY:"
+          echo "   - Monitor for 10-30 minutes"
+          echo "   - Use ⬆️ Promote Canary: 10% → 25% → 50% → 75%"
+          echo "   - Use ✅ Finalize Canary for 100%"
+          echo ""
+          echo "🚨 EMERGENCY ROLLBACK:"
+          echo "   - Use 🚨 Rollback Canary if issues detected"
+          echo "   - Returns to stable version in ~30 seconds"
+          echo ""
+          echo "💡 TIP: Use 'List Cloud Run Services' to see current deployments"
+          echo ""
+          echo "🔗 RELATED WORKFLOWS:"
+          echo "   - 📋 List Cloud Run Services (see current state)"
+          echo "   - 🚀 Deploy Canary (start deployment)"
+          echo "   - ⬆️ Promote Canary (increase traffic)"
+          echo "   - ✅ Finalize Canary (complete deployment)"
+          echo "   - 🚨 Rollback Canary (emergency recovery)"

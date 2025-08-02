@@ -1,0 +1,392 @@
+name: Cloud Run Deploy Canary (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name (dev/pro)"
+      service_name:
+        required: true
+        type: string
+        description: "Cloud Run service name"
+      image_tag:
+        required: true
+        type: string
+        description: "Docker image tag to deploy"
+      traffic_percentage:
+        required: true
+        type: string
+        description: "Initial traffic percentage for canary (e.g., '10')"
+      knative_yaml:
+        required: false
+        type: string
+        description: "Path to Knative YAML manifest (for config updates)"
+      container_configs:
+        required: false
+        type: string
+        description: "JSON map of container configs (same as regular deploy)"
+      auth_containers:
+        required: false
+        type: string
+        description: "JSON array of containers needing auth config"
+      force_replace_canary:
+        required: false
+        type: boolean
+        default: false
+        description: "Force deployment even if active canary exists"
+    outputs:
+      service_url:
+        description: "The Cloud Run service URL"
+        value: ${{ jobs.deploy-canary.outputs.service_url }}
+      canary_revision:
+        description: "The new canary revision name"
+        value: ${{ jobs.deploy-canary.outputs.canary_revision }}
+
+jobs:
+  deploy-canary:
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    outputs:
+      service_url: ${{ steps.get-info.outputs.service_url }}
+      canary_revision: ${{ steps.get-info.outputs.canary_revision }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history to allow checkout of any commit
+
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+
+      - name: Install yq
+        run: |
+          go install github.com/mikefarah/yq/v4@latest
+
+      - name: Validate inputs
+        run: |
+          # Construct actual service name (service-environment)
+          ACTUAL_SERVICE_NAME="${{ inputs.service_name }}-${{ inputs.environment }}"
+          echo "Looking for service: $ACTUAL_SERVICE_NAME"
+          
+          # Validate traffic percentage
+          if ! [[ "${{ inputs.traffic_percentage }}" =~ ^[0-9]+$ ]] || [ "${{ inputs.traffic_percentage }}" -lt 1 ] || [ "${{ inputs.traffic_percentage }}" -gt 99 ]; then
+            echo "ERROR: Traffic percentage must be between 1-99"
+            exit 1
+          fi
+          
+          # Check if service exists
+          if ! gcloud run services describe "$ACTUAL_SERVICE_NAME" \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --quiet >/dev/null 2>&1; then
+            echo "ERROR: Service $ACTUAL_SERVICE_NAME does not exist"
+            echo "Please deploy the service normally first before using canary"
+            exit 1
+          fi
+          
+          # Export for other steps
+          echo "ACTUAL_SERVICE_NAME=$ACTUAL_SERVICE_NAME" >> $GITHUB_ENV
+
+      - name: Environment Logging
+        run: |
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Service: $ACTUAL_SERVICE_NAME"
+          echo "Image: ${{ inputs.image_tag }}"
+          echo "Traffic: ${{ inputs.traffic_percentage }}%"
+          echo "Force replace canary: ${{ inputs.force_replace_canary }}"
+          echo "Region: ${{ vars.PULUMI_GAR_LOCATION }}"
+          echo "Project: ${{ vars.PULUMI_GCP_PROJECT_ID }}"
+
+      - name: Check current traffic allocation
+        id: current-traffic
+        run: |
+          echo "Current traffic allocation:"
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
+              }
+            }'
+          
+          # Check if there's already a canary deployment
+          CANARY_COUNT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].tag)' | grep -c "canary" || true)
+          
+          if [ "$CANARY_COUNT" -gt 0 ]; then
+            if [ "${{ inputs.force_replace_canary }}" != "true" ]; then
+              echo "ERROR: Active canary deployment detected"
+              echo ""
+              echo "Current traffic allocation shows an active canary."
+              echo "Please complete the current canary lifecycle first:"
+              echo "  • Use 'canary-finalize' to promote current canary to 100%"
+              echo "  • Use 'canary-rollback' to remove current canary"
+              echo "  • Or set 'force_replace_canary: true' to override this check"
+              echo ""
+              echo "This prevents confusing traffic states and ensures proper canary management."
+              exit 1
+            else
+              echo "⚠️  FORCE OVERRIDE: Replacing existing canary deployment"
+              echo "The previous canary will lose its tag and may retain traffic allocation"
+            fi
+          fi
+
+      - name: Checkout code at image commit
+        if: inputs.knative_yaml != ''
+        run: |
+          # Extract git hash from image tag (format: registry/path/service:abc123 or just abc123)
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          echo "Extracting git hash from image tag: $IMAGE_TAG"
+          
+          # Extract SHA from the tag (after the colon, or the whole string if no colon)
+          if [[ "$IMAGE_TAG" == *":"* ]]; then
+            # Full image path with tag (e.g., us-central1-docker.pkg.dev/project/repo/service:abc123)
+            GIT_HASH="${IMAGE_TAG##*:}"
+          else
+            # Just the hash (e.g., abc123def456)
+            GIT_HASH="$IMAGE_TAG"
+          fi
+          
+          # Validate it looks like a git hash (40 hex chars or 7+ hex chars)
+          if [[ "$GIT_HASH" =~ ^[a-f0-9]{7,40}$ ]]; then
+            echo "Found git hash: $GIT_HASH"
+            
+            # Checkout the specific commit to ensure config matches the deployed image
+            echo "Checking out commit $GIT_HASH to sync configuration..."
+            
+            # Try to checkout the commit, with fallback handling
+            if git checkout "$GIT_HASH" 2>/dev/null; then
+              echo "✅ Repository checked out at commit $GIT_HASH"
+              echo "Configuration will now match the deployed image exactly"
+            else
+              echo "⚠️  Could not checkout commit $GIT_HASH"
+              echo "This might happen if:"
+              echo "  - The commit doesn't exist in this repository"
+              echo "  - The commit is from a different branch/fork"
+              echo "  - The image tag doesn't match the repository commit"
+              echo ""
+              echo "Falling back to current repository state for configuration"
+              echo "⚠️  Configuration may not exactly match the deployed image"
+            fi
+          else
+            echo "⚠️  Could not extract valid git hash from image tag: $IMAGE_TAG"
+            echo "Extracted: '$GIT_HASH' (expected 7-40 hex characters)"
+            echo "Using current repository state for configuration"
+            echo "Expected format: registry/path/service:abc123 or abc123"
+          fi
+
+      - name: Prepare configuration (if provided)
+        if: inputs.knative_yaml != ''
+        run: |
+          # Process configuration updates if Knative YAML is provided
+          cp ${{ inputs.knative_yaml }} service.update.yaml
+          
+          # Process container configs if specified
+          if [ -n "${{ inputs.container_configs }}" ]; then
+            echo "Processing container configs..."
+            echo '${{ inputs.container_configs }}' > container_configs.json
+            jq empty container_configs.json 2>/dev/null || { echo "ERROR: Invalid container_configs JSON"; exit 1; }
+            
+            # Similar config processing as the regular deploy workflow
+            jq -r 'to_entries[] | [.key, .value] | @tsv' container_configs.json | while read -r name config; do
+              case "$name" in
+                auth_model)
+                  if [ -z "${{ inputs.auth_containers }}" ]; then
+                    echo "ERROR: auth_containers required for auth_model"
+                    exit 1
+                  fi
+                  echo '${{ inputs.auth_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "AUTH_MODEL_FILE_B64")' service.update.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "AUTH_MODEL_FILE_B64").value = "'"$config"'"' -i service.update.yaml
+                      echo "✓ Updated auth model for container: $container_name"
+                    fi
+                  done
+                  ;;
+                auth_policy)
+                  if [ -z "${{ inputs.auth_containers }}" ]; then
+                    echo "ERROR: auth_containers required for auth_policy"
+                    exit 1
+                  fi
+                  echo '${{ inputs.auth_containers }}' | jq -r '.[]' | while read -r container_name; do
+                    if yq e '.spec.template.spec.containers[] | select(.name == "'"$container_name"'") | .env[] | select(.name == "AUTH_POLICY_FILE_B64")' service.update.yaml &>/dev/null; then
+                      yq e '.spec.template.spec.containers[] |= select(.name == "'"$container_name"'").env[] |= select(.name == "AUTH_POLICY_FILE_B64").value = "'"$config"'"' -i service.update.yaml
+                      echo "✓ Updated auth policy for container: $container_name"
+                    fi
+                  done
+                  ;;
+                *)
+                  if yq e '.spec.template.spec.containers[] | select(.name == "'"$name"'") | .env[] | select(.name == "APP_CONFIG_FILE_B64")' service.update.yaml &>/dev/null; then
+                    yq e '.spec.template.spec.containers[] |= select(.name == "'"$name"'").env[] |= select(.name == "APP_CONFIG_FILE_B64").value = "'"$config"'"' -i service.update.yaml
+                    echo "✓ Updated config for $name"
+                  fi
+                  ;;
+              esac
+            done
+          fi
+
+      - name: Deploy canary revision
+        id: deploy
+        run: |
+          STABLE_PERCENT=$((100 - ${{ inputs.traffic_percentage }}))
+          
+          echo "Deploying canary with ${{ inputs.traffic_percentage }}% traffic..."
+          echo "Stable revision will get ${STABLE_PERCENT}% traffic"
+          
+          if [ -f "service.update.yaml" ]; then
+            # Deploy with configuration updates
+            echo "Deploying with configuration updates..."
+            
+            # Construct full image path if only commit hash provided
+            IMAGE_TAG="${{ inputs.image_tag }}"
+            if [[ "$IMAGE_TAG" =~ ^[a-f0-9]{7,40}$ ]]; then
+              # Just a commit hash, construct full image path
+              FULL_IMAGE="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service_name }}:$IMAGE_TAG"
+              echo "Constructed full image path: $FULL_IMAGE"
+            else
+              # Already a full image path
+              FULL_IMAGE="$IMAGE_TAG"
+              echo "Using provided image path: $FULL_IMAGE"
+            fi
+            
+            # Update the image in the YAML
+            yq e '.spec.template.spec.containers[] |= select(.name == "${{ inputs.service_name }}").image = "'"$FULL_IMAGE"'"' -i service.update.yaml
+            
+            # Deploy the updated service without traffic (0% initially)
+            yq e '.spec.traffic = [{"percent": 100, "tag": "stable"}]' -i service.update.yaml
+            gcloud run services replace service.update.yaml \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            # Get the current and new revision names
+            CANARY_REVISION=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+            
+            # Get the second-to-latest revision (which was stable before this deployment)
+            STABLE_REVISION=$(gcloud run revisions list \
+              --service=$ACTUAL_SERVICE_NAME \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --sort-by="~metadata.creationTimestamp" \
+              --limit=2 \
+              --format='value(metadata.name)' | tail -1)
+            
+            echo "Canary revision (new): $CANARY_REVISION"
+            echo "Stable revision (previous): $STABLE_REVISION"
+            
+            # Allocate traffic between canary and stable revisions
+            gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
+              --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          else
+            # Simple image-only deployment
+            echo "Deploying image-only canary..."
+            
+            # Construct full image path if only commit hash provided
+            IMAGE_TAG="${{ inputs.image_tag }}"
+            if [[ "$IMAGE_TAG" =~ ^[a-f0-9]{7,40}$ ]]; then
+              # Just a commit hash, construct full image path
+              FULL_IMAGE="${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev/${{ vars.PULUMI_GCP_PROJECT_ID }}/${{ vars.PULUMI_GAR_REPOSITORY }}/${{ inputs.service_name }}:$IMAGE_TAG"
+              echo "Constructed full image path: $FULL_IMAGE"
+            else
+              # Already a full image path
+              FULL_IMAGE="$IMAGE_TAG"
+              echo "Using provided image path: $FULL_IMAGE"
+            fi
+            
+            gcloud run services update $ACTUAL_SERVICE_NAME \
+              --image="$FULL_IMAGE" \
+              --no-traffic \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+            
+            # Get the current and new revision names
+            CANARY_REVISION=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --format='value(status.latestReadyRevisionName)')
+            
+            # Get the second-to-latest revision (which was stable before this deployment)
+            STABLE_REVISION=$(gcloud run revisions list \
+              --service=$ACTUAL_SERVICE_NAME \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --sort-by="~metadata.creationTimestamp" \
+              --limit=2 \
+              --format='value(metadata.name)' | tail -1)
+            
+            echo "Canary revision (new): $CANARY_REVISION"
+            echo "Stable revision (previous): $STABLE_REVISION"
+            
+            # Allocate traffic between canary and stable revisions  
+            gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
+              --to-revisions="$CANARY_REVISION=${{ inputs.traffic_percentage }},$STABLE_REVISION=${STABLE_PERCENT}" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+          fi
+          
+          # Tag the new revision as canary
+          gcloud run services update-traffic $ACTUAL_SERVICE_NAME \
+            --set-tags=canary=LATEST \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Get deployment info
+        id: get-info
+        run: |
+          # Get service URL
+          SERVICE_URL=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          
+          # Get canary revision name
+          CANARY_REVISION=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName)' | head -1)
+          echo "canary_revision=$CANARY_REVISION" >> $GITHUB_OUTPUT
+          
+          echo "=== CANARY DEPLOYMENT SUMMARY ==="
+          echo "Service URL: $SERVICE_URL"
+          echo "Canary Revision: $CANARY_REVISION"
+          echo "Traffic allocation:"
+          gcloud run services describe $ACTUAL_SERVICE_NAME \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+            --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
+            awk -F'\t' '{
+              split($1, revs, ";"); split($2, percs, ";"); split($3, tags, ";"); split($4, urls, ";");
+              for(i=1; i<=length(revs); i++) {
+                if(revs[i] != "") {
+                  tag_str = (tags[i] && tags[i] != "") ? " (tag: " tags[i] ")" : "";
+                  url_str = (urls[i] && urls[i] != "") ? " (" urls[i] ")" : "";
+                  printf "  %s: %s%%%s%s\n", revs[i], (percs[i] ? percs[i] : "0"), tag_str, url_str;
+                }
+              }
+            }'
+          echo "================================="
+          
+          echo "✅ Canary deployment completed successfully!"
+          echo "🔍 Monitor your metrics and use canary-promote workflow to increase traffic"
+          echo "🚨 Use canary-rollback workflow if issues are detected"
