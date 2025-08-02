@@ -343,7 +343,7 @@ jobs:
           echo "Current traffic: 100% to stable"
           echo "Canary revision cleanup: ${{ inputs.cleanup_canary_revision }}"
           echo "Final traffic allocation:"
-          gcloud run services describe $ACTUAL_SERVICE_NAME \
+          TRAFFIC_OUTPUT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag)' | \
@@ -352,7 +352,8 @@ jobs:
               for(i=1; i<=length(revs); i++) {
                 if(revs[i] != "") printf "  %-24s  %s%%  %s\n", revs[i], (percs[i] ? percs[i] : "0"), (tags[i] ? tags[i] : "-")
               }
-            }'
+            }')
+          echo "$TRAFFIC_OUTPUT"
           echo "===================================="
           
           echo "🚨 Emergency rollback completed successfully!"
@@ -364,3 +365,32 @@ jobs:
           echo "   1. Investigate the issues that caused the rollback"
           echo "   2. Fix the problems in your code"
           echo "   3. Deploy a new version when ready"
+          
+          # Add summary to GitHub Step Summary
+          {
+            echo "## 🚨 Emergency Rollback Complete"
+            echo ""
+            echo "✅ **Status**: Emergency rollback completed successfully!"
+            echo "📊 **Service URL**: [$SERVICE_URL]($SERVICE_URL)"
+            echo "🔄 **Rolled Back To**: \`$ROLLBACK_REVISION\`"
+            echo "📈 **Traffic Restored**: ${{ steps.current-status.outputs.current_canary_traffic }}% canary → 100% stable"
+            echo "🧹 **Cleanup**: $([ \"${{ inputs.cleanup_canary_revision }}\" = \"true\" ] && echo \"Enabled\" || echo \"Disabled\")"
+            echo ""
+            echo "### 📊 Final Traffic Allocation"
+            echo "\`\`\`"
+            echo "$TRAFFIC_OUTPUT"
+            echo "\`\`\`"
+            echo ""
+            echo "### 🔍 Next Steps"
+            echo "1. **Investigate** the issues that caused the rollback"
+            echo "2. **Fix** the problems in your code"
+            echo "3. **Test** thoroughly before next deployment"
+            echo "4. **Deploy** a new version when ready"
+            echo ""
+            echo "### ✅ Rollback Results"
+            echo "- 🚨 All traffic restored to **stable revision**"
+            echo "- 🏷️ Service tagged as **stable** and ready for future deployments"
+            echo "- 🧹 Canary revision cleaned up (if enabled)"
+            echo ""
+            echo "⚠️ **Important**: Review logs and monitoring data to understand what went wrong."
+          } >> $GITHUB_STEP_SUMMARY

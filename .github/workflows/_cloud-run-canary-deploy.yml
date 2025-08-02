@@ -371,7 +371,7 @@ jobs:
           echo "Service URL: $SERVICE_URL"
           echo "Canary Revision: $CANARY_REVISION"
           echo "Traffic allocation:"
-          gcloud run services describe $ACTUAL_SERVICE_NAME \
+          TRAFFIC_OUTPUT=$(gcloud run services describe $ACTUAL_SERVICE_NAME \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
             --format='value(spec.traffic[].revisionName,spec.traffic[].percent,spec.traffic[].tag,spec.traffic[].url)' | \
@@ -384,9 +384,33 @@ jobs:
                   printf "  %s: %s%%%s%s\n", revs[i], (percs[i] ? percs[i] : "0"), tag_str, url_str;
                 }
               }
-            }'
+            }')
+          echo "$TRAFFIC_OUTPUT"
           echo "================================="
           
           echo "✅ Canary deployment completed successfully!"
           echo "🔍 Monitor your metrics and use canary-promote workflow to increase traffic"
           echo "🚨 Use canary-rollback workflow if issues are detected"
+          
+          # Add summary to GitHub Step Summary
+          {
+            echo "## 🚀 Canary Deployment Summary"
+            echo ""
+            echo "✅ **Status**: Canary deployment completed successfully!"
+            echo "📊 **Service URL**: [$SERVICE_URL]($SERVICE_URL)"
+            echo "🏷️ **Canary Revision**: \`$CANARY_REVISION\`"
+            echo "📈 **Traffic Percentage**: ${{ inputs.traffic_percentage }}%"
+            echo ""
+            echo "### 📊 Traffic Allocation"
+            echo "\`\`\`"
+            echo "$TRAFFIC_OUTPUT"
+            echo "\`\`\`"
+            echo ""
+            echo "### 🎯 Next Steps"
+            echo "- 🔍 Monitor your metrics and performance indicators"
+            echo "- ⬆️ Use **canary-promote** workflow to increase traffic further"
+            echo "- ✅ Use **canary-finalize** workflow when ready for 100% traffic"
+            echo "- 🚨 Use **canary-rollback** workflow if issues are detected"
+            echo ""
+            echo "_Canary URL_: [$SERVICE_URL?tag=canary]($SERVICE_URL?tag=canary)"
+          } >> $GITHUB_STEP_SUMMARY
