@@ -76,6 +76,12 @@ on:
         type: boolean
         default: true
       
+      dual_upload:
+        description: 'Upload to both latest and versioned/commit folders'
+        required: false
+        type: boolean
+        default: true
+      
       r2_destination_dir:
         description: 'Destination directory in R2 bucket'
         required: false
@@ -452,7 +458,7 @@ jobs:
     if: inputs.upload_enabled && needs.build.outputs.success == 'true'
     
     outputs:
-      upload_urls: ${{ steps.upload.outputs.file-urls }}
+      upload_urls: ${{ steps.generate-outputs.outputs.upload_urls }}
     
     steps:
       - name: Download all artifacts
@@ -466,8 +472,55 @@ jobs:
           find artifacts -type f -name "*" -exec cp {} upload/ \;
           ls -la upload/
 
-      - name: Upload to Cloudflare R2
-        id: upload
+      - name: Determine folder name for versioned/commit upload
+        id: folder-name
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # For tags (production): use tag name (e.g., "v1.2.3")
+            echo "folder=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "📦 Production build - uploading to version folder: ${{ github.ref_name }}"
+          else
+            # For branches (dev): use branch-commit format
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            echo "folder=${{ github.ref_name }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "🔧 Development build - uploading to commit folder: ${{ github.ref_name }}-${SHORT_SHA}"
+          fi
+
+      - name: Upload to Latest
+        if: inputs.dual_upload
+        id: upload-latest
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ inputs.r2_account_id }}
+          r2-access-key-id: ${{ secrets.r2_access_key_id }}
+          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
+          r2-bucket: ${{ inputs.r2_bucket }}
+          source-dir: upload
+          destination-dir: ${{ inputs.r2_destination_dir }}/latest
+          output-file-url: true
+          multipart-size: ${{ inputs.multipart_size }}
+          max-retries: ${{ inputs.max_retries }}
+          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+
+      - name: Upload to Versioned/Commit folder
+        id: upload-versioned
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ inputs.r2_account_id }}
+          r2-access-key-id: ${{ secrets.r2_access_key_id }}
+          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
+          r2-bucket: ${{ inputs.r2_bucket }}
+          source-dir: upload
+          destination-dir: ${{ inputs.r2_destination_dir }}/${{ steps.folder-name.outputs.folder }}
+          output-file-url: true
+          multipart-size: ${{ inputs.multipart_size }}
+          max-retries: ${{ inputs.max_retries }}
+          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+
+      # Legacy single upload (when dual_upload is disabled)
+      - name: Upload to Cloudflare R2 (Legacy)
+        if: inputs.dual_upload == false
+        id: upload-legacy
         uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ inputs.r2_account_id }}
@@ -481,13 +534,38 @@ jobs:
           max-retries: ${{ inputs.max_retries }}
           multipart-concurrent: ${{ inputs.multipart_concurrent }}
 
-      - name: Display upload results
+      - name: Generate upload outputs
+        id: generate-outputs
         run: |
-          echo "Upload completed successfully!"
-          echo "Uploaded files:"
-          cat << 'EOF'
-          ${{ steps.upload.outputs.file-urls }}
-          EOF
+          echo "=== Upload Results ==="
+          
+          if [[ "${{ inputs.dual_upload }}" == "true" ]]; then
+            echo "📦 Dual upload completed successfully!"
+            echo ""
+            echo "🔄 Latest folder (always current):"
+            echo "${{ steps.upload-latest.outputs.file-urls }}"
+            echo ""
+            echo "📂 Versioned/Commit folder (${{ steps.folder-name.outputs.folder }}):"
+            echo "${{ steps.upload-versioned.outputs.file-urls }}"
+            
+            # Combine URLs for output
+            COMBINED_URLS="Latest folder:
+          ${{ steps.upload-latest.outputs.file-urls }}
+          
+          ${{ steps.folder-name.outputs.folder }} folder:
+          ${{ steps.upload-versioned.outputs.file-urls }}"
+            
+            echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
+            echo "$COMBINED_URLS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "📦 Legacy single upload completed successfully!"
+            echo "${{ steps.upload-legacy.outputs.file-urls }}"
+            
+            echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
+            echo "${{ steps.upload-legacy.outputs.file-urls }}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
 
   create-release:
     name: Create GitHub Release
