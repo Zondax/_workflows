@@ -76,17 +76,12 @@ on:
         type: boolean
         default: true
       
-      dual_upload:
-        description: 'Upload to both latest and versioned/commit folders'
-        required: false
-        type: boolean
-        default: true
       
       r2_destination_dir:
-        description: 'Destination directory in R2 bucket'
+        description: 'Destination directory in R2 bucket (optional - if empty, uploads to bucket root)'
         required: false
         type: string
-        default: 'releases'
+        default: ''
       
       # Artifact naming
       artifact_name_prefix:
@@ -486,8 +481,30 @@ jobs:
             echo "🔧 Development build - uploading to commit folder: ${{ github.ref_name }}-${SHORT_SHA}"
           fi
 
+      - name: Construct destination paths
+        id: paths
+        run: |
+          BASE_DIR="${{ inputs.r2_destination_dir }}"
+          
+          if [[ -n "$BASE_DIR" ]]; then
+            # With base directory
+            LATEST_PATH="${BASE_DIR}/latest"
+            VERSIONED_PATH="${BASE_DIR}/${{ steps.folder-name.outputs.folder }}"
+            echo "🗂️ Using base directory: $BASE_DIR"
+          else
+            # No base directory - upload to bucket root
+            LATEST_PATH="latest"
+            VERSIONED_PATH="${{ steps.folder-name.outputs.folder }}"
+            echo "🗂️ Uploading to bucket root (no base directory)"
+          fi
+          
+          echo "latest_path=$LATEST_PATH" >> $GITHUB_OUTPUT
+          echo "versioned_path=$VERSIONED_PATH" >> $GITHUB_OUTPUT
+          
+          echo "📁 Latest upload path: $LATEST_PATH"
+          echo "📁 Versioned upload path: $VERSIONED_PATH"
+
       - name: Upload to Latest
-        if: inputs.dual_upload
         id: upload-latest
         uses: ryand56/r2-upload-action@latest
         with:
@@ -496,7 +513,7 @@ jobs:
           r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
           r2-bucket: ${{ inputs.r2_bucket }}
           source-dir: upload
-          destination-dir: ${{ inputs.r2_destination_dir }}/latest
+          destination-dir: ${{ steps.paths.outputs.latest_path }}
           output-file-url: true
           multipart-size: ${{ inputs.multipart_size }}
           max-retries: ${{ inputs.max_retries }}
@@ -511,24 +528,7 @@ jobs:
           r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
           r2-bucket: ${{ inputs.r2_bucket }}
           source-dir: upload
-          destination-dir: ${{ inputs.r2_destination_dir }}/${{ steps.folder-name.outputs.folder }}
-          output-file-url: true
-          multipart-size: ${{ inputs.multipart_size }}
-          max-retries: ${{ inputs.max_retries }}
-          multipart-concurrent: ${{ inputs.multipart_concurrent }}
-
-      # Legacy single upload (when dual_upload is disabled)
-      - name: Upload to Cloudflare R2 (Legacy)
-        if: inputs.dual_upload == false
-        id: upload-legacy
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ inputs.r2_account_id }}
-          r2-access-key-id: ${{ secrets.r2_access_key_id }}
-          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
-          r2-bucket: ${{ inputs.r2_bucket }}
-          source-dir: upload
-          destination-dir: ${{ inputs.r2_destination_dir }}/${{ github.ref_name }}/${{ github.sha }}
+          destination-dir: ${{ steps.paths.outputs.versioned_path }}
           output-file-url: true
           multipart-size: ${{ inputs.multipart_size }}
           max-retries: ${{ inputs.max_retries }}
@@ -538,34 +538,24 @@ jobs:
         id: generate-outputs
         run: |
           echo "=== Upload Results ==="
+          echo "📦 Dual upload completed successfully!"
+          echo ""
+          echo "🔄 Latest folder (always current):"
+          echo "${{ steps.upload-latest.outputs.file-urls }}"
+          echo ""
+          echo "📂 Versioned/Commit folder (${{ steps.folder-name.outputs.folder }}):"
+          echo "${{ steps.upload-versioned.outputs.file-urls }}"
           
-          if [[ "${{ inputs.dual_upload }}" == "true" ]]; then
-            echo "📦 Dual upload completed successfully!"
-            echo ""
-            echo "🔄 Latest folder (always current):"
-            echo "${{ steps.upload-latest.outputs.file-urls }}"
-            echo ""
-            echo "📂 Versioned/Commit folder (${{ steps.folder-name.outputs.folder }}):"
-            echo "${{ steps.upload-versioned.outputs.file-urls }}"
-            
-            # Combine URLs for output
-            COMBINED_URLS="Latest folder:
+          # Combine URLs for output
+          COMBINED_URLS="Latest folder:
           ${{ steps.upload-latest.outputs.file-urls }}
           
           ${{ steps.folder-name.outputs.folder }} folder:
           ${{ steps.upload-versioned.outputs.file-urls }}"
-            
-            echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
-            echo "$COMBINED_URLS" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "📦 Legacy single upload completed successfully!"
-            echo "${{ steps.upload-legacy.outputs.file-urls }}"
-            
-            echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
-            echo "${{ steps.upload-legacy.outputs.file-urls }}" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
+          
+          echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMBINED_URLS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
   create-release:
     name: Create GitHub Release
