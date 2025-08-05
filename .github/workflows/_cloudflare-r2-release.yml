@@ -451,7 +451,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: inputs.upload_enabled && needs.build.outputs.success == 'true'
-    environment: ${{ inputs.environment != '' && inputs.environment || null }}
+    environment: ${{ inputs.environment }}
     
     outputs:
       upload_urls: ${{ steps.generate-outputs.outputs.upload_urls }}
