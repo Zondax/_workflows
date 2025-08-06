@@ -76,11 +76,12 @@ on:
         type: boolean
         default: true
       
+      
       r2_destination_dir:
-        description: 'Destination directory in R2 bucket'
+        description: 'Destination directory in R2 bucket (optional - if empty, uploads to bucket root)'
         required: false
         type: string
-        default: 'releases'
+        default: ''
       
       # Artifact naming
       artifact_name_prefix:
@@ -450,9 +451,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: inputs.upload_enabled && needs.build.outputs.success == 'true'
+    environment: ${{ inputs.environment }}
     
     outputs:
-      upload_urls: ${{ steps.upload.outputs.file-urls }}
+      upload_urls: ${{ steps.generate-outputs.outputs.upload_urls }}
     
     steps:
       - name: Download all artifacts
@@ -466,8 +468,45 @@ jobs:
           find artifacts -type f -name "*" -exec cp {} upload/ \;
           ls -la upload/
 
-      - name: Upload to Cloudflare R2
-        id: upload
+      - name: Determine folder name for versioned/commit upload
+        id: folder-name
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # For tags (production): use tag name (e.g., "v1.2.3")
+            echo "folder=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "📦 Production build - uploading to version folder: ${{ github.ref_name }}"
+          else
+            # For branches (dev): use branch-commit format
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            echo "folder=${{ github.ref_name }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+            echo "🔧 Development build - uploading to commit folder: ${{ github.ref_name }}-${SHORT_SHA}"
+          fi
+
+      - name: Construct destination paths
+        id: paths
+        run: |
+          BASE_DIR="${{ inputs.r2_destination_dir }}"
+          
+          if [[ -n "$BASE_DIR" ]]; then
+            # With base directory
+            LATEST_PATH="${BASE_DIR}/latest"
+            VERSIONED_PATH="${BASE_DIR}/${{ steps.folder-name.outputs.folder }}"
+            echo "🗂️ Using base directory: $BASE_DIR"
+          else
+            # No base directory - upload to bucket root
+            LATEST_PATH="latest"
+            VERSIONED_PATH="${{ steps.folder-name.outputs.folder }}"
+            echo "🗂️ Uploading to bucket root (no base directory)"
+          fi
+          
+          echo "latest_path=$LATEST_PATH" >> $GITHUB_OUTPUT
+          echo "versioned_path=$VERSIONED_PATH" >> $GITHUB_OUTPUT
+          
+          echo "📁 Latest upload path: $LATEST_PATH"
+          echo "📁 Versioned upload path: $VERSIONED_PATH"
+
+      - name: Upload to Latest
+        id: upload-latest
         uses: ryand56/r2-upload-action@latest
         with:
           r2-account-id: ${{ inputs.r2_account_id }}
@@ -475,19 +514,49 @@ jobs:
           r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
           r2-bucket: ${{ inputs.r2_bucket }}
           source-dir: upload
-          destination-dir: ${{ inputs.r2_destination_dir }}/${{ github.ref_name }}/${{ github.sha }}
+          destination-dir: ${{ steps.paths.outputs.latest_path }}
           output-file-url: true
           multipart-size: ${{ inputs.multipart_size }}
           max-retries: ${{ inputs.max_retries }}
           multipart-concurrent: ${{ inputs.multipart_concurrent }}
 
-      - name: Display upload results
+      - name: Upload to Versioned/Commit folder
+        id: upload-versioned
+        uses: ryand56/r2-upload-action@latest
+        with:
+          r2-account-id: ${{ inputs.r2_account_id }}
+          r2-access-key-id: ${{ secrets.r2_access_key_id }}
+          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
+          r2-bucket: ${{ inputs.r2_bucket }}
+          source-dir: upload
+          destination-dir: ${{ steps.paths.outputs.versioned_path }}
+          output-file-url: true
+          multipart-size: ${{ inputs.multipart_size }}
+          max-retries: ${{ inputs.max_retries }}
+          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+
+      - name: Generate upload outputs
+        id: generate-outputs
         run: |
-          echo "Upload completed successfully!"
-          echo "Uploaded files:"
-          cat << 'EOF'
-          ${{ steps.upload.outputs.file-urls }}
-          EOF
+          echo "=== Upload Results ==="
+          echo "📦 Dual upload completed successfully!"
+          echo ""
+          echo "🔄 Latest folder (always current):"
+          echo "${{ steps.upload-latest.outputs.file-urls }}"
+          echo ""
+          echo "📂 Versioned/Commit folder (${{ steps.folder-name.outputs.folder }}):"
+          echo "${{ steps.upload-versioned.outputs.file-urls }}"
+          
+          # Combine URLs for output
+          COMBINED_URLS="Latest folder:
+          ${{ steps.upload-latest.outputs.file-urls }}
+          
+          ${{ steps.folder-name.outputs.folder }} folder:
+          ${{ steps.upload-versioned.outputs.file-urls }}"
+          
+          echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMBINED_URLS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
   create-release:
     name: Create GitHub Release
