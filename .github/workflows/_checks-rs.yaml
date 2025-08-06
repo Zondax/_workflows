@@ -192,6 +192,9 @@ jobs:
       image: ${{ inputs.base_image }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       coverage_percentage: ${{ steps.coverage-check.outputs.coverage_percentage }}
       coverage_status: ${{ steps.coverage-check.outputs.coverage_status }}
