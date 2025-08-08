@@ -57,6 +57,11 @@ on:
         required: false
         type: string
         default: "latest"
+      log_jwt_info:
+        description: 'Log JWT token information for debugging'
+        required: false
+        type: boolean
+        default: true
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -101,7 +106,7 @@ jobs:
           workload_identity_provider: ${{ inputs.workload-identity-provider }}
           project_id: ${{ inputs.project-id }}
           gcloud_components: "beta"
-          log_jwt_info: true
+          log_jwt_info: ${{ inputs.log_jwt_info }}
 
       ## GCP access should be ready
 
