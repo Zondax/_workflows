@@ -1,0 +1,355 @@
+name: Upload to Cloudflare R2
+
+on:
+  workflow_call:
+    inputs:
+      # Source configuration
+      source_type:
+        description: 'Source of files to upload: "artifacts" or "release"'
+        required: false
+        type: string
+        default: 'artifacts'
+      
+      # For artifacts mode
+      artifact_pattern:
+        description: 'Pattern to match artifacts (for artifacts mode)'
+        required: false
+        type: string
+        default: '*'
+      
+      # For release mode
+      release_tag:
+        description: 'GitHub release tag to download from (for release mode, defaults to current tag)'
+        required: false
+        type: string
+        default: ''
+      
+      release_pattern:
+        description: 'Pattern to match release assets (for release mode)'
+        required: false
+        type: string
+        default: '*'
+      
+      # R2 Configuration
+      r2_account_id:
+        description: 'Cloudflare account ID'
+        required: true
+        type: string
+      
+      r2_bucket:
+        description: 'R2 bucket name'
+        required: true
+        type: string
+      
+      r2_destination_dir:
+        description: 'Destination directory in R2 bucket'
+        required: false
+        type: string
+        default: ''
+      
+      upload_to_latest:
+        description: 'Also upload to "latest" folder'
+        required: false
+        type: boolean
+        default: true
+      
+      upload_to_versioned:
+        description: 'Upload to version/commit folder'
+        required: false
+        type: boolean
+        default: true
+      
+      # Multipart upload configuration
+      multipart_size:
+        description: 'Minimum file size (in MB) to use multipart upload'
+        required: false
+        type: number
+        default: 100
+      
+      max_retries:
+        description: 'Maximum number of retries for uploads'
+        required: false
+        type: number
+        default: 5
+      
+      multipart_concurrent:
+        description: 'Use concurrent multipart uploads'
+        required: false
+        type: boolean
+        default: true
+      
+      # Environment
+      environment:
+        description: 'GitHub environment for secrets'
+        required: false
+        type: string
+        default: ''
+      
+      # GitHub App auth (optional)
+      github_app_auth:
+        description: 'Use GitHub App for authentication'
+        required: false
+        type: boolean
+        default: false
+      
+      github_app_repos:
+        description: 'Repositories for GitHub App auth'
+        required: false
+        type: string
+        default: ''
+        
+    secrets:
+      r2_access_key_id:
+        required: true
+      r2_secret_access_key:
+        required: true
+      app_id:
+        required: false
+      app_pem:
+        required: false
+    
+    outputs:
+      upload_urls:
+        description: 'URLs of uploaded files'
+        value: ${{ jobs.upload-to-r2.outputs.upload_urls }}
+      latest_path:
+        description: 'Path to latest folder in R2'
+        value: ${{ jobs.upload-to-r2.outputs.latest_path }}
+      versioned_path:
+        description: 'Path to versioned folder in R2'
+        value: ${{ jobs.upload-to-r2.outputs.versioned_path }}
+
+jobs:
+  upload-to-r2:
+    name: Upload to Cloudflare R2
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    outputs:
+      upload_urls: ${{ steps.generate-outputs.outputs.upload_urls }}
+      latest_path: ${{ steps.paths.outputs.latest_path }}
+      versioned_path: ${{ steps.paths.outputs.versioned_path }}
+    
+    steps:
+      - name: Checkout with GitHub App
+        if: inputs.github_app_auth
+        uses: zondax/actions/checkout-with-app@v1
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          use_sudo: true
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+      
+      - name: Checkout repository
+        if: ${{ !inputs.github_app_auth }}
+        uses: actions/checkout@v4
+      
+      # ARTIFACTS MODE: Download from GitHub Actions artifacts
+      - name: Download artifacts
+        if: inputs.source_type == 'artifacts'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ inputs.artifact_pattern }}
+          path: download
+      
+      # RELEASE MODE: Download from GitHub release
+      - name: Download from GitHub release
+        if: inputs.source_type == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p download
+          
+          # Determine release tag
+          RELEASE_TAG="${{ inputs.release_tag }}"
+          if [ -z "$RELEASE_TAG" ]; then
+            # Use current tag if not specified
+            if [[ "${{ github.ref_type }}" == "tag" ]]; then
+              RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+            else
+              echo "❌ Error: release_tag is required when not running on a tag"
+              exit 1
+            fi
+          fi
+          
+          echo "📦 Downloading from release: $RELEASE_TAG"
+          
+          # Parse pattern into array for multiple patterns
+          IFS=' ' read -ra PATTERNS <<< "${{ inputs.release_pattern }}"
+          
+          # Download each pattern
+          for pattern in "${PATTERNS[@]}"; do
+            echo "  Downloading pattern: $pattern"
+            gh release download "$RELEASE_TAG" \
+              --repo ${{ github.repository }} \
+              --pattern "$pattern" \
+              --dir download || true
+          done
+          
+          echo "📋 Downloaded files:"
+          ls -la download/
+      
+      # Prepare upload directory (same for both modes)
+      - name: Prepare upload directory
+        run: |
+          mkdir -p upload
+          
+          # Handle both flat and nested structures
+          if [ -d "download" ]; then
+            # For artifacts mode (might have subdirectories)
+            find download -type f -exec cp {} upload/ \;
+          fi
+          
+          echo "📋 Files to upload:"
+          ls -la upload/
+          
+          # Count files
+          FILE_COUNT=$(find upload -type f | wc -l)
+          echo "Total files to upload: $FILE_COUNT"
+          
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "⚠️ No files found to upload!"
+            exit 1
+          fi
+      
+      # Determine folder names
+      - name: Determine upload paths
+        id: paths
+        run: |
+          # Version/tag based path
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            FOLDER="${GITHUB_REF#refs/tags/}"
+            echo "📦 Production build - using tag: $FOLDER"
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            FOLDER="${BRANCH}-${SHORT_SHA}"
+            echo "🔧 Development build - using branch-commit: $FOLDER"
+          fi
+          
+          echo "folder=$FOLDER" >> $GITHUB_OUTPUT
+          
+          # Construct full paths
+          BASE_DIR="${{ inputs.r2_destination_dir }}"
+          if [[ -n "$BASE_DIR" ]]; then
+            LATEST_PATH="${BASE_DIR}/latest"
+            VERSIONED_PATH="${BASE_DIR}/${FOLDER}"
+            echo "🗂️ Using base directory: $BASE_DIR"
+          else
+            LATEST_PATH="latest"
+            VERSIONED_PATH="${FOLDER}"
+            echo "🗂️ Uploading to bucket root"
+          fi
+          
+          echo "latest_path=$LATEST_PATH" >> $GITHUB_OUTPUT
+          echo "versioned_path=$VERSIONED_PATH" >> $GITHUB_OUTPUT
+      
+      # Install rclone for R2 upload
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          rclone version
+      
+      # Configure rclone for R2
+      - name: Configure rclone for R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.r2_access_key_id }}
+          secret_access_key = ${{ secrets.r2_secret_access_key }}
+          endpoint = https://${{ inputs.r2_account_id }}.r2.cloudflarestorage.com
+          acl = private
+          no_check_bucket = true
+          EOF
+      
+      # Multipart upload for large files
+      - name: Configure multipart settings
+        id: multipart
+        run: |
+          # Calculate chunk size based on input
+          CHUNK_SIZE="${{ inputs.multipart_size }}M"
+          echo "chunk_size=$CHUNK_SIZE" >> $GITHUB_OUTPUT
+          
+          # Set concurrent transfers
+          if [[ "${{ inputs.multipart_concurrent }}" == "true" ]]; then
+            echo "transfers=4" >> $GITHUB_OUTPUT
+          else
+            echo "transfers=1" >> $GITHUB_OUTPUT
+          fi
+      
+      # Upload to versioned folder
+      - name: Upload to versioned folder
+        if: inputs.upload_to_versioned
+        run: |
+          echo "📦 Uploading to versioned folder: ${{ steps.paths.outputs.versioned_path }}"
+          
+          rclone sync upload/ r2:${{ inputs.r2_bucket }}/${{ steps.paths.outputs.versioned_path }}/ \
+            --s3-chunk-size ${{ steps.multipart.outputs.chunk_size }} \
+            --transfers ${{ steps.multipart.outputs.transfers }} \
+            --retries ${{ inputs.max_retries }} \
+            --progress
+          
+          echo "✅ Upload to versioned folder complete"
+      
+      # Upload to latest folder
+      - name: Upload to latest folder
+        if: inputs.upload_to_latest
+        run: |
+          echo "🔄 Uploading to latest folder: ${{ steps.paths.outputs.latest_path }}"
+          
+          rclone sync upload/ r2:${{ inputs.r2_bucket }}/${{ steps.paths.outputs.latest_path }}/ \
+            --s3-chunk-size ${{ steps.multipart.outputs.chunk_size }} \
+            --transfers ${{ steps.multipart.outputs.transfers }} \
+            --retries ${{ inputs.max_retries }} \
+            --delete-during \
+            --progress
+          
+          echo "✅ Upload to latest folder complete"
+      
+      # List uploaded files
+      - name: List uploaded files
+        id: list-files
+        run: |
+          echo "📋 Uploaded files:"
+          
+          if [[ "${{ inputs.upload_to_versioned }}" == "true" ]]; then
+            echo ""
+            echo "Versioned folder (${{ steps.paths.outputs.versioned_path }}):"
+            rclone ls r2:${{ inputs.r2_bucket }}/${{ steps.paths.outputs.versioned_path }}/ || true
+          fi
+          
+          if [[ "${{ inputs.upload_to_latest }}" == "true" ]]; then
+            echo ""
+            echo "Latest folder (${{ steps.paths.outputs.latest_path }}):"
+            rclone ls r2:${{ inputs.r2_bucket }}/${{ steps.paths.outputs.latest_path }}/ || true
+          fi
+      
+      # Generate output URLs
+      - name: Generate output URLs
+        id: generate-outputs
+        run: |
+          echo "=== Upload Results ==="
+          echo "📦 R2 upload completed successfully!"
+          echo ""
+          
+          URLS=""
+          
+          if [[ "${{ inputs.upload_to_latest }}" == "true" ]]; then
+            LATEST_URL="R2 Latest: ${{ inputs.r2_bucket }}/${{ steps.paths.outputs.latest_path }}"
+            echo "🔄 $LATEST_URL"
+            URLS="${URLS}${LATEST_URL}\n"
+          fi
+          
+          if [[ "${{ inputs.upload_to_versioned }}" == "true" ]]; then
+            VERSIONED_URL="R2 Versioned: ${{ inputs.r2_bucket }}/${{ steps.paths.outputs.versioned_path }}"
+            echo "📂 $VERSIONED_URL"
+            URLS="${URLS}${VERSIONED_URL}"
+          fi
+          
+          echo "upload_urls<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$URLS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
