@@ -1,0 +1,43 @@
+name: Ledger CodeQL Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner to use for jobs'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      has-nanos:
+        description: 'Support for NanoS device'
+        type: boolean
+        default: false
+
+jobs:
+  analyse:
+    name: Analyse
+    runs-on: ${{ inputs.runs-on }}
+    if: github.event.repository.private == false
+    strategy:
+      matrix:
+        sdk: ${{ inputs.has-nanos && fromJSON('["$NANOS_SDK", "$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK"]') || fromJSON('["$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK"]') }}
+    container:
+      image: ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-legacy:latest
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: cpp
+          queries: security-and-quality
+
+      - name: Build
+        run: |
+          make -j BOLOS_SDK=${{ matrix.sdk }}
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
