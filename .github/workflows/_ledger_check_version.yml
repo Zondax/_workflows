@@ -1,0 +1,56 @@
+name: Ledger Check Version Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner to use for jobs'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+jobs:
+  configure:
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      uid_gid: ${{ steps.get-user.outputs.uid_gid }}
+    steps:
+      - id: get-user
+        run: echo "uid_gid=$(id -u):$(id -g)" >> $GITHUB_OUTPUT
+
+  get_version:
+    needs: configure
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: zondax/ledger-app-builder:latest
+      options: --user ${{ needs.configure.outputs.uid_gid }}
+    env:
+      SDK_VARNAME: NANOSP_SDK
+      BOLOS_SDK: /opt/nanosplus-secure-sdk
+    outputs:
+      version: ${{ steps.store-version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+      - run: make version
+      - id: store-version
+        run: echo "version=$(cat ./app/app.version)" >> $GITHUB_OUTPUT
+
+  check_app_version:
+    needs: get_version
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - id: checkTag
+        uses: mukunku/tag-exists-action@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: ${{ needs.get_version.outputs.version }}
+
+      - run: echo ${{ steps.checkTag.outputs.exists }}
+
+      - name: Tag exists
+        if: ${{ steps.checkTag.outputs.exists == 'true' }}
+        run: exit 1
