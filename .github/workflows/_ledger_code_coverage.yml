@@ -1,0 +1,511 @@
+name: Ledger Code Coverage Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner to use for jobs'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      has-rust:
+        description: 'Whether the project has Rust code'
+        required: false
+        type: boolean
+        default: true
+      has-cpp:
+        description: 'Whether the project has C++ code'
+        required: false
+        type: boolean
+        default: true
+      enable-badge:
+        description: 'Enable coverage badge creation (requires secrets)'
+        required: false
+        type: boolean
+        default: true
+      enable-pr-comment:
+        description: 'Post coverage results as PR comment'
+        required: false
+        type: boolean
+        default: true
+      enable-codecov:
+        description: 'Upload coverage to Codecov'
+        required: false
+        type: boolean
+        default: false
+      cmake-version:
+        description: 'CMake version to use'
+        required: false
+        type: string
+        default: '3.28.0'
+      rust-version:
+        description: 'Rust toolchain version'
+        required: false
+        type: string
+        default: 'stable'
+      coverage-threshold:
+        description: 'Minimum coverage percentage required (optional)'
+        required: false
+        type: number
+        default: 0
+      checkout-submodules:
+        description: 'Checkout git submodules'
+        required: false
+        type: boolean
+        default: true
+      build-directory:
+        description: 'Build directory for C++ code'
+        required: false
+        type: string
+        default: 'build-coverage'
+      rust-package-path:
+        description: 'Path to Rust package'
+        required: false
+        type: string
+        default: 'app/rust'
+      codecov-flags:
+        description: 'Flags to pass to Codecov'
+        required: false
+        type: string
+        default: ''
+      timeout-minutes:
+        description: 'Timeout in minutes for the job'
+        required: false
+        type: number
+        default: 45
+    secrets:
+      GIST_SECRET:
+        description: 'GitHub token for updating Gist (for badge)'
+        required: false
+      COVERAGE_GIST_ID:
+        description: 'Gist ID for storing coverage badge'
+        required: false
+      CODECOV_TOKEN:
+        description: 'Codecov upload token'
+        required: false
+    outputs:
+      coverage-percentage:
+        description: 'Total coverage percentage'
+        value: ${{ jobs.coverage.outputs.coverage-percentage }}
+      cpp-coverage:
+        description: 'C++ coverage percentage'
+        value: ${{ jobs.coverage.outputs.cpp-coverage }}
+      rust-coverage:
+        description: 'Rust coverage percentage'
+        value: ${{ jobs.coverage.outputs.rust-coverage }}
+
+jobs:
+  coverage:
+    name: Generate Coverage Report
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    container:
+      image: zondax/rust-ci:latest
+    outputs:
+      coverage-percentage: ${{ steps.extract-coverage.outputs.total }}
+      cpp-coverage: ${{ steps.extract-coverage.outputs.cpp }}
+      rust-coverage: ${{ steps.extract-coverage.outputs.rust }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: ${{ inputs.checkout-submodules }}
+
+      - name: Install base dependencies
+        run: |
+          apt-get update && apt-get install -y \
+            lcov \
+            libusb-1.0-0 \
+            libudev-dev \
+            g++ \
+            python3 \
+            python3-pip \
+            wget \
+            cmake
+          pip3 install ledgerblue --break-system-packages
+
+      - name: Install CMake ${{ inputs.cmake-version }}
+        if: ${{ inputs.has-cpp && inputs.cmake-version != '' }}
+        run: |
+          CMAKE_VERSION="${{ inputs.cmake-version }}"
+          wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz
+          tar -xzf cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz
+          cp -r cmake-${CMAKE_VERSION}-linux-x86_64/bin/* /usr/local/bin/
+          cp -r cmake-${CMAKE_VERSION}-linux-x86_64/share/* /usr/local/share/
+          cmake --version
+          rm -rf cmake-${CMAKE_VERSION}-linux-x86_64*
+
+      - name: Setup Rust
+        if: ${{ inputs.has-rust }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust-version }}
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        if: ${{ inputs.has-rust }}
+        run: cargo install cargo-llvm-cov
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            target/
+            ${{ inputs.rust-package-path }}/target/
+            ${{ inputs.build-directory }}/
+          key: ${{ runner.os }}-coverage-${{ hashFiles('**/Cargo.lock', '**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-coverage-
+            ${{ runner.os }}-
+
+      # C++ Testing and Coverage
+      - name: Build C++ tests with coverage
+        if: ${{ inputs.has-cpp }}
+        id: cpp_build
+        continue-on-error: true
+        run: |
+          mkdir -p ${{ inputs.build-directory }} coverage
+          cd ${{ inputs.build-directory }}
+          cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON ..
+          make -j$(nproc)
+
+      - name: Run C++ tests
+        if: ${{ inputs.has-cpp && steps.cpp_build.outcome == 'success' }}
+        id: cpp_tests
+        continue-on-error: true
+        run: |
+          cd ${{ inputs.build-directory }}
+          ctest --output-on-failure
+
+      - name: Collect C++ coverage
+        if: ${{ inputs.has-cpp && (always() && steps.cpp_build.outcome == 'success') }}
+        run: |
+          cd ${{ inputs.build-directory }}
+          # Generate coverage report regardless of test results
+          lcov --capture --directory . --output-file ../coverage/lcov.info --ignore-errors mismatch 2>/dev/null || \
+          lcov --capture --directory . --output-file ../coverage/lcov.info || true
+          
+          if [ -f ../coverage/lcov.info ]; then
+            # Remove system files and test files from coverage
+            lcov --remove ../coverage/lcov.info \
+              '/usr/*' \
+              '*/deps/*' \
+              '*/tests/*' \
+              '*/.hunter/*' \
+              '*/CMakeFiles/*' \
+              --output-file ../coverage/lcov.info || true
+          fi
+
+      # Rust Testing and Coverage
+      - name: Run Rust tests with coverage
+        if: ${{ inputs.has-rust }}
+        id: rust_tests
+        continue-on-error: true
+        run: |
+          if [ -d "${{ inputs.rust-package-path }}" ]; then
+            cd ${{ inputs.rust-package-path }}
+            mkdir -p target/llvm-cov
+            cargo llvm-cov --lcov --output-path target/llvm-cov/lcov.info
+          else
+            echo "Rust package path not found: ${{ inputs.rust-package-path }}"
+          fi
+
+      - name: Copy Rust coverage to main coverage directory
+        if: ${{ inputs.has-rust && steps.rust_tests.outcome != 'skipped' }}
+        run: |
+          mkdir -p coverage
+          if [ -f "${{ inputs.rust-package-path }}/target/llvm-cov/lcov.info" ]; then
+            cp "${{ inputs.rust-package-path }}/target/llvm-cov/lcov.info" coverage/rust-lcov.info
+          fi
+
+      # Merge Coverage Reports
+      - name: Merge coverage reports
+        id: merge-coverage
+        run: |
+          mkdir -p coverage
+          
+          # Determine which coverage files exist and merge them
+          if [ -f coverage/lcov.info ] && [ -f coverage/rust-lcov.info ]; then
+            echo "Merging C++ and Rust coverage..."
+            lcov -a coverage/lcov.info -a coverage/rust-lcov.info -o coverage/merged-lcov.info
+          elif [ -f coverage/lcov.info ]; then
+            echo "Using C++ coverage only..."
+            cp coverage/lcov.info coverage/merged-lcov.info
+          elif [ -f coverage/rust-lcov.info ]; then
+            echo "Using Rust coverage only..."
+            cp coverage/rust-lcov.info coverage/merged-lcov.info
+          else
+            echo "No coverage reports generated"
+            echo "has_coverage=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "has_coverage=true" >> $GITHUB_OUTPUT
+
+      - name: Extract coverage percentages
+        id: extract-coverage
+        if: steps.merge-coverage.outputs.has_coverage == 'true'
+        run: |
+          # Function to extract line coverage percentage
+          extract_percentage() {
+            local file=$1
+            if [ -f "$file" ]; then
+              summary=$(lcov --summary "$file" 2>&1)
+              percentage=$(echo "$summary" | grep "lines......" | sed 's/^.*: //' | grep -oE '[0-9]+\.[0-9]+' | head -1)
+              echo "${percentage:-0}"
+            else
+              echo "0"
+            fi
+          }
+          
+          # Extract percentages
+          CPP_PCT=$(extract_percentage "coverage/lcov.info")
+          RUST_PCT=$(extract_percentage "coverage/rust-lcov.info")
+          TOTAL_PCT=$(extract_percentage "coverage/merged-lcov.info")
+          
+          # Set outputs
+          echo "cpp=${CPP_PCT}" >> $GITHUB_OUTPUT
+          echo "rust=${RUST_PCT}" >> $GITHUB_OUTPUT
+          echo "total=${TOTAL_PCT}" >> $GITHUB_OUTPUT
+          
+          # Set environment variables for badge
+          echo "COVERAGE_PCT=${TOTAL_PCT}" >> $GITHUB_ENV
+          
+          # Determine color based on percentage
+          COVERAGE_INT=${TOTAL_PCT%.*}
+          if [ "${COVERAGE_INT:-0}" -ge 80 ]; then
+            echo "COVERAGE_COLOR=brightgreen" >> $GITHUB_ENV
+          elif [ "${COVERAGE_INT:-0}" -ge 60 ]; then
+            echo "COVERAGE_COLOR=yellow" >> $GITHUB_ENV
+          else
+            echo "COVERAGE_COLOR=red" >> $GITHUB_ENV
+          fi
+
+      - name: Display coverage summary
+        if: steps.merge-coverage.outputs.has_coverage == 'true'
+        run: |
+          echo "## Code Coverage Report 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "coverage/lcov.info" ] && [ "${{ inputs.has-cpp }}" == "true" ]; then
+            echo "### C++ Coverage" >> $GITHUB_STEP_SUMMARY
+            summary=$(lcov --summary "coverage/lcov.info" 2>&1)
+            lines=$(echo "$summary" | grep "lines......" | sed 's/^.*: //')
+            functions=$(echo "$summary" | grep "functions.." | sed 's/^.*: //')
+            branches=$(echo "$summary" | grep "branches..." | sed 's/^.*: //' || echo "N/A")
+            
+            echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Lines | $lines |" >> $GITHUB_STEP_SUMMARY
+            echo "| Functions | $functions |" >> $GITHUB_STEP_SUMMARY
+            [ "$branches" != "N/A" ] && echo "| Branches | $branches |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "coverage/rust-lcov.info" ] && [ "${{ inputs.has-rust }}" == "true" ]; then
+            echo "### Rust Coverage" >> $GITHUB_STEP_SUMMARY
+            summary=$(lcov --summary "coverage/rust-lcov.info" 2>&1)
+            lines=$(echo "$summary" | grep "lines......" | sed 's/^.*: //')
+            functions=$(echo "$summary" | grep "functions.." | sed 's/^.*: //')
+            branches=$(echo "$summary" | grep "branches..." | sed 's/^.*: //' || echo "N/A")
+            
+            echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Lines | $lines |" >> $GITHUB_STEP_SUMMARY
+            echo "| Functions | $functions |" >> $GITHUB_STEP_SUMMARY
+            [ "$branches" != "N/A" ] && echo "| Branches | $branches |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "coverage/merged-lcov.info" ]; then
+            echo "### 📊 Total Project Coverage" >> $GITHUB_STEP_SUMMARY
+            summary=$(lcov --summary "coverage/merged-lcov.info" 2>&1)
+            lines=$(echo "$summary" | grep "lines......" | sed 's/^.*: //')
+            functions=$(echo "$summary" | grep "functions.." | sed 's/^.*: //')
+            branches=$(echo "$summary" | grep "branches..." | sed 's/^.*: //' || echo "N/A")
+            
+            echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| **Lines** | **$lines** |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Functions** | **$functions** |" >> $GITHUB_STEP_SUMMARY
+            [ "$branches" != "N/A" ] && echo "| **Branches** | **$branches** |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📁 LCOV reports available as artifacts" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage artifacts
+        if: steps.merge-coverage.outputs.has_coverage == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: coverage/*.info
+
+      - name: Upload to Codecov
+        if: ${{ inputs.enable-codecov && steps.merge-coverage.outputs.has_coverage == 'true' }}
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/merged-lcov.info
+          flags: ${{ inputs.codecov-flags }}
+          fail_ci_if_error: false
+
+      - name: Create Coverage Badge
+        if: ${{ github.ref == 'refs/heads/main' && inputs.enable-badge && steps.merge-coverage.outputs.has_coverage == 'true' }}
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: ${{ secrets.COVERAGE_GIST_ID }}
+          filename: ${{ github.event.repository.name }}-coverage.json
+          label: Coverage
+          message: ${{ env.COVERAGE_PCT }}%
+          color: ${{ env.COVERAGE_COLOR }}
+
+      - name: Comment PR with Coverage Report
+        if: ${{ github.event_name == 'pull_request' && inputs.enable-pr-comment && steps.merge-coverage.outputs.has_coverage == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            
+            // Build the comment body
+            let comment = '## Code Coverage Report 📊\n\n';
+            
+            // Function to extract coverage details
+            const extractCoverage = (file, name) => {
+              if (!fs.existsSync(file)) return '';
+              
+              try {
+                const summary = execSync(`lcov --summary ${file} 2>&1`, {encoding: 'utf8'});
+                const lines = summary.match(/lines\.+: (.+)/)?.[1] || 'N/A';
+                const functions = summary.match(/functions\.+: (.+)/)?.[1] || 'N/A';
+                const branches = summary.match(/branches\.+: (.+)/)?.[1] || 'N/A';
+                
+                let section = `### ${name} Coverage\n`;
+                section += `| Metric | Coverage |\n`;
+                section += `|--------|----------|\n`;
+                section += `| Lines | ${lines} |\n`;
+                section += `| Functions | ${functions} |\n`;
+                if (branches !== 'N/A') {
+                  section += `| Branches | ${branches} |\n`;
+                }
+                section += '\n';
+                return section;
+              } catch (e) {
+                return `### ${name} Coverage\nNo coverage data available\n\n`;
+              }
+            };
+            
+            // Add coverage based on configuration
+            if ('${{ inputs.has-cpp }}' === 'true') {
+              comment += extractCoverage('coverage/lcov.info', 'C++');
+            }
+            if ('${{ inputs.has-rust }}' === 'true') {
+              comment += extractCoverage('coverage/rust-lcov.info', 'Rust');
+            }
+            
+            // Add total coverage
+            if (fs.existsSync('coverage/merged-lcov.info')) {
+              try {
+                const summary = execSync('lcov --summary coverage/merged-lcov.info 2>&1', {encoding: 'utf8'});
+                const lines = summary.match(/lines\.+: (.+)/)?.[1] || 'N/A';
+                const functions = summary.match(/functions\.+: (.+)/)?.[1] || 'N/A';
+                const branches = summary.match(/branches\.+: (.+)/)?.[1] || 'N/A';
+                
+                comment += '### 📊 Total Project Coverage\n';
+                comment += '| Metric | Coverage |\n';
+                comment += '|--------|----------|\n';
+                comment += `| **Lines** | **${lines}** |\n`;
+                comment += `| **Functions** | **${functions}** |\n`;
+                if (branches !== 'N/A') {
+                  comment += `| **Branches** | **${branches}** |\n`;
+                }
+                
+                // Add threshold check if configured
+                const threshold = ${{ inputs.coverage-threshold }};
+                if (threshold > 0) {
+                  const coveragePct = parseFloat('${{ steps.extract-coverage.outputs.total }}');
+                  if (coveragePct < threshold) {
+                    comment += `\n� **Warning**: Coverage (${coveragePct}%) is below the required threshold (${threshold}%)\n`;
+                  } else {
+                    comment += `\n✅ Coverage meets the required threshold (${threshold}%)\n`;
+                  }
+                }
+              } catch (e) {
+                comment += '### Total Coverage\nFailed to generate total coverage\n';
+              }
+            }
+            
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Code Coverage Report 📊')
+            );
+            
+            // Update or create comment
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+      - name: Check coverage threshold
+        if: ${{ inputs.coverage-threshold > 0 && steps.merge-coverage.outputs.has_coverage == 'true' }}
+        run: |
+          COVERAGE_PCT="${{ steps.extract-coverage.outputs.total }}"
+          THRESHOLD="${{ inputs.coverage-threshold }}"
+          
+          if (( $(echo "$COVERAGE_PCT < $THRESHOLD" | bc -l) )); then
+            echo "❌ Coverage ($COVERAGE_PCT%) is below the required threshold ($THRESHOLD%)"
+            exit 1
+          else
+            echo "✅ Coverage ($COVERAGE_PCT%) meets the required threshold ($THRESHOLD%)"
+          fi
+
+      - name: Check test results
+        if: always()
+        run: |
+          CPP_RESULT="${{ steps.cpp_tests.outcome }}"
+          RUST_RESULT="${{ steps.rust_tests.outcome }}"
+          HAS_CPP="${{ inputs.has-cpp }}"
+          HAS_RUST="${{ inputs.has-rust }}"
+          
+          FAILED=false
+          
+          if [ "$HAS_CPP" = "true" ] && [ "$CPP_RESULT" = "failure" ]; then
+            echo "❌ C++ tests failed"
+            FAILED=true
+          elif [ "$HAS_CPP" = "true" ] && [ "$CPP_RESULT" = "success" ]; then
+            echo "✅ C++ tests passed"
+          fi
+          
+          if [ "$HAS_RUST" = "true" ] && [ "$RUST_RESULT" = "failure" ]; then
+            echo "❌ Rust tests failed"
+            FAILED=true
+          elif [ "$HAS_RUST" = "true" ] && [ "$RUST_RESULT" = "success" ]; then
+            echo "✅ Rust tests passed"
+          fi
+          
+          if [ "$FAILED" = "true" ]; then
+            echo ""
+            echo "⚠️ Some tests failed but coverage was still collected"
+            exit 1
+          fi
