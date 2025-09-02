@@ -201,6 +201,7 @@ jobs:
       
     steps:
       - name: Setup Ubuntu packages
+        if: inputs.runner_preset == 'linux-amd64'
         uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |
