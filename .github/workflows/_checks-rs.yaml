@@ -187,10 +187,7 @@ permissions:
 
 jobs:
   checks-rust:
-    runs-on: ${{ 
-      inputs.runner_preset == 'linux-amd64' && 'zondax-runners' ||
-      inputs.runner_preset == 'macos-arm64' && fromJSON('["self-hosted", "macOS", "ARM64"]') ||
-      'zondax-runners' }}
+    runs-on: ${{ inputs.runner_preset == 'linux-amd64' && 'zondax-runners' || inputs.runner_preset == 'macos-arm64' && fromJSON('["self-hosted", "macOS", "ARM64"]') || 'zondax-runners' }}
     container: ${{ inputs.runner_preset == 'linux-amd64' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
