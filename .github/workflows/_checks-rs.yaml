@@ -252,13 +252,24 @@ jobs:
           workspaces: ${{ inputs.package_path }}
           cache-on-failure: true
 
-      - name: Install cargo-tarpaulin for coverage
-        if: inputs.enable_coverage
+      - name: Install cargo-tarpaulin for coverage (Linux only)
+        if: inputs.enable_coverage && inputs.runner_preset == 'linux-amd64'
         run: cargo install cargo-tarpaulin
+      
+      - name: Install cargo-llvm-cov for coverage (macOS)
+        if: inputs.enable_coverage && inputs.runner_preset == 'macos-arm64'
+        run: cargo install cargo-llvm-cov
 
       - name: Install cargo-audit for security
         if: inputs.enable_security_audit
-        run: cargo install cargo-audit
+        run: |
+          # cargo-audit installation is slow, consider pre-installing on self-hosted runners
+          if command -v cargo-audit &> /dev/null; then
+            echo "cargo-audit already installed"
+          else
+            echo "Installing cargo-audit..."
+            cargo install cargo-audit
+          fi
 
       - name: Install system dependencies
         if: inputs.system_deps_command != ''
