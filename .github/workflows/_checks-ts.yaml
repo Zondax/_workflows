@@ -97,6 +97,14 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
+      runs_on:
+        description: "Runner(s) to use (JSON array string for labels or simple string)"
+        type: string
+        default: "zondax-runners"
+      use_container:
+        description: "Whether to use a container (set to false for macOS native runners)"
+        type: boolean
+        default: true
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -110,9 +118,8 @@ on:
 
 jobs:
   checks-ts:
-    runs-on: zondax-runners
-    container:
-      image: ${{ inputs.base_image }}
+    runs-on: ${{ fromJSON(inputs.runs_on) || inputs.runs_on }}
+    container: ${{ inputs.use_container && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
     permissions:
