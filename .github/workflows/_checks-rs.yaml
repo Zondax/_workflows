@@ -38,16 +38,11 @@ on:
         required: false
         type: string
         default: "clippy,rustfmt"
-      runner:
-        description: "GitHub runner to use (JSON array string for labels or simple string)"
+      runner_preset:
+        description: "Runner preset (linux-amd64, macos-arm64)"
         required: false
         type: string
-        default: "zondax-runners"
-      use_container:
-        description: "Whether to use a container (set to false for macOS native runners)"
-        required: false
-        type: boolean
-        default: true
+        default: "linux-amd64"
       base_image:
         description: "Docker image to use for base image"
         required: false
@@ -192,8 +187,11 @@ permissions:
 
 jobs:
   checks-rust:
-    runs-on: ${{ startsWith(inputs.runner, '[') && fromJSON(inputs.runner) || inputs.runner }}
-    container: ${{ inputs.use_container && inputs.base_image || '' }}
+    runs-on: ${{ 
+      inputs.runner_preset == 'linux-amd64' && 'zondax-runners' ||
+      inputs.runner_preset == 'macos-arm64' && fromJSON('["self-hosted", "macOS", "ARM64"]') ||
+      'zondax-runners' }}
+    container: ${{ inputs.runner_preset == 'linux-amd64' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
     permissions:
