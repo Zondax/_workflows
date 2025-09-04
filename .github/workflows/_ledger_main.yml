@@ -207,6 +207,10 @@ jobs:
           node-version: ${{ inputs.node-version }}
       - name: Install yarn
         run: npm install -g yarn
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
       - name: Build and run zemu tests
         run: make test_all
       - name: Upload Snapshots (only failure)
