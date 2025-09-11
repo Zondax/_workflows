@@ -20,7 +20,7 @@ jobs:
     if: github.event.repository.private == false
     strategy:
       matrix:
-        sdk: ${{ inputs.has-nanos && fromJSON('["$NANOS_SDK", "$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK"]') || fromJSON('["$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK"]') }}
+        sdk: ${{ inputs.has-nanos && fromJSON('["$NANOS_SDK", "$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK", "$APEX_SDK"]') || fromJSON('["$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK", "$APEX_SDK"]') }}
     container:
       image: ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-legacy:latest
 
