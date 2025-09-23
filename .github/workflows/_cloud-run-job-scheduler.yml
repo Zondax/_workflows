@@ -1,0 +1,120 @@
+name: Cloud Run Job + Scheduler Deploy (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: "Environment name (dev, pro)"
+      job_name:
+        required: true
+        type: string
+        description: "Cloud Run Job name"
+      job_yaml_path:
+        required: true
+        type: string
+        description: "Path to the Cloud Run Job YAML manifest"
+      image_tag:
+        required: true
+        type: string
+        description: "Docker image tag to deploy"
+      image_placeholder:
+        required: false
+        type: string
+        default: "<IMAGE>"
+        description: "Placeholder in YAML to replace with image_tag"
+      scheduler_name:
+        required: true
+        type: string
+        description: "Cloud Scheduler job name"
+      schedule:
+        required: true
+        type: string
+        description: "Cron schedule (e.g., '*/30 * * * *')"
+      scheduler_description:
+        required: false
+        type: string
+        description: "Description for the scheduler job"
+      service_account_email:
+        required: true
+        type: string
+        description: "Service account email for Cloud Scheduler authentication"
+      timezone:
+        required: false
+        type: string
+        default: "UTC"
+        description: "Timezone for the schedule"
+
+jobs:
+  deploy-job-and-scheduler:
+    name: Deploy Cloud Run Job and Scheduler
+    runs-on: zondax-runners
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate with GCP
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+          setup_gcloud: true
+
+      - name: Deploy Cloud Run Job
+        run: |
+          # Substitute image placeholder in YAML
+          sed "s|${{ inputs.image_placeholder }}|${{ inputs.image_tag }}|g" \
+            ${{ inputs.job_yaml_path }} > /tmp/${{ inputs.job_name }}_deploy.yml
+
+          # Deploy the Cloud Run Job with substituted image
+          gcloud run jobs replace /tmp/${{ inputs.job_name }}_deploy.yml \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Create/Update Cloud Scheduler Job
+        run: |
+          # Check if scheduler job exists
+          if gcloud scheduler jobs describe ${{ inputs.scheduler_name }} \
+               --location=${{ vars.PULUMI_GAR_LOCATION }} \
+               --project=${{ vars.PULUMI_GCP_PROJECT_ID }} >/dev/null 2>&1; then
+            echo "Updating existing scheduler job..."
+            gcloud scheduler jobs update http ${{ inputs.scheduler_name }} \
+              --location=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --schedule="${{ inputs.schedule }}" \
+              --time-zone="${{ inputs.timezone }}" \
+              --uri="https://${{ vars.PULUMI_GAR_LOCATION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ vars.PULUMI_GCP_PROJECT_ID }}/jobs/${{ inputs.job_name }}:run" \
+              --http-method=POST \
+              --oauth-service-account-email="${{ inputs.service_account_email }}" \
+              --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform"
+          else
+            echo "Creating new scheduler job..."
+            gcloud scheduler jobs create http ${{ inputs.scheduler_name }} \
+              --location=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --schedule="${{ inputs.schedule }}" \
+              --time-zone="${{ inputs.timezone }}" \
+              --uri="https://${{ vars.PULUMI_GAR_LOCATION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ vars.PULUMI_GCP_PROJECT_ID }}/jobs/${{ inputs.job_name }}:run" \
+              --http-method=POST \
+              --oauth-service-account-email="${{ inputs.service_account_email }}" \
+              --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform" \
+              --description="${{ inputs.scheduler_description }}"
+          fi
+
+      - name: Verify Deployment
+        run: |
+          echo "Cloud Run Job deployed successfully:"
+          gcloud run jobs describe ${{ inputs.job_name }} \
+            --region=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+          echo ""
+          echo "Cloud Scheduler job configured:"
+          gcloud scheduler jobs describe ${{ inputs.scheduler_name }} \
+            --location=${{ vars.PULUMI_GAR_LOCATION }} \
+            --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
