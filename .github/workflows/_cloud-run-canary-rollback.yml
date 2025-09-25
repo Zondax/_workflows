@@ -27,7 +27,7 @@ on:
 jobs:
   rollback-canary:
     runs-on: zondax-runners
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment == 'main' && 'pro' || inputs.environment }}
     outputs:
       service_url: ${{ steps.get-info.outputs.service_url }}
       rollback_revision: ${{ steps.get-info.outputs.rollback_revision }}

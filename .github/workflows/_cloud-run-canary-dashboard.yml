@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       environment:
-        description: 'Environment to analyze (dev/pro/both)'
+        description: 'Environment to analyze (dev/pro)'
         required: true
         type: string
       services:
@@ -16,7 +16,7 @@ jobs:
   dashboard:
     name: Canary Deployment Dashboard
     runs-on: zondax-runners
-    environment: ${{ inputs.environment == 'both' && 'dev' || inputs.environment }}
+    environment: ${{ inputs.environment == 'main' && 'pro' || inputs.environment }}
     permissions:
       id-token: write
       contents: read
@@ -36,7 +36,7 @@ jobs:
           echo "================================================"
 
       - name: Analyze Dev Environment
-        if: inputs.environment == 'dev' || inputs.environment == 'both'
+        if: inputs.environment == 'dev'
         run: |
           echo ""
           echo "🔧 DEV ENVIRONMENT STATUS"
@@ -141,9 +141,9 @@ jobs:
           done
 
       - name: Analyze Production Environment
-        if: inputs.environment == 'pro' || inputs.environment == 'both'
+        if: inputs.environment == 'main'
         env:
-          PULUMI_GCP_PROJECT_ID_PRO: ${{ inputs.environment == 'pro' && vars.PULUMI_GCP_PROJECT_ID || 'ks-pro-52f3fd4' }}
+          PULUMI_GCP_PROJECT_ID_PRO: ${{ vars.PULUMI_GCP_PROJECT_ID }}
         run: |
           echo ""
           echo "🏭 PRODUCTION ENVIRONMENT STATUS"
@@ -270,7 +270,7 @@ jobs:
           ACTIVE_CANARIES=0
           
           # Count dev canaries
-          if [ "${{ inputs.environment }}" = "dev" ] || [ "${{ inputs.environment }}" = "both" ]; then
+          if [ "${{ inputs.environment }}" = "dev" ]; then
             echo '${{ inputs.services }}' | jq -r '.[]' | while read -r service_type; do
               service_name="${service_type}-dev"
                 if gcloud run services describe "$service_name" \
@@ -291,7 +291,7 @@ jobs:
           fi
           
           # Count production canaries (simplified for example)
-          if [ "${{ inputs.environment }}" = "pro" ] || [ "${{ inputs.environment }}" = "both" ]; then
+          if [ "${{ inputs.environment }}" = "main" ]; then
             # Add production canary checking logic here if needed
             echo "⚠️  Remember: Production canaries require extra attention!"
           fi

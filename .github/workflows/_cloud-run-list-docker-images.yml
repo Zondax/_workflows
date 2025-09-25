@@ -21,7 +21,7 @@ jobs:
   list-images:
     name: List Docker Images
     runs-on: zondax-runners
-    environment: ${{ inputs.environment == 'both' && 'dev' || inputs.environment }}
+    environment: ${{ inputs.environment == 'main' && 'pro' || inputs.environment }}
     permissions:
       id-token: write
       contents: read

@@ -26,7 +26,7 @@ on:
 jobs:
   promote-canary:
     runs-on: zondax-runners
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment == 'main' && 'pro' || inputs.environment }}
     outputs:
       service_url: ${{ steps.get-info.outputs.service_url }}
       previous_traffic: ${{ steps.get-info.outputs.previous_traffic }}
