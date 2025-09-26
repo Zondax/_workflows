@@ -35,6 +35,13 @@ on:
           JSON array of container names that need authorization configuration injection (RBAC/ABAC).
           Example: ["api", "store", "custom-service"]
           Required when using auth_model or auth_policy in container_configs.
+      allow_first_time_deploy_only:
+        required: false
+        type: boolean
+        default: false
+        description: >-
+          When true, only deploys if the service doesn't already exist. This enables first-time
+          deployments while preventing accidental overwrites of existing services.
     outputs:
       url:
         description: "The deployed Cloud Run service URL."
@@ -181,18 +188,45 @@ jobs:
           echo "final_service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
           echo "Deploying service: $SERVICE_NAME"
 
+      - name: Check if first-time deployment is allowed
+        id: check-deployment
+        run: |
+          SERVICE_NAME="${{ steps.set-service-name.outputs.final_service_name }}"
+          ALLOW_FIRST_TIME="${{ inputs.allow_first_time_deploy_only }}"
+
+          if [ "$ALLOW_FIRST_TIME" = "true" ]; then
+            echo "Checking if service $SERVICE_NAME already exists..."
+
+            # Check if service exists
+            if gcloud run services describe "$SERVICE_NAME" \
+              --region=${{ vars.PULUMI_GAR_LOCATION }} \
+              --project=${{ vars.PULUMI_GCP_PROJECT_ID }} \
+              --quiet >/dev/null 2>&1; then
+              echo "Service $SERVICE_NAME already exists. Skipping deployment (first-time deploy only)."
+              echo "should_deploy=false" >> $GITHUB_OUTPUT
+            else
+              echo "Service $SERVICE_NAME does not exist. Proceeding with first-time deployment."
+              echo "should_deploy=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Normal deployment mode. Proceeding with deployment."
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy to Cloud Run
         id: deploy
+        if: steps.check-deployment.outputs.should_deploy == 'true'
         run: |
           # Deploy the Knative YAML using gcloud
           gcloud run services replace service.deploy.yaml \
             --region=${{ vars.PULUMI_GAR_LOCATION }} \
             --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
-            
+
           echo "Service deployed successfully!"
 
       - name: Get service URL
         id: get-url
+        if: steps.check-deployment.outputs.should_deploy == 'true'
         run: |
           URL=$(gcloud run services describe ${{ steps.set-service-name.outputs.final_service_name }} \
             --platform=managed \
