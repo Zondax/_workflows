@@ -1,0 +1,159 @@
+name: Reusable Link Checks
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node.js version to use"
+        type: string
+        default: "22"
+      package_manager:
+        description: "Package manager to use (bun or pnpm)"
+        type: string
+        default: "pnpm"
+      bun_version:
+        description: "Bun version to use"
+        type: string
+        default: "1.2.13"
+      pnpm_version:
+        description: "pnpm version to use"
+        type: string
+        default: "latest"
+      base_image:
+        description: "Docker image to use for base image"
+        type: string
+        default: "ubuntu:24.04"
+      build_command:
+        description: "Build command to run from package.json"
+        type: string
+        default: "build"
+      start_command:
+        description: "Start command to run from package.json"
+        type: string
+        default: "start"
+      link_check_command:
+        description: "Link check command to run from package.json"
+        type: string
+        default: "test:links"
+      server_url:
+        description: "URL to check for server readiness"
+        type: string
+        default: "http://localhost:3000"
+      server_wait_timeout:
+        description: "Maximum time to wait for server (in seconds)"
+        type: number
+        default: 60
+      checkout_submodules:
+        description: "Checkout submodules"
+        type: boolean
+        default: true
+      github_app_auth:
+        description: "Use GitHub App Token"
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        type: string
+        default: ""
+      autoinit_env:
+        description: "Automatically run env:init:ci script after installing dependencies"
+        type: boolean
+        default: false
+      environment:
+        description: "Environment name to use for accessing environment variables"
+        type: string
+        default: ""
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 10
+      runner_preset:
+        description: "Runner preset (linux-amd64, macos-arm64)"
+        type: string
+        default: "linux-amd64"
+    secrets:
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+
+jobs:
+  link-check:
+    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && '["self-hosted", "macOS", "ARM64"]' || inputs.runner_preset == 'linux-amd64' && '["zondax-runners"]' || '["zondax-runners"]') }}
+    container: ${{ inputs.runner_preset == 'linux-amd64' && inputs.base_image || '' }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
+    steps:
+      - name: Setup Ubuntu packages
+        if: inputs.runner_preset == 'linux-amd64'
+        uses: zondax/actions/setup-ubuntu-packages@v1
+        with:
+          packages: |
+            - git
+            - unzip
+            - jq
+            - curl
+
+      - name: Checkout with GitHub App
+        uses: zondax/actions/checkout-with-app@v1
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+
+      - name: Authenticate with GCP
+        if: ${{ inputs.autoinit_env && inputs.environment != '' }}
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
+          project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Setup Node.js Environment
+        id: setup-node
+        uses: zondax/actions/setup-node-env@v1
+        with:
+          node_version: ${{ inputs.node_version }}
+          package_manager: ${{ inputs.package_manager }}
+          bun_version: ${{ inputs.bun_version }}
+          pnpm_version: ${{ inputs.pnpm_version }}
+          autoinit_env: ${{ inputs.autoinit_env }}
+
+      - name: Build application
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.build_command }}
+
+      - name: Start application in background
+        run: |
+          ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.start_command }} &
+          echo $! > server.pid
+
+      - name: Wait for server to be ready
+        run: |
+          for i in $(seq 1 ${{ inputs.server_wait_timeout }}); do
+            if curl -f ${{ inputs.server_url }} > /dev/null 2>&1; then
+              echo "Server is ready"
+              exit 0
+            fi
+            echo "Waiting for server... ($i/${{ inputs.server_wait_timeout }})"
+            sleep 2
+          done
+          echo "Server failed to start within timeout"
+          exit 1
+
+      - name: Check external links
+        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.link_check_command }}
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+          fi
