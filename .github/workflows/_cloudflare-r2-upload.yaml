@@ -42,13 +42,19 @@ on:
         type: string
       
       r2_destination_dir:
-        description: 'Destination directory in R2 bucket'
+        description: 'Base directory in R2 bucket (prefix for both versioned and latest paths)'
         required: false
         type: string
         default: ''
-      
+
+      channel:
+        description: 'Update channel for organizing latest files (e.g., stable, unstable, dev)'
+        required: false
+        type: string
+        default: ''
+
       upload_to_latest:
-        description: 'Also upload to "latest" folder'
+        description: 'Also upload to "latest" folder (organized by channel if specified)'
         required: false
         type: boolean
         default: true
@@ -229,19 +235,38 @@ jobs:
           fi
           
           echo "folder=$FOLDER" >> $GITHUB_OUTPUT
-          
+
           # Construct full paths
           BASE_DIR="${{ inputs.r2_destination_dir }}"
+          CHANNEL="${{ inputs.channel }}"
+
+          # Versioned path: uses BASE_DIR if specified, otherwise bucket root
           if [[ -n "$BASE_DIR" ]]; then
-            LATEST_PATH="${BASE_DIR}/latest"
             VERSIONED_PATH="${BASE_DIR}/${FOLDER}"
-            echo "🗂️ Using base directory: $BASE_DIR"
           else
-            LATEST_PATH="latest"
             VERSIONED_PATH="${FOLDER}"
-            echo "🗂️ Uploading to bucket root"
           fi
-          
+
+          # Latest path: uses channel subdirectory if specified
+          # Structure: latest/{channel}/ or {base_dir}/latest/{channel}/
+          if [[ -n "$CHANNEL" ]]; then
+            if [[ -n "$BASE_DIR" ]]; then
+              LATEST_PATH="${BASE_DIR}/latest/${CHANNEL}"
+              echo "🗂️ Using base directory: $BASE_DIR, channel: $CHANNEL"
+            else
+              LATEST_PATH="latest/${CHANNEL}"
+              echo "🗂️ Using channel: $CHANNEL"
+            fi
+          else
+            if [[ -n "$BASE_DIR" ]]; then
+              LATEST_PATH="${BASE_DIR}/latest"
+              echo "🗂️ Using base directory: $BASE_DIR"
+            else
+              LATEST_PATH="latest"
+              echo "🗂️ Uploading to bucket root"
+            fi
+          fi
+
           echo "latest_path=$LATEST_PATH" >> $GITHUB_OUTPUT
           echo "versioned_path=$VERSIONED_PATH" >> $GITHUB_OUTPUT
       
