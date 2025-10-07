@@ -8,21 +8,73 @@ on:
         required: false
         type: string
         default: 'ubuntu-latest'
-      has-nanos:
-        description: 'Support for NanoS device'
-        type: boolean
-        default: false
+      container:
+        description: 'Docker container image to use'
+        required: false
+        type: string
+        default: 'ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-lite:latest'
 
 jobs:
+  get_app_metadata:
+    name: Retrieve application metadata
+    runs-on: ${{ inputs.runs-on }}
+    outputs:
+      sdks_config: ${{ steps.build_matrix.outputs.sdks_config }}
+    steps:
+      - name: Clone
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install ledgered
+        run: pip install ledgered
+
+      - name: Extract devices from ledger_app.toml
+        id: fetch_metadata
+        run: |
+          APP_MANIFEST="ledger_app.toml"
+
+          if [ ! -f "$APP_MANIFEST" ]; then
+            >&2 echo "/!\ No $APP_MANIFEST manifest detected!"
+            >&2 echo "This file is mandatory, please add it on your repository"
+            >&2 echo "Documentation: https://github.com/LedgerHQ/ledgered/blob/master/doc/utils/manifest.md"
+            exit 1
+          fi
+
+          echo "Manifest detected. Validating..."
+          ledger-manifest --check . "$APP_MANIFEST"
+
+          # Extract device list and transform apex+ to apex_p
+          compatible_devices="$(ledger-manifest --output-devices "$APP_MANIFEST" -j | jq -rc '.devices')"
+          echo "compatible_devices=${compatible_devices}" | sed 's/+/p/' >> "$GITHUB_OUTPUT"
+
+      - name: Build SDK matrix
+        id: build_matrix
+        run: |
+          devices_json='${{ steps.fetch_metadata.outputs.compatible_devices }}'
+
+          # Convert device names to SDK environment variables (e.g., "nanos" -> "$NANOS_SDK")
+          sdks_json=$(echo "${devices_json}" | jq -c 'map("$" + (. | ascii_upcase) + "_SDK")')
+
+          echo "sdks_config=${sdks_json}" >> "$GITHUB_OUTPUT"
+          echo "SDK matrix: ${sdks_json}"
+
   analyse:
     name: Analyse
+    needs: get_app_metadata
     runs-on: ${{ inputs.runs-on }}
     if: github.event.repository.private == false
     strategy:
+      fail-fast: false
       matrix:
-        sdk: ${{ inputs.has-nanos && fromJSON('["$NANOS_SDK", "$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK"]') || fromJSON('["$NANOX_SDK", "$NANOSP_SDK", "$STAX_SDK", "$FLEX_SDK"]') }}
+        sdk: ${{ fromJSON(needs.get_app_metadata.outputs.sdks_config) }}
     container:
-      image: ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-legacy:latest
+      image: ${{ inputs.container }}
 
     steps:
       - name: Clone
@@ -39,5 +91,6 @@ jobs:
       - name: Build
         run: |
           make -j BOLOS_SDK=${{ matrix.sdk }}
+
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
