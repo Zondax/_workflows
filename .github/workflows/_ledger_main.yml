@@ -161,14 +161,6 @@ jobs:
           cd ./app/rust
           cargo test
 
-
-  build_application:
-    name: Build application using the reusable workflow
-    uses: LedgerHQ/ledger-app-workflows/.github/workflows/reusable_build.yml@v1
-    with:
-      upload_app_binaries_artifact: "compiled_app_binaries"
-      builder: ledger-app-builder
-
   size_nano_s:
     if: ${{ inputs.has-nanos }}
     needs: build_ledger
