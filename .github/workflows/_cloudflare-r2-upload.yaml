@@ -53,12 +53,18 @@ on:
         type: string
         default: ''
 
+      versioned_folder_override:
+        description: 'Override the auto-detected folder name for versioned uploads (e.g., "v1.2.3"). If not set, uses tag name or branch-commit'
+        required: false
+        type: string
+        default: ''
+
       upload_to_latest:
         description: 'Also upload to "latest" folder (organized by channel if specified)'
         required: false
         type: boolean
         default: true
-      
+
       upload_to_versioned:
         description: 'Upload to version/commit folder'
         required: false
@@ -223,17 +229,25 @@ jobs:
       - name: Determine upload paths
         id: paths
         run: |
-          # Version/tag based path
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            FOLDER="${GITHUB_REF#refs/tags/}"
-            echo "📦 Production build - using tag: $FOLDER"
+          # Check if versioned folder is explicitly overridden
+          OVERRIDE_FOLDER="${{ inputs.versioned_folder_override }}"
+
+          if [[ -n "$OVERRIDE_FOLDER" ]]; then
+            FOLDER="$OVERRIDE_FOLDER"
+            echo "📌 Using override folder: $FOLDER"
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            BRANCH="${GITHUB_REF#refs/heads/}"
-            FOLDER="${BRANCH}-${SHORT_SHA}"
-            echo "🔧 Development build - using branch-commit: $FOLDER"
+            # Version/tag based path (auto-detect)
+            if [[ "${{ github.ref_type }}" == "tag" ]]; then
+              FOLDER="${GITHUB_REF#refs/tags/}"
+              echo "📦 Production build - using tag: $FOLDER"
+            else
+              SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+              BRANCH="${GITHUB_REF#refs/heads/}"
+              FOLDER="${BRANCH}-${SHORT_SHA}"
+              echo "🔧 Development build - using branch-commit: $FOLDER"
+            fi
           fi
-          
+
           echo "folder=$FOLDER" >> $GITHUB_OUTPUT
 
           # Construct full paths
