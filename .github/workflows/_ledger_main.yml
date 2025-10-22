@@ -199,6 +199,8 @@ jobs:
           node-version: ${{ inputs.node-version }}
       - name: Install yarn
         run: npm install -g yarn
+      - name: Clean yarn cache
+        run: yarn cache clean
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
         with:
