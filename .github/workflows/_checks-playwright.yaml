@@ -69,6 +69,26 @@ on:
         type: boolean
         required: false
         default: true
+      install_rust:
+        description: "Install Rust toolchain"
+        type: boolean
+        required: false
+        default: false
+      rust_version:
+        description: "Rust version to use"
+        type: string
+        required: false
+        default: "stable"
+      toolchain_components:
+        description: "Additional toolchain components (comma-separated)"
+        type: string
+        required: false
+        default: "clippy,rustfmt"
+      cache_cargo:
+        description: "Enable Cargo caching"
+        type: boolean
+        required: false
+        default: true
     secrets:
       env_local:
         description: "Env local file to set environment variables (one export per line)"
@@ -137,6 +157,19 @@ jobs:
           checkout_submodules: ${{ inputs.checkout_submodules }}
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
+
+      - name: Install Rust toolchain
+        if: ${{ inputs.install_rust }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_version }}
+          components: ${{ inputs.toolchain_components }}
+
+      - name: Setup Rust cache
+        if: ${{ inputs.install_rust && inputs.cache_cargo }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Authenticate with GCP
         if: ${{ inputs.autoinit_env && inputs.environment != '' }}
@@ -232,6 +265,19 @@ jobs:
           checkout_submodules: ${{ inputs.checkout_submodules }}
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
+
+      - name: Install Rust toolchain
+        if: ${{ inputs.install_rust }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.rust_version }}
+          components: ${{ inputs.toolchain_components }}
+
+      - name: Setup Rust cache
+        if: ${{ inputs.install_rust && inputs.cache_cargo }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Authenticate with GCP
         if: ${{ inputs.autoinit_env && inputs.environment != '' }}
