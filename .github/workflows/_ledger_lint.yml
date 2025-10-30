@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: 'ubuntu-latest'
+      check_rust:
+        description: 'Enable Rust checks (installs libnewlib-arm-none-eabi)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   lint:
@@ -22,7 +27,11 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y bear sudo
+          if [ "${{ inputs.check_rust }}" = "true" ]; then
+            apt-get install -y bear sudo libnewlib-arm-none-eabi
+          else
+            apt-get install -y bear sudo
+          fi
       - name: Generate compilation database
         run: bear -- make -j BOLOS_SDK="$NANOSP_SDK"
       - name: Setup python
