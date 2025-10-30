@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: '22'
+      has_cpp_tests:
+        description: 'Enable C++ tests'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   setup:
@@ -39,6 +44,7 @@ jobs:
           echo "rustup_home=$GITHUB_WORKSPACE/app/rust/.rustup" >> $GITHUB_OUTPUT
 
   cpp_test:
+    if: ${{ inputs.has_cpp_tests }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 30
     steps:
@@ -215,7 +221,7 @@ jobs:
           path: tests_zemu/snapshots-tmp/
 
   build_package_nanos:
-    if: ${{ inputs.has-nanos }}
+    if: ${{ inputs.has-nanos && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') }}
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
@@ -276,7 +282,7 @@ jobs:
 
   build_package_nanosp:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -336,7 +342,7 @@ jobs:
 
   build_package_stax:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -395,7 +401,7 @@ jobs:
 
   build_package_flex:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -454,7 +460,7 @@ jobs:
 
   build_package_apex_p:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
