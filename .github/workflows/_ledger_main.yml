@@ -4,24 +4,29 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner to use for jobs'
+        description: "Runner to use for jobs"
         required: false
         type: string
-        default: 'ubuntu-latest'
+        default: "ubuntu-latest"
       has-rust:
-        description: 'Whether the project has Rust code'
+        description: "Whether the project has Rust code"
         required: false
         type: boolean
         default: true
       has-nanos:
-        description: 'Support for NanoS device'
+        description: "Support for NanoS device"
         type: boolean
         default: false
       node-version:
-        description: 'Node.js version to use'
+        description: "Node.js version to use"
         required: false
         type: string
-        default: '22'
+        default: "22"
+      has-cpp-tests:
+        description: "Enable C++ tests"
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   setup:
@@ -39,13 +44,14 @@ jobs:
           echo "rustup_home=$GITHUB_WORKSPACE/app/rust/.rustup" >> $GITHUB_OUTPUT
 
   cpp_test:
+    if: ${{ inputs.has-cpp-tests }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -57,7 +63,7 @@ jobs:
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2.0.2
         with:
-          cmake-version: '3.28.0'
+          cmake-version: "3.28.0"
       - name: Setup Rust
         if: ${{ inputs.has-rust }}
         uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
@@ -78,7 +84,7 @@ jobs:
         BOLOS_SDK: ${{ inputs.has-nanos && '/opt/nanos-secure-sdk' || '/opt/nanosplus-secure-sdk' }}
         HOME: /root
         CARGO_HOME: ${{ needs.setup.outputs.cargo_home }}
-        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}  
+        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     outputs:
       size: ${{steps.build.outputs.size}}
@@ -86,7 +92,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
         uses: dtolnay/rust-toolchain@stable
@@ -123,7 +129,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Cache/restore Cargo dependencies
         uses: actions/cache@v4
         with:
@@ -147,7 +153,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Cache/restore Cargo dependencies
         uses: actions/cache@v4
         with:
@@ -180,7 +186,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -215,7 +221,7 @@ jobs:
           path: tests_zemu/snapshots-tmp/
 
   build_package_nanos:
-    if: ${{ inputs.has-nanos }}
+    if: ${{ inputs.has-nanos && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') }}
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
@@ -226,13 +232,13 @@ jobs:
         BOLOS_SDK: /opt/nanos-secure-sdk
         HOME: /root
         CARGO_HOME: ${{ needs.setup.outputs.cargo_home }}
-        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}  
+        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install deps
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
@@ -276,7 +282,7 @@ jobs:
 
   build_package_nanosp:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -286,13 +292,13 @@ jobs:
         BOLOS_SDK: /opt/nanosplus-secure-sdk
         HOME: /root
         CARGO_HOME: ${{ needs.setup.outputs.cargo_home }}
-        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}  
+        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install deps
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
@@ -336,7 +342,7 @@ jobs:
 
   build_package_stax:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -346,13 +352,13 @@ jobs:
         BOLOS_SDK: /opt/stax-secure-sdk
         HOME: /root
         CARGO_HOME: ${{ needs.setup.outputs.cargo_home }}
-        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}  
+        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install deps
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
@@ -395,7 +401,7 @@ jobs:
 
   build_package_flex:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -405,13 +411,13 @@ jobs:
         BOLOS_SDK: /opt/flex-secure-sdk
         HOME: /root
         CARGO_HOME: ${{ needs.setup.outputs.cargo_home }}
-        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}  
+        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install deps
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
@@ -454,7 +460,7 @@ jobs:
 
   build_package_apex_p:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
-    if: ${{ always() && needs.setup.result == 'success' && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
+    if: ${{ always() && needs.setup.result == 'success' && (needs.cpp_test.result == 'success' || needs.cpp_test.result == 'skipped') && needs.build_ledger.result == 'success' && needs.test_zemu.result == 'success' && (needs.rust_tests.result == 'success' || needs.rust_tests.result == 'skipped') }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     container:
@@ -464,13 +470,13 @@ jobs:
         BOLOS_SDK: /opt/apex-secure-sdk
         HOME: /root
         CARGO_HOME: ${{ needs.setup.outputs.cargo_home }}
-        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}  
+        RUSTUP_HOME: ${{ needs.setup.outputs.rustup_home }}
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: true
+          submodules: recursive
       - name: Install deps
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
