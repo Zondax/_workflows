@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: "ubuntu:24.04"
+      node_version:
+        description: "Node.js version to use"
+        required: false
+        type: number
+        default: 22
 
     secrets:
       NPM_TOKEN:
@@ -68,14 +73,14 @@ jobs:
         uses: zondax/actions/setup-node-env@v1
         id: setup-node
         with:
-          node_version: 20
+          node_version: ${{ inputs.node_version }}
           package_manager: bun
           install_deps: true
 
       - name: Configure npm registry
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ inputs.node_version }}
           registry-url: "https://registry.npmjs.org"
           scope: "@zondax"
 
