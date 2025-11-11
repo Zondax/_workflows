@@ -250,13 +250,25 @@ jobs:
             mise run ci_postinstall
           fi
 
+      - name: Detect package manager
+        id: pm
+        working-directory: ${{ inputs.package_path }}
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
+            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            fi
+          fi
+
       - name: Initialize environment
         if: ${{ inputs.autoinit_env }}
         working-directory: ${{ inputs.package_path }}
-        run: |
-          if mise tasks --no-header 2>/dev/null | grep -q "^env:init:ci"; then
-            mise run env:init:ci
-          fi
+        run: ${{ steps.pm.outputs.pm }} env:init:ci
 
       - name: Setup sccache
         if: inputs.use_sccache
