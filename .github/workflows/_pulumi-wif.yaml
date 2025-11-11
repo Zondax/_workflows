@@ -42,21 +42,6 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
-      package_manager:
-        description: "Package manager to use (bun or pnpm)"
-        required: false
-        type: string
-        default: "bun"
-      bun_version:
-        description: "Bun version"
-        required: false
-        type: string
-        default: "1.2.17"
-      pnpm_version:
-        description: "PNPM version"
-        required: false
-        type: string
-        default: "latest"
       log_jwt_info:
         description: 'Log JWT token information for debugging'
         required: false
@@ -126,13 +111,35 @@ jobs:
         env:
           PULUMI_CLOUD_SQL_INSTANCE: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}
 
-      - name: Setup Node.js Environment
-        uses: zondax/actions/setup-node-env@v1
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: "22"
-          package_manager: ${{ inputs.package_manager }}
-          bun_version: ${{ inputs.bun_version }}
-          pnpm_version: ${{ inputs.pnpm_version }}
+          install: true
+          cache: true
+
+      - name: Run ci_postinstall
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
+            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Initialize environment
+        if: ${{ inputs.autoinit_env }}
+        run: ${{ steps.pm.outputs.pm }} env:init:ci
 
       - name: Verify Pulumi installation
         run: pulumi version
@@ -141,6 +148,6 @@ jobs:
         run: |
           # Set Pulumi backend
           export PULUMI_BACKEND_URL="${{ inputs.cloud-url }}"
-          
-          # Run Pulumi via pnpm script
-          ${{ inputs.package_manager }} ${{ env.PULUMI_COMMAND }}:${{ inputs.environment }}
+
+          # Run Pulumi via package manager
+          ${{ steps.pm.outputs.pm }} ${{ env.PULUMI_COMMAND }}:${{ inputs.environment }}

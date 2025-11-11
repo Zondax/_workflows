@@ -33,22 +33,6 @@ on:
         required: false
         type: string
         default: "test:coverage"
-      node_version:
-        description: "Node.js version to use"
-        type: string
-        default: "22"
-      package_manager:
-        description: "Package manager to use (bun or pnpm)"
-        type: string
-        default: "bun"
-      bun_version:
-        description: "Bun version to use"
-        type: string
-        default: "1.2.13"
-      pnpm_version:
-        description: "pnpm version to use"
-        type: string
-        default: "latest"
       base_image:
         description: "Docker image to use for base image"
         type: string
@@ -149,34 +133,54 @@ jobs:
           workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
-      - name: Setup Node.js Environment
-        id: setup-node
-        uses: zondax/actions/setup-node-env@v1
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: ${{ inputs.node_version }}
-          package_manager: ${{ inputs.package_manager }}
-          bun_version: ${{ inputs.bun_version }}
-          pnpm_version: ${{ inputs.pnpm_version }}
-          autoinit_env: ${{ inputs.autoinit_env }}
+          install: true
+          cache: true
+
+      - name: Run ci_postinstall
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
+            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Initialize environment
+        if: ${{ inputs.autoinit_env }}
+        run: ${{ steps.pm.outputs.pm }} env:init:ci
 
       - name: Check format
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.format_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.format_command }}
 
       - name: Run lint
         if: ${{ inputs.enable_linting }}
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.lint_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.lint_command }}
 
       - name: Run typecheck
         if: ${{ inputs.enable_typecheck }}
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.typecheck_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.typecheck_command }}
 
       - name: Run tests
         if: ${{ inputs.enable_tests && !inputs.enable_coverage }}
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.test_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}
 
       - name: Run tests with coverage
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.coverage_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.coverage_command }}
 
       - name: Vitest Coverage Report
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}

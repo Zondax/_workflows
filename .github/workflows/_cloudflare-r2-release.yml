@@ -15,28 +15,7 @@ on:
         required: false
         type: string
         default: 'pnpm install'
-      
-      # Package manager
-      package_manager:
-        description: 'Package manager to use (npm, pnpm, yarn)'
-        required: false
-        type: string
-        default: 'pnpm'
-      
-      # Node version
-      node_version:
-        description: 'Node.js version to use'
-        required: false
-        type: string
-        default: '20'
-      
-      # Rust version
-      rust_version:
-        description: 'Rust version to use'
-        required: false
-        type: string
-        default: 'stable'
-      
+
       # Environment variables
       env_vars:
         description: 'Environment variables to set during build (one per line: KEY=value)'
@@ -291,19 +270,17 @@ jobs:
           workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
-      - name: Setup Node environment
-        uses: zondax/actions/setup-node-env@v1
-        id: setup-node
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: ${{ inputs.node_version }}
-          package_manager: ${{ inputs.package_manager }}
-          install_deps: false
-          autoinit_env: ${{ inputs.autoinit_env }}
+          install: true
+          cache: true
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ inputs.rust_version }}
+      - name: Run ci_postinstall
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
 
       - name: Install dependencies
         run: ${{ inputs.setup_command }}

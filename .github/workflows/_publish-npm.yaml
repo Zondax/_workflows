@@ -26,11 +26,6 @@ on:
         required: false
         type: string
         default: "ubuntu:24.04"
-      node_version:
-        description: "Node.js version to use"
-        required: false
-        type: number
-        default: 22
 
     secrets:
       NPM_TOKEN:
@@ -69,23 +64,40 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
-      - name: Setup Node environment
-        uses: zondax/actions/setup-node-env@v1
-        id: setup-node
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: ${{ inputs.node_version }}
-          package_manager: bun
-          install_deps: true
+          install: true
+          cache: true
+
+      - name: Run ci_postinstall
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
+            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            fi
+          fi
 
       - name: Configure npm registry
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ inputs.node_version }}
           registry-url: "https://registry.npmjs.org"
           scope: "@zondax"
 
       - name: Build package
-        run: if grep -q '"build"' package.json; then ${{ steps.setup-node.outputs.pm_run }} build; else echo "No build script found, skipping"; fi
+        run: if grep -q '"build"' package.json; then ${{ steps.pm.outputs.pm }} build; else echo "No build script found, skipping"; fi
 
       - name: Set version from Git
         run: npm version from-git --no-git-tag-version

@@ -11,10 +11,6 @@ on:
         description: "Container image to use"
         type: string
         default: "ubuntu:24.04"
-      node_version:
-        description: "Node.js version to use"
-        type: string
-        default: "22"
       github_app_auth:
         description: "Use GitHub App Token"
         required: false
@@ -54,27 +50,45 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
-      - name: Setup Node environment
-        uses: zondax/actions/setup-node-env@v1
-        id: setup-node
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: ${{ inputs.node_version }}
-          package_manager: bun
-          install_deps: true
+          install: true
+          cache: true
+
+      - name: Run ci_postinstall
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
+            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            fi
+          fi
 
       - name: Install proto generation tools
         run: |
           npm install -g protoc-gen-js protoc-gen-grpc-web grpc-tools grpc_tools_node_protoc_ts
           # Verify installations
           which protoc-gen-js || echo "protoc-gen-js not found in PATH"
-          which protoc-gen-grpc-web || echo "protoc-gen-grpc-web not found in PATH" 
+          which protoc-gen-grpc-web || echo "protoc-gen-grpc-web not found in PATH"
           which grpc_tools_node_protoc_plugin || echo "grpc_tools_node_protoc_plugin not found in PATH"
           which grpc_tools_node_protoc_ts || echo "grpc_tools_node_protoc_ts not found in PATH"
           # Create symlink for protoc-gen-ts (expected by gen-proto-grpc-js.sh)
           ln -sf $(which grpc_tools_node_protoc_ts) /usr/local/bin/protoc-gen-ts || true
 
       - name: Generate ts from proto
-        run: ${{ steps.setup-node.outputs.pm_run }} gen:proto
+        run: ${{ steps.pm.outputs.pm }} gen:proto
 
       - name: Check for pending changes
         run: |

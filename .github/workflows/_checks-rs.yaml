@@ -28,16 +28,6 @@ on:
         required: false
         type: number
         default: 75
-      rust_version:
-        description: "Rust version to use"
-        required: false
-        type: string
-        default: "stable"
-      toolchain_components:
-        description: "Additional toolchain components (comma-separated)"
-        required: false
-        type: string
-        default: "clippy,rustfmt"
       runner_preset:
         description: "Runner preset (linux-amd64, macos-arm64)"
         required: false
@@ -107,26 +97,6 @@ on:
         required: false
         type: boolean
         default: false
-      package_manager:
-        description: "Package manager to use (bun or pnpm) - only used if enable_node is true"
-        required: false
-        type: string
-        default: "bun"
-      node_version:
-        description: "Node.js version to use - only used if enable_node is true"
-        required: false
-        type: string
-        default: "22"
-      bun_version:
-        description: "Bun version - only used if enable_node and package_manager is bun"
-        required: false
-        type: string
-        default: "1.2.13"
-      pnpm_version:
-        description: "PNPM version - only used if enable_node and package_manager is pnpm"
-        required: false
-        type: string
-        default: "10.4.1"
       test_command:
         description: "Test command to run"
         required: false
@@ -266,22 +236,31 @@ jobs:
           workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
-      - name: Setup Node.js Environment
-        id: setup-node
-        if: inputs.enable_node
-        uses: zondax/actions/setup-node-env@v1
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: ${{ inputs.node_version }}
-          package_manager: ${{ inputs.package_manager }}
-          package_manager_version: ${{ inputs.package_manager == 'bun' && inputs.bun_version || inputs.pnpm_version }}
-          install_deps: false
-          autoinit_env: ${{ inputs.autoinit_env }}
+          install: true
+          cache: true
+          working_directory: ${{ inputs.package_path }}
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ inputs.rust_version }}
-          components: ${{ inputs.toolchain_components }}
+      - name: Run ci_postinstall
+        working-directory: ${{ inputs.package_path }}
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
+
+      - name: Initialize environment
+        if: ${{ inputs.autoinit_env }}
+        working-directory: ${{ inputs.package_path }}
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^env:init:ci"; then
+            mise run env:init:ci
+          fi
+
+      - name: Setup sccache
+        if: inputs.use_sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Setup Rust cache
         if: inputs.cache_cargo && !inputs.use_sccache
@@ -289,10 +268,6 @@ jobs:
         with:
           workspaces: ${{ inputs.package_path }}
           cache-on-failure: true
-
-      - name: Setup sccache
-        if: inputs.use_sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install cargo-tarpaulin for coverage (Linux only)
         if: inputs.enable_coverage && inputs.runner_preset == 'linux-amd64'
@@ -321,10 +296,6 @@ jobs:
       - name: Install system dependencies
         if: inputs.system_deps_command != ''
         run: ${{ inputs.system_deps_command }}
-
-      - name: Install Node.js dependencies
-        if: inputs.enable_node
-        run: ${{ steps.setup-node.outputs.pm }} install
 
       - name: Check formatting
         env:

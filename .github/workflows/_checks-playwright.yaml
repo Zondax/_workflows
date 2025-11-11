@@ -26,14 +26,6 @@ on:
         description: "Docker image to use for base image"
         type: string
         default: "ubuntu:24.04"
-      node_version:
-        description: "Node.js version to use"
-        type: string
-        default: "22"
-      pnpm_version:
-        description: "pnpm version to use"
-        type: string
-        default: "latest"
       use_env_local:
         description: "Whether to use the environment local file provided in secrets"
         type: boolean
@@ -151,19 +143,43 @@ jobs:
           # Show confirmation (only count lines for security)
           echo "Created .env.local file with $(grep -c "=" .env.local) environment variables"
 
-      - name: Setup Node.js Environment
-        id: setup-node
-        uses: zondax/actions/setup-node-env@v1
+      - name: Setup mise
+        uses: jdx/mise-action@v3
         with:
-          node_version: ${{ inputs.node_version }}
-          package_manager: "pnpm"
-          pnpm_version: ${{ inputs.pnpm_version }}
-          autoinit_env: ${{ inputs.autoinit_env }}
+          install: true
+          cache: true
+          working_directory: ${{ inputs.working_directory }}
+
+      - name: Run ci_postinstall
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
+          fi
+
+      - name: Detect package manager
+        id: pm
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
+            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Initialize environment
+        if: ${{ inputs.autoinit_env }}
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ steps.pm.outputs.pm }} env:init:ci
 
       - name: Run build
         working-directory: ${{ inputs.working_directory }}
-        run: |
-          ${{ inputs.build_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.build_command }}
 
       - name: Install Playwright browsers
         working-directory: ${{ inputs.working_directory }}
@@ -171,8 +187,7 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
-        run: |
-          ${{ inputs.test_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}
 
       - name: Upload Playwright Report
         if: ${{ !cancelled() }}
