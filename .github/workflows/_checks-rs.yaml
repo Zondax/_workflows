@@ -170,6 +170,26 @@ on:
         description: "Automatically run env:init:ci script after installing dependencies"
         type: boolean
         default: false
+      use_sccache:
+        description: "Enable sccache for Rust compilation caching"
+        type: boolean
+        default: false
+      sccache_bucket:
+        description: "S3-compatible bucket name for sccache (e.g., Cloudflare R2)"
+        type: string
+        default: ""
+      sccache_endpoint:
+        description: "S3-compatible endpoint URL for sccache"
+        type: string
+        default: ""
+      sccache_region:
+        description: "S3 region for sccache"
+        type: string
+        default: "auto"
+      sccache_use_ssl:
+        description: "Use SSL/TLS for sccache S3 connection (set true for HTTPS endpoints)"
+        type: boolean
+        default: true
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -179,6 +199,12 @@ on:
         required: false
       codecov_token:
         description: "Codecov token for private repositories"
+        required: false
+      sccache_access_key_id:
+        description: "AWS/S3 access key ID for sccache backend"
+        required: false
+      sccache_secret_access_key:
+        description: "AWS/S3 secret access key for sccache backend"
         required: false
 
 permissions:
@@ -191,6 +217,18 @@ jobs:
     container: ${{ inputs.runner_preset == 'linux-amd64' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
+    env:
+      # sccache S3-compatible backend configuration (only if enabled)
+      SCCACHE_BUCKET: ${{ inputs.use_sccache && inputs.sccache_bucket || '' }}
+      SCCACHE_ENDPOINT: ${{ inputs.use_sccache && inputs.sccache_endpoint || '' }}
+      SCCACHE_REGION: ${{ inputs.use_sccache && inputs.sccache_region || 'auto' }}
+      SCCACHE_S3_USE_SSL: ${{ inputs.use_sccache && inputs.sccache_use_ssl && 'true' || 'false' }}
+      SCCACHE_CACHE_SIZE: 100G
+      AWS_ACCESS_KEY_ID: ${{ inputs.use_sccache && secrets.sccache_access_key_id || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.use_sccache && secrets.sccache_secret_access_key || '' }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.package_path }}
     permissions:
       contents: read
       id-token: write
@@ -246,30 +284,39 @@ jobs:
           components: ${{ inputs.toolchain_components }}
 
       - name: Setup Rust cache
-        if: inputs.cache_cargo
+        if: inputs.cache_cargo && !inputs.use_sccache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.package_path }}
           cache-on-failure: true
 
+      - name: Setup sccache
+        if: inputs.use_sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Install cargo-tarpaulin for coverage (Linux only)
         if: inputs.enable_coverage && inputs.runner_preset == 'linux-amd64'
-        run: cargo install cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
       
       - name: Install cargo-llvm-cov for coverage (macOS)
         if: inputs.enable_coverage && inputs.runner_preset == 'macos-arm64'
-        run: cargo install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Install cargo-audit for security
         if: inputs.enable_security_audit
-        run: |
-          # cargo-audit installation is slow, consider pre-installing on self-hosted runners
-          if command -v cargo-audit &> /dev/null; then
-            echo "cargo-audit already installed"
-          else
-            echo "Installing cargo-audit..."
-            cargo install cargo-audit
-          fi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Install cargo-deny for security
+        if: inputs.enable_security_audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
 
       - name: Install system dependencies
         if: inputs.system_deps_command != ''
@@ -277,47 +324,63 @@ jobs:
 
       - name: Install Node.js dependencies
         if: inputs.enable_node
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ steps.setup-node.outputs.pm }} install
-
-      - name: Change to package directory
-        run: cd ${{ inputs.package_path }}
+        run: ${{ steps.setup-node.outputs.pm }} install
 
       - name: Check formatting
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ inputs.format_command }}
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.format_command }}
 
       - name: Run clippy
         if: inputs.enable_linting
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ inputs.lint_command }}
-
-      - name: Security audit
-        if: inputs.enable_security_audit
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ inputs.audit_command }}
-
-      - name: Build
-        if: inputs.enable_build
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ inputs.build_command }}
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          RUSTFLAGS: "-D warnings"
+        run: ${{ inputs.lint_command }}
 
       - name: Run tests
         if: inputs.enable_tests && !inputs.enable_coverage
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ inputs.test_command }} ${{ inputs.test_args }}
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.test_command }} ${{ inputs.test_args }}
 
       - name: Run tests with coverage
         if: inputs.enable_tests && inputs.enable_coverage
-        run: |
-          cd ${{ inputs.package_path }}
-          ${{ inputs.coverage_command }} ${{ inputs.test_args }}
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.coverage_command }} ${{ inputs.test_args }}
+
+      - name: Security audit with cargo-audit
+        if: inputs.enable_security_audit
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.audit_command }}
+
+      - name: Security audit with cargo-deny
+        if: inputs.enable_security_audit
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: cargo deny check
+
+      - name: Build
+        if: inputs.enable_build
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.build_command }}
 
       - name: Quality Gate - Test coverage shall be above threshold
         if: inputs.enable_coverage
@@ -326,7 +389,6 @@ jobs:
         env:
           TESTCOVERAGE_THRESHOLD: ${{ inputs.coverage_threshold }}
         run: |
-          cd ${{ inputs.package_path }}
           echo "🔍 Quality Gate: Test Coverage Check"
           echo "Threshold: $TESTCOVERAGE_THRESHOLD%"
           echo "----------------------------------------"

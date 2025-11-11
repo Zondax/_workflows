@@ -28,6 +28,7 @@
         "mikefarah",
         "Modtidy",
         "pulumi",
+        "SCCACHE",
         "setaf",
         "SLSA",
         "tput",
