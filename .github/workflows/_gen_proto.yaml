@@ -69,10 +69,18 @@ jobs:
             echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
           else
             # Default detection
-            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
-            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
-            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
-            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            if [ -f "bun.lockb" ]; then
+              echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then
+              echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then
+              echo "pm=yarn run" >> $GITHUB_OUTPUT
+            elif [ -f "package-lock.json" ]; then
+              echo "pm=npm run" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Could not detect package manager. No lock file found (bun.lockb, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
+              echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
+              exit 1
             fi
           fi
 

@@ -81,6 +81,10 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
+      env_init_command:
+        description: "Command to initialize environment (without package manager prefix)"
+        type: string
+        default: "env:init:ci"
       runner_preset:
         description: "Runner preset (linux-amd64, macos-arm64)"
         type: string
@@ -152,16 +156,24 @@ jobs:
             echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
           else
             # Default detection
-            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
-            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
-            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
-            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            if [ -f "bun.lockb" ]; then
+              echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then
+              echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then
+              echo "pm=yarn run" >> $GITHUB_OUTPUT
+            elif [ -f "package-lock.json" ]; then
+              echo "pm=npm run" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Could not detect package manager. No lock file found (bun.lockb, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
+              echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
+              exit 1
             fi
           fi
 
       - name: Initialize environment
         if: ${{ inputs.autoinit_env }}
-        run: ${{ steps.pm.outputs.pm }} env:init:ci
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.env_init_command }}
 
       - name: Check format
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.format_command }}

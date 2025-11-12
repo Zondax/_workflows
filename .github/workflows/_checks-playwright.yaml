@@ -7,17 +7,21 @@ on:
         type: string
         default: "."
       build_command:
-        description: "Build command to run before tests"
+        description: "Build command to run before tests (without package manager prefix)"
         type: string
-        default: "pnpm run build"
+        default: "build"
       test_command:
-        description: "Command to run Playwright tests"
+        description: "Command to run Playwright tests (without package manager prefix)"
         type: string
-        default: "pnpm run test:e2e:sharding"
+        default: "test:e2e:sharding"
       install_command:
-        description: "Command to install Playwright browsers"
+        description: "Command to install Playwright browsers (without package manager prefix)"
         type: string
-        default: "pnpm test:e2e:install"
+        default: "playwright install --with-deps"
+      env_init_command:
+        description: "Command to initialize environment (without package manager prefix)"
+        type: string
+        default: "env:init:ci"
       runner:
         description: "GitHub runner to use"
         type: string
@@ -165,17 +169,25 @@ jobs:
             echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
           else
             # Default detection
-            if [ -f "bun.lockb" ]; then echo "pm=bun" >> $GITHUB_OUTPUT
-            elif [ -f "pnpm-lock.yaml" ]; then echo "pm=pnpm run" >> $GITHUB_OUTPUT
-            elif [ -f "yarn.lock" ]; then echo "pm=yarn run" >> $GITHUB_OUTPUT
-            else echo "pm=npm run" >> $GITHUB_OUTPUT
+            if [ -f "bun.lockb" ]; then
+              echo "pm=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then
+              echo "pm=pnpm run" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then
+              echo "pm=yarn run" >> $GITHUB_OUTPUT
+            elif [ -f "package-lock.json" ]; then
+              echo "pm=npm run" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Could not detect package manager. No lock file found (bun.lockb, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
+              echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
+              exit 1
             fi
           fi
 
       - name: Initialize environment
         if: ${{ inputs.autoinit_env }}
         working-directory: ${{ inputs.working_directory }}
-        run: ${{ steps.pm.outputs.pm }} env:init:ci
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.env_init_command }}
 
       - name: Run build
         working-directory: ${{ inputs.working_directory }}
@@ -183,7 +195,7 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: ${{ inputs.working_directory }}
-        run: npx playwright install --with-deps
+        run: npx ${{ inputs.install_command }}
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
