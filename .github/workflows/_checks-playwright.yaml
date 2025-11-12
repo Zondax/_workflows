@@ -147,7 +147,7 @@ jobs:
         uses: jdx/mise-action@v3
         with:
           install: true
-          cache: true
+          cache: false
           working_directory: ${{ inputs.working_directory }}
 
       - name: Run ci_postinstall
