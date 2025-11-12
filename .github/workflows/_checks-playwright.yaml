@@ -9,7 +9,7 @@ on:
       build_command:
         description: "Build command to run before tests (without package manager prefix)"
         type: string
-        default: "build"
+        default: "test:e2e:build"
       test_command:
         description: "Command to run Playwright tests (without package manager prefix)"
         type: string
