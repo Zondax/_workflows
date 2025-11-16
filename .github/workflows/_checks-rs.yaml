@@ -328,6 +328,14 @@ jobs:
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
         run: ${{ inputs.format_command }}
 
+      - name: Build
+        if: inputs.enable_build
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.build_command }}
+
       - name: Run clippy
         if: inputs.enable_linting
         env:
@@ -368,14 +376,6 @@ jobs:
           SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
         run: cargo deny check
-
-      - name: Build
-        if: inputs.enable_build
-        env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
-        run: ${{ inputs.build_command }}
 
       - name: Quality Gate - Test coverage shall be above threshold
         if: inputs.enable_coverage
