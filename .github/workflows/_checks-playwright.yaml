@@ -209,14 +209,14 @@ jobs:
             mise run ci_postinstall
           fi
 
+      - name: Setup sccache
+        if: inputs.use_sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Install system dependencies
         if: inputs.system_deps_command != ''
         working-directory: ${{ inputs.working_directory }}
         run: ${{ inputs.system_deps_command }}
-
-      - name: Setup sccache
-        if: inputs.use_sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Detect package manager
         id: pm
@@ -254,6 +254,13 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: npx ${{ inputs.install_command }}
 
+      - name: Verify shard configuration
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          echo "Current shard: $PLAYWRIGHT_SHARD"
+          echo "Listing tests in this shard:"
+          npx playwright test --list --shard=$PLAYWRIGHT_SHARD || echo "Note: Test listing may not be available in all configurations"
+
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
         env:
@@ -261,6 +268,13 @@ jobs:
           SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}
+
+      - name: Cleanup xvfb and Tauri processes
+        if: always()
+        run: |
+          pkill -9 Xvfb || true
+          pkill -9 tauri || true
+          echo "Cleanup complete"
 
       - name: Upload Playwright Report
         if: ${{ !cancelled() }}
