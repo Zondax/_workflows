@@ -94,6 +94,9 @@ jobs:
     container:
       image: ${{ inputs.base_image }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+      pull-requests: write  # Required for coverage report comments
 
     steps:
       - name: Setup Ubuntu packages
