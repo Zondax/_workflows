@@ -18,11 +18,6 @@ on:
         required: false
         type: boolean
         default: true
-      upload_coverage:
-        description: "Upload coverage reports to Codecov"
-        required: false
-        type: boolean
-        default: false
       coverage_threshold:
         description: "Minimum coverage percentage required"
         required: false
@@ -64,11 +59,6 @@ on:
         default: false
       github_app_repos:
         description: "Additional repositories to access (one per line)"
-        required: false
-        type: string
-        default: ""
-      codecov_flags:
-        description: "Flags to pass to Codecov"
         required: false
         type: string
         default: ""
@@ -116,7 +106,7 @@ on:
         description: "Coverage command to run"
         required: false
         type: string
-        default: "cargo tarpaulin --all-features --out xml --output-dir ."
+        default: "cargo tarpaulin --all-features --out Json --output-dir ."
       build_command:
         description: "Build command to run"
         required: false
@@ -170,9 +160,6 @@ on:
         required: false
       app_pem:
         description: "GitHub App PEM"
-        required: false
-      codecov_token:
-        description: "Codecov token for private repositories"
         required: false
       sccache_access_key_id:
         description: "AWS/S3 access key ID for sccache backend"
@@ -293,17 +280,11 @@ jobs:
           workspaces: ${{ inputs.package_path }}
           cache-on-failure: true
 
-      - name: Install cargo-tarpaulin for coverage (Linux only)
-        if: inputs.enable_coverage && inputs.runner_preset == 'linux-amd64'
+      - name: Install cargo-tarpaulin for coverage
+        if: inputs.enable_coverage
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-tarpaulin
-      
-      - name: Install cargo-llvm-cov for coverage (macOS)
-        if: inputs.enable_coverage && inputs.runner_preset == 'macos-arm64'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-llvm-cov
 
       - name: Install cargo-audit for security
         if: inputs.enable_security_audit
@@ -387,29 +368,29 @@ jobs:
           echo "🔍 Quality Gate: Test Coverage Check"
           echo "Threshold: $TESTCOVERAGE_THRESHOLD%"
           echo "----------------------------------------"
-          
+
           # Check if coverage file exists
-          if [ ! -f "cobertura.xml" ]; then
-            echo "❌ Coverage file not found: cobertura.xml"
+          if [ ! -f "tarpaulin-report.json" ]; then
+            echo "❌ Coverage file not found: tarpaulin-report.json"
             echo "coverage_status=error" >> $GITHUB_OUTPUT
-            echo "coverage_message=Coverage file not found: cobertura.xml" >> $GITHUB_OUTPUT
+            echo "coverage_message=Coverage file not found: tarpaulin-report.json" >> $GITHUB_OUTPUT
             exit 1
           fi
-          
-          # Extract coverage percentage from XML
-          coverage=$(grep -o 'line-rate="[^"]*"' cobertura.xml | head -1 | grep -o '[0-9.]*')
-          if [ -z "$coverage" ]; then
-            echo "❌ Could not extract coverage from cobertura.xml"
+
+          # Extract coverage percentage from JSON using jq
+          coverage_percent=$(jq -r '.coverage' tarpaulin-report.json 2>/dev/null)
+          if [ -z "$coverage_percent" ] || [ "$coverage_percent" = "null" ]; then
+            echo "❌ Could not extract coverage from tarpaulin-report.json"
             echo "coverage_status=error" >> $GITHUB_OUTPUT
-            echo "coverage_message=Could not extract coverage from cobertura.xml" >> $GITHUB_OUTPUT
+            echo "coverage_message=Could not extract coverage from tarpaulin-report.json" >> $GITHUB_OUTPUT
             exit 1
           fi
-          
-          # Convert to percentage
-          coverage_percent=$(awk "BEGIN {printf \"%.2f\", $coverage * 100}")
+
+          # Format to 2 decimal places
+          coverage_percent=$(awk -v cov="$coverage_percent" 'BEGIN {printf "%.2f", cov}')
           echo "Current coverage: ${coverage_percent}%"
           echo "coverage_percentage=$coverage_percent" >> $GITHUB_OUTPUT
-          
+
           # Validate coverage is a number using bash regex
           if ! [[ "$coverage_percent" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             echo "❌ Invalid coverage value: $coverage_percent"
@@ -417,10 +398,10 @@ jobs:
             echo "coverage_message=Invalid coverage value: $coverage_percent" >> $GITHUB_OUTPUT
             exit 1
           fi
-          
+
           # Compare using awk for reliable float comparison
           result=$(awk -v cov="$coverage_percent" -v thresh="$TESTCOVERAGE_THRESHOLD" 'BEGIN {print (cov >= thresh)}')
-          
+
           if [ "$result" = "1" ]; then
             echo "✅ Coverage check PASSED (${coverage_percent}% >= ${TESTCOVERAGE_THRESHOLD}%)"
             echo "coverage_status=passed" >> $GITHUB_OUTPUT
@@ -437,21 +418,12 @@ jobs:
             exit 1
           fi
 
-      - name: Upload coverage reports to Codecov
-        if: inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.codecov_token }}
-          file: ${{ inputs.package_path }}/cobertura.xml
-          flags: ${{ inputs.codecov_flags }}
-          fail_ci_if_error: false
-
       - name: Upload coverage report as artifact
         if: inputs.enable_coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-rust-${{ github.run_number }}
-          path: ${{ inputs.package_path }}/cobertura.xml
+          path: ${{ inputs.package_path }}/tarpaulin-report.json
           retention-days: 30
 
       - name: Fail workflow if coverage check failed
