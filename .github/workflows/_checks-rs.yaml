@@ -23,6 +23,11 @@ on:
         required: false
         type: number
         default: 75
+      coverage_artifact_suffix:
+        description: "Suffix to append to coverage artifact name for uniqueness (e.g., 'linux', 'macos')"
+        required: false
+        type: string
+        default: ""
       runner_preset:
         description: "Runner preset (linux-amd64, macos-arm64)"
         required: false
@@ -422,7 +427,7 @@ jobs:
         if: inputs.enable_coverage
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-rust-${{ github.run_number }}
+          name: coverage-report-rust-${{ github.run_number }}${{ inputs.coverage_artifact_suffix != '' && format('-{0}', inputs.coverage_artifact_suffix) || '' }}
           path: ${{ inputs.package_path }}/tarpaulin-report.json
           retention-days: 30
 
