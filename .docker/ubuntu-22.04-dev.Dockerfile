@@ -30,6 +30,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     patchelf \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Playwright system dependencies (Chromium)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libglib2.0-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
 # Add Zondax CA certificate
 COPY ./.docker/zondax_CA.crt /usr/local/share/ca-certificates/zondax_CA.crt
 RUN update-ca-certificates
@@ -37,6 +63,14 @@ RUN update-ca-certificates
 # Non-root user (consistent with alpine base)
 RUN groupadd --system --gid 65532 zondax && \
     useradd --system --uid 65532 --gid zondax --shell /bin/bash --create-home zondax
+
+# Install mise and tools (node, pnpm, playwright)
+COPY ./.docker/mise /tmp/mise
+RUN chmod +x /tmp/mise/install.sh && /tmp/mise/install.sh
+
+# Environment for mise
+ENV PATH="/home/zondax/.local/share/mise/shims:${PATH}"
+ENV PLAYWRIGHT_BROWSERS_PATH="/home/zondax/.cache/ms-playwright"
 
 # Default to non-root user
 USER zondax

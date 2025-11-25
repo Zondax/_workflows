@@ -1,0 +1,20 @@
+# Zondax base mise configuration
+# This is copied into base images and provides default tooling
+
+[tools]
+pnpm = "10"
+node = "24"
+rust = { version = "1.90", profile = "default" }
+
+[settings]
+experimental = true
+
+[hooks]
+postinstall = "mise run postinstall"
+
+[tasks.postinstall]
+description = "Post-install setup (Playwright, etc.)"
+run = """
+pnpm add -g playwright@latest
+playwright install chromium
+"""

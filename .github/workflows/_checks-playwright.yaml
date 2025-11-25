@@ -27,9 +27,9 @@ on:
         type: string
         default: "zondax-runners"
       base_image:
-        description: "Docker image to use for base image"
+        description: "Docker image to use (zondax/ubuntu-dev includes pre-installed browsers)"
         type: string
-        default: "ubuntu:24.04"
+        default: "zondax/ubuntu-dev:22.04"
       use_env_local:
         description: "Whether to use the environment local file provided in secrets"
         type: boolean
@@ -147,6 +147,8 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
     steps:
       - name: Setup Ubuntu packages
+        # Only needed when not using zondax/ubuntu-dev base image
+        if: ${{ !startsWith(inputs.base_image, 'zondax/ubuntu-dev') }}
         uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |
@@ -251,6 +253,8 @@ jobs:
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.build_command }}
 
       - name: Install Playwright browsers
+        # Skip when using zondax/ubuntu-dev (browsers pre-installed)
+        if: ${{ !startsWith(inputs.base_image, 'zondax/ubuntu-dev') }}
         working-directory: ${{ inputs.working_directory }}
         run: npx ${{ inputs.install_command }}
 
