@@ -120,6 +120,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      pull-requests: write # For PR comments
       id-token: write # For OIDC (Cosign, GCP WIF)
 
     outputs:
