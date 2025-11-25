@@ -166,7 +166,7 @@ jobs:
           exit 1
 
       - name: Check external links
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.link_check_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.link_check_command }}
 
       - name: Stop server
         if: always()

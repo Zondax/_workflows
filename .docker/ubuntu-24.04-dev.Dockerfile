@@ -2,12 +2,16 @@ FROM ubuntu:24.04
 
 LABEL org.opencontainers.image.source="https://github.com/zondax/_workflows"
 LABEL org.opencontainers.image.description="Zondax Ubuntu 24.04 development base image"
+LABEL org.opencontainers.image.vendor="Zondax"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="ubuntu-dev"
+LABEL org.opencontainers.image.base.name="ubuntu:24.04"
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install all system packages in a single layer (reduces image size)
-# - Base dev tools
+# - Base dev tools + sudo
 # - Tauri/GTK dependencies (webkit2gtk-4.1 with libsoup3 for Ubuntu 24.04)
 # - Playwright/Chromium dependencies
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -20,6 +24,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libssl-dev \
     make \
     pkg-config \
+    sudo \
     wget \
     # Tauri/GTK
     libayatana-appindicator3-dev \
@@ -59,9 +64,7 @@ COPY ./.docker/zondax_CA.crt /usr/local/share/ca-certificates/zondax_CA.crt
 RUN update-ca-certificates
 
 # Non-root user with passwordless sudo
-RUN apt-get update && apt-get install -y --no-install-recommends sudo \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 65532 zondax \
+RUN groupadd --system --gid 65532 zondax \
     && useradd --system --uid 65532 --gid zondax --shell /bin/bash --create-home zondax \
     && echo "zondax ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/zondax \
     && chmod 0440 /etc/sudoers.d/zondax

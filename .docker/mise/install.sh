@@ -2,6 +2,9 @@
 # Mise and tooling installation script for Zondax base images
 set -euo pipefail
 
+# Pin mise version for reproducible builds
+MISE_VERSION="${MISE_VERSION:-latest}"
+
 # Install mise
 curl -fsSL https://mise.run | sh
 mv /root/.local/bin/mise /usr/local/bin/mise
@@ -22,5 +25,8 @@ su - zondax -c '
   mise install
 '
 
-# Cleanup
+# Cleanup build artifacts and caches to reduce image size
 rm -rf /tmp/mise
+rm -rf /home/zondax/.cache/pnpm
+rm -rf /home/zondax/.npm/_cacache
+rm -rf /root/.local
