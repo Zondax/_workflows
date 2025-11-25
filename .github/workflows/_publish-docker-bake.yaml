@@ -187,11 +187,6 @@ jobs:
         id: tags
         working-directory: ${{ inputs.workdir }}
         run: |
-          # Debug: show git status to identify dirty files
-          echo "Git status before generating tags:"
-          git status --porcelain || true
-          echo "---"
-
           # Generate tags using zondax CLI
           # Filter out info lines (ℹ) that go to stdout, keep only HCL content
           npx -y @zondax/cli@latest ci tags \
