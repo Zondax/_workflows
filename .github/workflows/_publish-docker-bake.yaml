@@ -187,6 +187,11 @@ jobs:
         id: tags
         working-directory: ${{ inputs.workdir }}
         run: |
+          # Debug: show git status to identify dirty files
+          echo "Git status before generating tags:"
+          git status --porcelain || true
+          echo "---"
+
           # Generate tags using zondax CLI
           # Filter out info lines (ℹ) that go to stdout, keep only HCL content
           npx -y @zondax/cli@latest ci tags \
@@ -235,39 +240,23 @@ jobs:
         run: |
           METADATA='${{ steps.bake.outputs.metadata }}'
 
-          # Helper to format bytes
-          format_size() {
-            local bytes=$1
-            if [ "$bytes" -ge 1073741824 ]; then
-              printf "%.2f GB" "$(echo "$bytes / 1073741824" | bc -l)"
-            elif [ "$bytes" -ge 1048576 ]; then
-              printf "%.2f MB" "$(echo "$bytes / 1048576" | bc -l)"
-            elif [ "$bytes" -ge 1024 ]; then
-              printf "%.2f KB" "$(echo "$bytes / 1024" | bc -l)"
-            else
-              printf "%d B" "$bytes"
-            fi
-          }
-
-          # Build image details table
-          IMAGE_TABLE=""
-          TOTAL_SIZE=0
+          # Build image list
+          IMAGE_LIST=""
 
           for target in $(echo "$METADATA" | jq -r 'keys[]'); do
-            IMAGE_REF=$(echo "$METADATA" | jq -r ".[\"$target\"].\"image.name\"" | head -1)
+            # Get the first tag (primary tag like zondax/ubuntu-ci:22.04)
+            IMAGE_REF=$(echo "$METADATA" | jq -r ".[\"$target\"].\"image.name\"" | tr ',' '\n' | head -1)
             DIGEST=$(echo "$METADATA" | jq -r ".[\"$target\"].\"containerimage.digest\"")
 
             if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ] && [ -n "$IMAGE_REF" ]; then
-              FULL_REF="${IMAGE_REF%%,*}@${DIGEST}"
+              FULL_REF="${IMAGE_REF}@${DIGEST}"
               SHORT_NAME="${IMAGE_REF%%:*}"
-              SHORT_TAG=$(echo "$IMAGE_REF" | sed 's/.*://' | cut -d',' -f1)
 
               # Query registry for manifest (we're already authenticated from the push)
               MANIFEST=$(docker buildx imagetools inspect "$FULL_REF" --raw 2>/dev/null || echo "{}")
 
-              # Check if multi-platform manifest list
+              # Check if multi-platform manifest list or index
               if echo "$MANIFEST" | jq -e '.manifests' > /dev/null 2>&1; then
-                # Get the first platform's manifest for layer details
                 FIRST_DIGEST=$(echo "$MANIFEST" | jq -r '.manifests[0].digest')
                 PLATFORM=$(echo "$MANIFEST" | jq -r '.manifests[0].platform | "\(.os)/\(.architecture)"')
                 LAYER_MANIFEST=$(docker buildx imagetools inspect "${SHORT_NAME}@${FIRST_DIGEST}" --raw 2>/dev/null || echo "{}")
@@ -276,66 +265,42 @@ jobs:
                 PLATFORM="${{ inputs.platforms }}"
               fi
 
-              # Calculate total compressed size from layers
-              LAYER_SIZES=$(echo "$LAYER_MANIFEST" | jq -r '[.layers[].size] | add // 0')
-              LAYER_COUNT=$(echo "$LAYER_MANIFEST" | jq -r '.layers | length // 0')
-              CONFIG_SIZE=$(echo "$LAYER_MANIFEST" | jq -r '.config.size // 0')
-              IMAGE_SIZE=$((LAYER_SIZES + CONFIG_SIZE))
-              TOTAL_SIZE=$((TOTAL_SIZE + IMAGE_SIZE))
+              # Get all tags for this target
+              ALL_TAGS=$(echo "$METADATA" | jq -r ".[\"$target\"].\"image.name\"" | tr ',' '\n' | sed 's/^/- /')
 
-              # Format size
-              SIZE_FMT=$(format_size $IMAGE_SIZE)
+              # Calculate total compressed size and layer details in one jq call
+              read -r IMAGE_SIZE_MB LAYER_COUNT <<< $(echo "$LAYER_MANIFEST" | jq -r '
+                [(.layers // [])[].size] |
+                [(add // 0) / 1048576 | . * 100 | floor / 100, length] |
+                @tsv' 2>/dev/null || echo "0 0")
 
-              # Build layer breakdown (top 5 largest)
+              # Build layer breakdown (in order) with hash
               LAYER_DETAILS=$(echo "$LAYER_MANIFEST" | jq -r '
-                [.layers | to_entries | sort_by(-.value.size) | .[0:5] | .[] |
-                  "L\(.key): \(.value.size / 1048576 | . * 100 | floor / 100)MB"]
-                | join(", ")' 2>/dev/null || echo "")
+                (.layers // []) | to_entries | .[] |
+                "L\(.key)  \(.value.digest | split(":")[1][0:12])  \(.value.size / 1048576 | . * 100 | floor / 100) MB"' 2>/dev/null || echo "")
 
-              IMAGE_TABLE="${IMAGE_TABLE}
-          | \`${SHORT_NAME}\` | \`${SHORT_TAG}\` | **${SIZE_FMT}** | ${LAYER_COUNT} | ${PLATFORM} |"
-
-              # Add layer breakdown as sub-row if available
-              if [ -n "$LAYER_DETAILS" ] && [ "$LAYER_DETAILS" != "" ]; then
-                IMAGE_TABLE="${IMAGE_TABLE}
-          | | <sub>Top layers: ${LAYER_DETAILS}</sub> | | | |"
-              fi
+              IMAGE_LIST="${IMAGE_LIST}
+          **\`${IMAGE_REF}\`** (${PLATFORM})
+          \`\`\`
+          ${LAYER_DETAILS}
+          Total: ${IMAGE_SIZE_MB} MB
+          \`\`\`
+          Tags:
+          ${ALL_TAGS}
+          "
             fi
           done
-
-          TOTAL_FMT=$(format_size $TOTAL_SIZE)
 
           # Generate summary content
           SUMMARY="## 🐳 Docker Build Summary
 
           ### Published Images
-
-          | Image | Tag | Size | Layers | Platform |
-          |-------|-----|------|--------|----------|${IMAGE_TABLE}
-          | | | **Total: ${TOTAL_FMT}** | | |
-
-          <details>
-          <summary>📋 Generated Tags</summary>
-
-          \`\`\`hcl
-          $(cat tags-override.hcl)
-          \`\`\`
-
-          </details>
-
+          ${IMAGE_LIST}
           ### Build Configuration
-          | Setting | Value |
-          |---------|-------|
-          | Builder | ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }} |
-          | Platforms | \`${{ inputs.platforms }}\` |
-          | Compression | zstd |
-
-          ### Security
-          | Feature | Status |
-          |---------|--------|
-          | Signed | ${{ inputs.enable_signing && '✅' || '❌' }} |
-          | SBOM | ${{ inputs.enable_sbom && '✅' || '⏭️' }} |
-          | Provenance | ${{ inputs.enable_provenance && '✅' || '⏭️' }} |"
+          - **Builder:** ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }}
+          - **Platforms:** \`${{ inputs.platforms }}\`
+          - **Compression:** zstd
+          - **Signed:** ${{ inputs.enable_signing && 'Yes' || 'No' }} | **SBOM:** ${{ inputs.enable_sbom && 'Yes' || 'No' }} | **Provenance:** ${{ inputs.enable_provenance && 'Yes' || 'No' }}"
 
           # Write to job summary
           echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
