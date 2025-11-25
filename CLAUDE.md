@@ -12,7 +12,7 @@ All workflows follow the `workflow_call` pattern with extensive input parameters
 
 - **Language-specific**: `_checks-ts.yaml`, `_checks-golang.yaml`, `_checks-rs.yaml`, `_checks-expo.yaml`
 - **Infrastructure**: `_checks-infra.yaml`, `_checks-playwright.yaml`, `_cloud-run-deploy.yml`
-- **Publishing**: `_publish-npm.yaml`, `_publish-docker.yaml`
+- **Publishing**: `_publish-npm.yaml`, `_publish-docker.yaml`, `_publish-docker-bake.yaml`
 - **Utilities**: `_post-pr-comment-reusable.yml`, `_pulumi-wif.yaml`, `_atlas-migrations-reusable.yml`
 
 ## Development Commands
@@ -60,8 +60,141 @@ jobs:
 ### Container Strategy
 - **Base image**: `ubuntu:24.04` (configurable)
 - **Custom base**: `zondax-base.Dockerfile` (Alpine with CA certificates)
+- **Ubuntu dev base**: `ubuntu-22.04-dev.Dockerfile` (Ubuntu with dev tools)
 - **Non-root user**: uid/gid 65532
 - **Runners**: Uses custom `zondax-runners`
+
+## Base Images
+
+This repository provides pre-built base images for Zondax projects, published to Docker Hub.
+
+### Available Images
+
+| Image | Description | Tools Included |
+|-------|-------------|----------------|
+| `zondax/ubuntu-dev:local` | Ubuntu 22.04 dev base | build-essential, git, curl, wget, make, jq, pkg-config |
+
+### Local Development
+
+```bash
+# Build all base images locally
+make bake-load
+
+# List available bake targets
+make bake-list
+
+# Test the image
+docker run --rm -it zondax/ubuntu-dev:local bash
+
+# Build with custom tag
+docker buildx bake -f .docker/docker-bake.hcl --set "*.tags=myapp:test" --load
+```
+
+### Publishing
+
+Base images are automatically published:
+- **Nightly at 2 AM UTC** - picks up upstream security updates
+- **On push to main** - when `.docker/**` files change
+- **Manual** - via workflow_dispatch
+
+## Docker Bake Publishing
+
+The `_publish-docker-bake.yaml` workflow provides modern Docker publishing using Docker Bake and Metadata Action.
+
+### Features
+
+- **No Makefile required** - uses `docker/bake-action` directly
+- **Automatic tagging** - via `docker/metadata-action` (sha, branch, semver)
+- **Multi-registry** - Docker Hub and/or GCP Artifact Registry
+- **Security** - Cosign signing, SLSA provenance, optional SBOM
+- **Caching** - GitHub Actions cache for faster builds
+- **Multi-arch** - Optional QEMU-based arm64 builds
+
+### Usage in Consuming Repos
+
+1. Create a `docker-bake.hcl` in your repo:
+
+```hcl
+target "docker-metadata-action" {}
+
+target "default" {
+  inherits   = ["docker-metadata-action"]
+  dockerfile = "Dockerfile"
+  context    = "."
+}
+```
+
+2. Reference the workflow:
+
+```yaml
+jobs:
+  publish:
+    uses: zondax/_workflows/.github/workflows/_publish-docker-bake.yaml@main
+    with:
+      image_name: zondax/myapp
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+```
+
+### Multi-Variant Builds
+
+Define multiple targets in your `docker-bake.hcl`:
+
+```hcl
+target "docker-metadata-action" {}
+
+group "default" {
+  targets = ["alpine", "debian"]
+}
+
+target "alpine" {
+  inherits   = ["docker-metadata-action"]
+  dockerfile = "Dockerfile"
+  args       = { BASE_IMAGE = "alpine:3.20" }
+  tags       = [for tag in target.docker-metadata-action.tags : "${tag}-alpine"]
+}
+
+target "debian" {
+  inherits   = ["docker-metadata-action"]
+  dockerfile = "Dockerfile"
+  args       = { BASE_IMAGE = "debian:bookworm-slim" }
+}
+```
+
+Then build specific targets:
+
+```yaml
+with:
+  image_name: zondax/myapp
+  bake_targets: "alpine,debian"
+```
+
+### GCP Artifact Registry
+
+```yaml
+jobs:
+  publish:
+    uses: zondax/_workflows/.github/workflows/_publish-docker-bake.yaml@main
+    with:
+      image_name: myapp
+      registry: gcp-ar
+      environment: production
+```
+
+### Workflow Inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `image_name` | required | Image name (e.g., `zondax/myapp`) |
+| `registry` | `dockerhub` | Target: `dockerhub`, `gcp-ar`, or `both` |
+| `bake_file` | `docker-bake.hcl` | Path to bake file |
+| `bake_targets` | `""` | Comma-separated targets (empty = default) |
+| `platforms` | `linux/amd64` | Target platforms |
+| `enable_multiarch` | `false` | Enable QEMU for arm64 |
+| `enable_signing` | `true` | Cosign keyless signing |
+| `enable_provenance` | `true` | SLSA provenance |
+| `enable_sbom` | `false` | Generate SBOM |
 
 ## Environment Management
 

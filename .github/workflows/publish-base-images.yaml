@@ -1,0 +1,26 @@
+name: Publish Base Images
+
+on:
+  # Nightly builds at 2 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+  # On changes to Dockerfiles
+  push:
+    branches: [main]
+    paths:
+      - '.docker/**'
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  publish:
+    uses: ./.github/workflows/_publish-docker-bake.yaml
+    with:
+      registry: dockerhub
+      bake_file: .docker/docker-bake.hcl
+      # Build all targets in default group (ubuntu-22-dev, ubuntu-24-dev)
+      # Image names come from the bake file itself
+      bake_targets: ""
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

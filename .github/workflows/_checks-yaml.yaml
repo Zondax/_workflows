@@ -7,7 +7,6 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
-    inputs:
       runner:
         description: "The runner to use for the workflow"
         type: "string"

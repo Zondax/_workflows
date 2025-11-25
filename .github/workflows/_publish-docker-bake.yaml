@@ -1,0 +1,227 @@
+name: Reusable Publish Docker (Bake)
+
+on:
+  workflow_call:
+    inputs:
+      # REGISTRY
+      registry:
+        description: "Target registry: 'dockerhub', 'gcp-ar', or 'both'"
+        type: string
+        default: "dockerhub"
+
+      # BAKE CONFIGURATION
+      bake_file:
+        description: "Path to docker-bake.hcl"
+        type: string
+        default: "docker-bake.hcl"
+      bake_targets:
+        description: "Comma-separated targets (empty = default group)"
+        type: string
+        default: ""
+      workdir:
+        description: "Working directory"
+        type: string
+        default: "."
+
+      # MULTI-ARCHITECTURE
+      platforms:
+        description: "Target platforms"
+        type: string
+        default: "linux/amd64"
+      enable_multiarch:
+        description: "Enable QEMU for cross-platform builds"
+        type: boolean
+        default: false
+
+      # SECURITY
+      enable_signing:
+        description: "Sign images with Cosign (keyless OIDC)"
+        type: boolean
+        default: true
+      enable_provenance:
+        description: "Generate SLSA provenance"
+        type: boolean
+        default: true
+      enable_sbom:
+        description: "Generate SBOM"
+        type: boolean
+        default: false
+
+      # STANDARD
+      runner:
+        description: "Runner to use for the workflow"
+        type: string
+        default: "zondax-runners"
+      timeout_minutes:
+        description: "Timeout in minutes for the job"
+        type: number
+        default: 30
+      environment:
+        description: "GitHub environment for accessing secrets/vars"
+        type: string
+        default: ""
+      checkout_ref:
+        description: "The ref to checkout (branch, tag, SHA)"
+        type: string
+        default: ""
+      github_app_auth:
+        description: "Use GitHub App Token for private repos"
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        type: string
+        default: ""
+
+    secrets:
+      DOCKERHUB_USER:
+        description: "Docker Hub username"
+        required: false
+      DOCKERHUB_TOKEN:
+        description: "Docker Hub access token"
+        required: false
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+
+    outputs:
+      image_tags:
+        description: "All generated tags (newline-separated)"
+        value: ${{ jobs.publish.outputs.image_tags }}
+      image_digest:
+        description: "Primary image digest"
+        value: ${{ jobs.publish.outputs.image_digest }}
+      bake_metadata:
+        description: "Full bake output JSON"
+        value: ${{ jobs.publish.outputs.bake_metadata }}
+
+jobs:
+  publish:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # For OIDC (Cosign, GCP WIF)
+
+    outputs:
+      image_tags: ${{ steps.tags.outputs.tags_file }}
+      image_digest: ${{ steps.bake.outputs.digest }}
+      bake_metadata: ${{ steps.bake.outputs.metadata }}
+
+    steps:
+      - name: Install deps
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -yy git jq
+
+      - name: Checkout with GitHub App
+        uses: zondax/actions/checkout-with-app@v1
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          fetch_depth: 0
+          ref: ${{ inputs.checkout_ref || github.event.pull_request.head.ref || github.ref }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+          use_sudo: true
+
+      - name: Set up QEMU
+        if: inputs.enable_multiarch
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: contains(inputs.registry, 'dockerhub') || inputs.registry == 'both'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Authenticate with GCP
+        if: contains(inputs.registry, 'gcp') || inputs.registry == 'both'
+        uses: zondax/actions/gcp-wif-auth@v1
+        with:
+          workload_identity_provider: ${{ vars.PULUMI_DEPLOY_WIF_PROVIDER }}
+          setup_gcloud: true
+
+      - name: Configure Docker for GCP AR
+        if: contains(inputs.registry, 'gcp') || inputs.registry == 'both'
+        run: gcloud auth configure-docker ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Generate Docker Tags
+        id: tags
+        working-directory: ${{ inputs.workdir }}
+        run: |
+          # Generate tags using zondax CLI
+          npx -y @zondax/cli@latest ci tags \
+            -f "${{ inputs.bake_file }}" \
+            > tags-override.hcl
+
+          echo "Generated tags:"
+          cat tags-override.hcl
+
+          # Store tags for output
+          npx -y @zondax/cli@latest ci tags \
+            -f "${{ inputs.bake_file }}" \
+            --format json > tags.json
+
+          echo "tags_file=tags-override.hcl" >> $GITHUB_OUTPUT
+
+      - name: Build and Push
+        id: bake
+        uses: docker/bake-action@v5
+        with:
+          workdir: ${{ inputs.workdir }}
+          files: |
+            ${{ inputs.workdir }}/${{ inputs.bake_file }}
+            ${{ inputs.workdir }}/${{ steps.tags.outputs.tags_file }}
+          targets: ${{ inputs.bake_targets }}
+          push: true
+          provenance: ${{ inputs.enable_provenance && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.enable_sbom }}
+          set: |
+            *.platform=${{ inputs.platforms }}
+            *.cache-from=type=gha
+            *.cache-to=type=gha,mode=max
+
+      - name: Install Cosign
+        if: inputs.enable_signing
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign images
+        if: inputs.enable_signing
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          METADATA='${{ steps.bake.outputs.metadata }}'
+          for digest in $(echo "$METADATA" | jq -r '.[].digest // empty'); do
+            echo "Signing: $digest"
+            cosign sign --yes "$digest"
+          done
+
+      - name: Build Summary
+        working-directory: ${{ inputs.workdir }}
+        run: |
+          echo "## Docker Bake Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images Built" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat tags-override.hcl >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Security" >> $GITHUB_STEP_SUMMARY
+          echo "- Signed: ${{ inputs.enable_signing && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- SBOM: ${{ inputs.enable_sbom && 'Generated' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Provenance: ${{ inputs.enable_provenance && 'mode=max' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
