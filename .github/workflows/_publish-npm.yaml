@@ -47,6 +47,8 @@ jobs:
 
     steps:
       - name: Setup Ubuntu packages
+        # Skip when using zondax/ubuntu-dev (packages pre-installed, but sudo available if needed)
+        if: ${{ !startsWith(inputs.base_image, 'zondax/ubuntu-dev') }}
         uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |

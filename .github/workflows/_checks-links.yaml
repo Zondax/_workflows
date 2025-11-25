@@ -79,7 +79,8 @@ jobs:
 
     steps:
       - name: Setup Ubuntu packages
-        if: inputs.runner_preset == 'linux-amd64'
+        # Skip when using zondax/ubuntu-dev (packages pre-installed, but sudo available if needed)
+        if: inputs.runner_preset == 'linux-amd64' && !startsWith(inputs.base_image, 'zondax/ubuntu-dev')
         uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |
@@ -165,7 +166,7 @@ jobs:
           exit 1
 
       - name: Check external links
-        run: ${{ steps.setup-node.outputs.pm_run }} ${{ inputs.link_check_command }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.link_check_command }}
 
       - name: Stop server
         if: always()
