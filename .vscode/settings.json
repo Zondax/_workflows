@@ -10,6 +10,7 @@
         "bunx",
         "clippy",
         "CLOUDRUN",
+        "containerimage",
         "covermode",
         "coverprofile",
         "davelosert",
@@ -23,6 +24,7 @@
         "GOPATH",
         "GOTEST",
         "gsub",
+        "imagetools",
         "jstemmer",
         "knative",
         "kubeconform",
@@ -30,15 +32,18 @@
         "libstdc",
         "mikefarah",
         "Modtidy",
+        "multiarch",
         "pulumi",
         "SCCACHE",
         "setaf",
         "SLSA",
         "tput",
         "Txterm",
+        "urandom",
         "vite",
         "vitest",
         "wordlist",
-        "zondax"
+        "zondax",
+        "zstd"
     ]
 }

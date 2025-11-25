@@ -27,7 +27,7 @@ on:
         type: string
         default: "zondax-runners"
       base_image:
-        description: "Docker image to use (zondax/ubuntu-ci includes pre-installed browsers)"
+        description: "Docker image to use"
         type: string
         default: "zondax/ubuntu-ci:22.04"
       use_env_local:
@@ -253,8 +253,6 @@ jobs:
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.build_command }}
 
       - name: Install Playwright browsers
-        # Skip when using zondax/ubuntu-ci (browsers pre-installed)
-        if: ${{ !startsWith(inputs.base_image, 'zondax/ubuntu-ci') }}
         working-directory: ${{ inputs.working_directory }}
         run: npx ${{ inputs.install_command }}
 
