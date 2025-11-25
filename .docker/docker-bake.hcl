@@ -26,15 +26,17 @@ target "_common" {
 target "ubuntu-22-dev" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-22.04-dev.Dockerfile"
-  # Tags include version suffix - zondax ci tags will expand these
   tags       = ["zondax/ubuntu-dev:22.04"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-dev:22.04-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-dev:22.04-cache,mode=max"]
 }
 
 target "ubuntu-24-dev" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-24.04-dev.Dockerfile"
-  # Tags include version suffix - zondax ci tags will expand these
   tags       = ["zondax/ubuntu-dev:24.04"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-dev:24.04-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-dev:24.04-cache,mode=max"]
 }
 
 # Future base images can be added here:

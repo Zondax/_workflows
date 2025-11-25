@@ -210,12 +210,11 @@ jobs:
             ${{ inputs.workdir }}/${{ steps.tags.outputs.tags_file }}
           targets: ${{ inputs.bake_targets }}
           push: true
-          provenance: ${{ inputs.enable_provenance && 'mode=max' || 'false' }}
+          provenance: ${{ inputs.enable_provenance && 'mode=min' || 'false' }}
           sbom: ${{ inputs.enable_sbom }}
           set: |
             *.platform=${{ inputs.platforms }}
-            *.cache-from=type=gha
-            *.cache-to=type=gha,mode=max
+            *.output=type=registry,compression=zstd,compression-level=3
 
       - name: Install Cosign
         if: inputs.enable_signing
@@ -249,4 +248,4 @@ jobs:
           echo "### Security" >> $GITHUB_STEP_SUMMARY
           echo "- Signed: ${{ inputs.enable_signing && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
           echo "- SBOM: ${{ inputs.enable_sbom && 'Generated' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Provenance: ${{ inputs.enable_provenance && 'mode=max' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Provenance: ${{ inputs.enable_provenance && 'mode=min' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
