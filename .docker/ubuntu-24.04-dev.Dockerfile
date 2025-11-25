@@ -58,9 +58,13 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 COPY ./.docker/zondax_CA.crt /usr/local/share/ca-certificates/zondax_CA.crt
 RUN update-ca-certificates
 
-# Non-root user (consistent with alpine base)
-RUN groupadd --system --gid 65532 zondax && \
-    useradd --system --uid 65532 --gid zondax --shell /bin/bash --create-home zondax
+# Non-root user with passwordless sudo
+RUN apt-get update && apt-get install -y --no-install-recommends sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 65532 zondax \
+    && useradd --system --uid 65532 --gid zondax --shell /bin/bash --create-home zondax \
+    && echo "zondax ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/zondax \
+    && chmod 0440 /etc/sudoers.d/zondax
 
 # Install mise and tools (node, pnpm, rust, playwright via postinstall hook)
 COPY ./.docker/mise /tmp/mise
