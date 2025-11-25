@@ -1,10 +1,10 @@
-# Docker Bake configuration for Zondax base images
+# Docker Bake configuration for Zondax CI base images
 #
 # Local build:
 #   docker buildx bake -f .docker/docker-bake.hcl
 #
 # Build specific target:
-#   docker buildx bake -f .docker/docker-bake.hcl ubuntu-22-dev
+#   docker buildx bake -f .docker/docker-bake.hcl ubuntu-22-ci
 #
 # Build and load into local docker:
 #   docker buildx bake -f .docker/docker-bake.hcl --load
@@ -13,7 +13,7 @@
 #   docker buildx bake -f .docker/docker-bake.hcl --set "*.tags=mytest:local"
 
 group "default" {
-  targets = ["ubuntu-22-dev", "ubuntu-24-dev"]
+  targets = ["ubuntu-22-ci", "ubuntu-24-ci"]
 }
 
 # Common configuration inherited by all targets
@@ -23,27 +23,27 @@ target "_common" {
   pull      = true # Always pull fresh base image for security updates
 }
 
-target "ubuntu-22-dev" {
+target "ubuntu-22-ci" {
   inherits   = ["_common"]
-  dockerfile = ".docker/ubuntu-22.04-dev.Dockerfile"
-  tags       = ["zondax/ubuntu-dev:22.04"]
-  cache-from = ["type=registry,ref=zondax/ubuntu-dev:22.04-cache"]
-  cache-to   = ["type=registry,ref=zondax/ubuntu-dev:22.04-cache,mode=max"]
+  dockerfile = ".docker/ubuntu-22.04-ci.Dockerfile"
+  tags       = ["zondax/ubuntu-ci:22.04"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-ci:22.04-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-ci:22.04-cache,mode=max"]
 }
 
-target "ubuntu-24-dev" {
+target "ubuntu-24-ci" {
   inherits   = ["_common"]
-  dockerfile = ".docker/ubuntu-24.04-dev.Dockerfile"
-  tags       = ["zondax/ubuntu-dev:24.04"]
-  cache-from = ["type=registry,ref=zondax/ubuntu-dev:24.04-cache"]
-  cache-to   = ["type=registry,ref=zondax/ubuntu-dev:24.04-cache,mode=max"]
+  dockerfile = ".docker/ubuntu-24.04-ci.Dockerfile"
+  tags       = ["zondax/ubuntu-ci:24.04"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-ci:24.04-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-ci:24.04-cache,mode=max"]
 }
 
 # Future base images can be added here:
 #
-# target "alpine-dev" {
+# target "alpine-ci" {
 #   inherits   = ["docker-metadata-action"]
-#   dockerfile = ".docker/alpine-dev.Dockerfile"
+#   dockerfile = ".docker/alpine-ci.Dockerfile"
 #   context    = "."
 #   platforms  = ["linux/amd64"]
 #   pull       = true

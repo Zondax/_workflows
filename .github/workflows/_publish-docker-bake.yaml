@@ -233,28 +233,114 @@ jobs:
         id: summary
         working-directory: ${{ inputs.workdir }}
         run: |
-          # Generate summary content
-          SUMMARY="## Docker Build Summary
+          METADATA='${{ steps.bake.outputs.metadata }}'
 
-          ### Images Built
-          \`\`\`
+          # Helper to format bytes
+          format_size() {
+            local bytes=$1
+            if [ "$bytes" -ge 1073741824 ]; then
+              printf "%.2f GB" "$(echo "$bytes / 1073741824" | bc -l)"
+            elif [ "$bytes" -ge 1048576 ]; then
+              printf "%.2f MB" "$(echo "$bytes / 1048576" | bc -l)"
+            elif [ "$bytes" -ge 1024 ]; then
+              printf "%.2f KB" "$(echo "$bytes / 1024" | bc -l)"
+            else
+              printf "%d B" "$bytes"
+            fi
+          }
+
+          # Build image details table
+          IMAGE_TABLE=""
+          TOTAL_SIZE=0
+
+          for target in $(echo "$METADATA" | jq -r 'keys[]'); do
+            IMAGE_REF=$(echo "$METADATA" | jq -r ".[\"$target\"].\"image.name\"" | head -1)
+            DIGEST=$(echo "$METADATA" | jq -r ".[\"$target\"].\"containerimage.digest\"")
+
+            if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ] && [ -n "$IMAGE_REF" ]; then
+              FULL_REF="${IMAGE_REF%%,*}@${DIGEST}"
+              SHORT_NAME="${IMAGE_REF%%:*}"
+              SHORT_TAG=$(echo "$IMAGE_REF" | sed 's/.*://' | cut -d',' -f1)
+
+              # Query registry for manifest (we're already authenticated from the push)
+              MANIFEST=$(docker buildx imagetools inspect "$FULL_REF" --raw 2>/dev/null || echo "{}")
+
+              # Check if multi-platform manifest list
+              if echo "$MANIFEST" | jq -e '.manifests' > /dev/null 2>&1; then
+                # Get the first platform's manifest for layer details
+                FIRST_DIGEST=$(echo "$MANIFEST" | jq -r '.manifests[0].digest')
+                PLATFORM=$(echo "$MANIFEST" | jq -r '.manifests[0].platform | "\(.os)/\(.architecture)"')
+                LAYER_MANIFEST=$(docker buildx imagetools inspect "${SHORT_NAME}@${FIRST_DIGEST}" --raw 2>/dev/null || echo "{}")
+              else
+                LAYER_MANIFEST="$MANIFEST"
+                PLATFORM="${{ inputs.platforms }}"
+              fi
+
+              # Calculate total compressed size from layers
+              LAYER_SIZES=$(echo "$LAYER_MANIFEST" | jq -r '[.layers[].size] | add // 0')
+              LAYER_COUNT=$(echo "$LAYER_MANIFEST" | jq -r '.layers | length // 0')
+              CONFIG_SIZE=$(echo "$LAYER_MANIFEST" | jq -r '.config.size // 0')
+              IMAGE_SIZE=$((LAYER_SIZES + CONFIG_SIZE))
+              TOTAL_SIZE=$((TOTAL_SIZE + IMAGE_SIZE))
+
+              # Format size
+              SIZE_FMT=$(format_size $IMAGE_SIZE)
+
+              # Build layer breakdown (top 5 largest)
+              LAYER_DETAILS=$(echo "$LAYER_MANIFEST" | jq -r '
+                [.layers | to_entries | sort_by(-.value.size) | .[0:5] | .[] |
+                  "L\(.key): \(.value.size / 1048576 | . * 100 | floor / 100)MB"]
+                | join(", ")' 2>/dev/null || echo "")
+
+              IMAGE_TABLE="${IMAGE_TABLE}
+          | \`${SHORT_NAME}\` | \`${SHORT_TAG}\` | **${SIZE_FMT}** | ${LAYER_COUNT} | ${PLATFORM} |"
+
+              # Add layer breakdown as sub-row if available
+              if [ -n "$LAYER_DETAILS" ] && [ "$LAYER_DETAILS" != "" ]; then
+                IMAGE_TABLE="${IMAGE_TABLE}
+          | | <sub>Top layers: ${LAYER_DETAILS}</sub> | | | |"
+              fi
+            fi
+          done
+
+          TOTAL_FMT=$(format_size $TOTAL_SIZE)
+
+          # Generate summary content
+          SUMMARY="## 🐳 Docker Build Summary
+
+          ### Published Images
+
+          | Image | Tag | Size | Layers | Platform |
+          |-------|-----|------|--------|----------|${IMAGE_TABLE}
+          | | | **Total: ${TOTAL_FMT}** | | |
+
+          <details>
+          <summary>📋 Generated Tags</summary>
+
+          \`\`\`hcl
           $(cat tags-override.hcl)
           \`\`\`
 
+          </details>
+
           ### Build Configuration
-          - **Builder:** ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }}
-          - **Platforms:** ${{ inputs.platforms }}
-          - **Compression:** zstd
+          | Setting | Value |
+          |---------|-------|
+          | Builder | ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }} |
+          | Platforms | \`${{ inputs.platforms }}\` |
+          | Compression | zstd |
 
           ### Security
-          - **Signed:** ${{ inputs.enable_signing && 'Yes' || 'No' }}
-          - **SBOM:** ${{ inputs.enable_sbom && 'Generated' || 'Disabled' }}
-          - **Provenance:** ${{ inputs.enable_provenance && 'mode=min' || 'Disabled' }}"
+          | Feature | Status |
+          |---------|--------|
+          | Signed | ${{ inputs.enable_signing && '✅' || '❌' }} |
+          | SBOM | ${{ inputs.enable_sbom && '✅' || '⏭️' }} |
+          | Provenance | ${{ inputs.enable_provenance && '✅' || '⏭️' }} |"
 
           # Write to job summary
           echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
 
-          # Save for PR comment (escape for JSON)
+          # Save for PR comment
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "comment_body<<$EOF" >> $GITHUB_OUTPUT
           echo "$SUMMARY" >> $GITHUB_OUTPUT

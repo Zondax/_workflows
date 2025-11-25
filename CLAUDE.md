@@ -72,7 +72,8 @@ This repository provides pre-built base images for Zondax projects, published to
 
 | Image | Description | Tools Included |
 |-------|-------------|----------------|
-| `zondax/ubuntu-dev:local` | Ubuntu 22.04 dev base | build-essential, git, curl, wget, make, jq, pkg-config |
+| `zondax/ubuntu-ci:22.04` | Ubuntu 22.04 CI base | build-essential, git, curl, wget, make, jq, pkg-config, node, pnpm, rust, playwright |
+| `zondax/ubuntu-ci:24.04` | Ubuntu 24.04 CI base | build-essential, git, curl, wget, make, jq, pkg-config, node, pnpm, rust, playwright |
 
 ### Local Development
 
@@ -84,7 +85,7 @@ make bake-load
 make bake-list
 
 # Test the image
-docker run --rm -it zondax/ubuntu-dev:local bash
+docker run --rm -it zondax/ubuntu-ci:22.04 bash
 
 # Build with custom tag
 docker buildx bake -f .docker/docker-bake.hcl --set "*.tags=myapp:test" --load
