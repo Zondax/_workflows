@@ -6,7 +6,10 @@ on:
     - cron: '0 2 * * *'
   # On changes to Dockerfiles
   push:
-    branches: [main]
+    branches: [main, dev]
+    paths:
+      - '.docker/**'
+  pull_request:
     paths:
       - '.docker/**'
   # Manual trigger
