@@ -165,17 +165,13 @@ jobs:
         working-directory: ${{ inputs.workdir }}
         run: |
           # Generate tags using zondax CLI
+          # Filter out info lines (ℹ) that go to stdout, keep only HCL content
           npx -y @zondax/cli@latest ci tags \
             -f "${{ inputs.bake_file }}" \
-            > tags-override.hcl
+            2>/dev/null | grep -v '^ℹ' > tags-override.hcl
 
           echo "Generated tags:"
           cat tags-override.hcl
-
-          # Store tags for output
-          npx -y @zondax/cli@latest ci tags \
-            -f "${{ inputs.bake_file }}" \
-            --format json > tags.json
 
           echo "tags_file=tags-override.hcl" >> $GITHUB_OUTPUT
 
