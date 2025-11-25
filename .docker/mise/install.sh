@@ -2,11 +2,13 @@
 # Mise and tooling installation script for Zondax base images
 set -euo pipefail
 
-# Pin mise version for reproducible builds
-MISE_VERSION="${MISE_VERSION:-latest}"
-
-# Install mise (MISE_VERSION can be set to pin a specific version)
-curl -fsSL https://mise.run | MISE_VERSION=$MISE_VERSION sh
+# Install mise
+# Set MISE_VERSION env var before running to pin a specific version (e.g., MISE_VERSION=2024.11.0)
+if [ -n "${MISE_VERSION:-}" ]; then
+  curl -fsSL https://mise.run | MISE_VERSION="$MISE_VERSION" sh
+else
+  curl -fsSL https://mise.run | sh
+fi
 mv /root/.local/bin/mise /usr/local/bin/mise
 chmod +x /usr/local/bin/mise
 
