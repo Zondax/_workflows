@@ -158,9 +158,6 @@ jobs:
         with:
           driver: remote
           endpoint: ${{ inputs.remote_builder_url }}
-          buildkitd-config-inline: |
-            [worker.oci]
-              max-parallelism = 4
 
       - name: Login to Docker Hub
         if: contains(inputs.registry, 'dockerhub') || inputs.registry == 'both'
