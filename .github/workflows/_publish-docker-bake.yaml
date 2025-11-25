@@ -229,20 +229,44 @@ jobs:
           done
 
       - name: Build Summary
+        id: summary
         working-directory: ${{ inputs.workdir }}
         run: |
-          echo "## Docker Bake Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images Built" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat tags-override.hcl >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Build Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "- Builder: ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Platforms: ${{ inputs.platforms }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Security" >> $GITHUB_STEP_SUMMARY
-          echo "- Signed: ${{ inputs.enable_signing && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- SBOM: ${{ inputs.enable_sbom && 'Generated' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Provenance: ${{ inputs.enable_provenance && 'mode=min' || 'Disabled' }}" >> $GITHUB_STEP_SUMMARY
+          # Generate summary content
+          SUMMARY="## Docker Build Summary
+
+          ### Images Built
+          \`\`\`
+          $(cat tags-override.hcl)
+          \`\`\`
+
+          ### Build Configuration
+          - **Builder:** ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }}
+          - **Platforms:** ${{ inputs.platforms }}
+          - **Compression:** zstd
+
+          ### Security
+          - **Signed:** ${{ inputs.enable_signing && 'Yes' || 'No' }}
+          - **SBOM:** ${{ inputs.enable_sbom && 'Generated' || 'Disabled' }}
+          - **Provenance:** ${{ inputs.enable_provenance && 'mode=min' || 'Disabled' }}"
+
+          # Write to job summary
+          echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+
+          # Save for PR comment (escape for JSON)
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "comment_body<<$EOF" >> $GITHUB_OUTPUT
+          echo "$SUMMARY" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ${{ steps.summary.outputs.comment_body }}
+
+            ---
+            <sub>Build triggered by commit ${{ github.sha }}</sub>
+          reactions: rocket
