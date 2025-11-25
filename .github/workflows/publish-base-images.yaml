@@ -4,14 +4,18 @@ on:
   # Nightly builds at 2 AM UTC
   schedule:
     - cron: '0 2 * * *'
-  # On changes to Dockerfiles
+  # On changes to Dockerfiles or the bake workflow
   push:
     branches: [main, dev]
     paths:
       - '.docker/**'
+      - '.github/workflows/_publish-docker-bake.yaml'
+      - '.github/workflows/publish-base-images.yaml'
   pull_request:
     paths:
       - '.docker/**'
+      - '.github/workflows/_publish-docker-bake.yaml'
+      - '.github/workflows/publish-base-images.yaml'
   # Manual trigger
   workflow_dispatch:
 
