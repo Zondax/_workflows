@@ -5,8 +5,8 @@ set -euo pipefail
 # Pin mise version for reproducible builds
 MISE_VERSION="${MISE_VERSION:-latest}"
 
-# Install mise
-curl -fsSL https://mise.run | sh
+# Install mise (MISE_VERSION can be set to pin a specific version)
+curl -fsSL https://mise.run | MISE_VERSION=$MISE_VERSION sh
 mv /root/.local/bin/mise /usr/local/bin/mise
 chmod +x /usr/local/bin/mise
 

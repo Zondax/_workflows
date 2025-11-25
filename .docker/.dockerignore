@@ -4,7 +4,6 @@
 
 # Documentation
 *.md
-!zondax_CA.crt
 
 # IDE
 .vscode
