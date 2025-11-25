@@ -1,17 +1,17 @@
 FROM ubuntu:22.04
 
 LABEL org.opencontainers.image.source="https://github.com/zondax/_workflows"
-LABEL org.opencontainers.image.description="Zondax Ubuntu 22.04 development base image"
+LABEL org.opencontainers.image.description="Zondax Ubuntu 22.04 CI base image"
 LABEL org.opencontainers.image.vendor="Zondax"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.title="ubuntu-dev"
+LABEL org.opencontainers.image.title="ubuntu-ci"
 LABEL org.opencontainers.image.base.name="ubuntu:22.04"
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install all system packages in a single layer (reduces image size)
-# - Base dev tools + sudo
+# - Base dev tools
 # - Tauri/GTK dependencies
 # - Playwright/Chromium dependencies
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -24,7 +24,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libssl-dev \
     make \
     pkg-config \
-    sudo \
     wget \
     # Tauri/GTK
     javascriptcoregtk-4.1-dev \
@@ -64,20 +63,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 COPY ./.docker/zondax_CA.crt /usr/local/share/ca-certificates/zondax_CA.crt
 RUN update-ca-certificates
 
-# Non-root user with passwordless sudo
-RUN groupadd --system --gid 65532 zondax \
-    && useradd --system --uid 65532 --gid zondax --shell /bin/bash --create-home zondax \
-    && echo "zondax ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/zondax \
-    && chmod 0440 /etc/sudoers.d/zondax
-
 # Install mise and tools (node, pnpm, rust, playwright via postinstall hook)
 COPY ./.docker/mise /tmp/mise
 RUN chmod +x /tmp/mise/install.sh && /tmp/mise/install.sh
 
 # Environment for mise
-ENV PATH="/home/zondax/.local/share/mise/shims:${PATH}"
-ENV PLAYWRIGHT_BROWSERS_PATH="/home/zondax/.cache/ms-playwright"
-
-# Default to non-root user
-USER zondax
-WORKDIR /home/zondax
+ENV PATH="/root/.local/share/mise/shims:${PATH}"
+ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"

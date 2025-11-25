@@ -233,28 +233,74 @@ jobs:
         id: summary
         working-directory: ${{ inputs.workdir }}
         run: |
+          METADATA='${{ steps.bake.outputs.metadata }}'
+
+          # Build image list
+          IMAGE_LIST=""
+
+          for target in $(echo "$METADATA" | jq -r 'keys[]'); do
+            # Get the first tag (primary tag like zondax/ubuntu-ci:22.04)
+            IMAGE_REF=$(echo "$METADATA" | jq -r ".[\"$target\"].\"image.name\"" | tr ',' '\n' | head -1)
+            DIGEST=$(echo "$METADATA" | jq -r ".[\"$target\"].\"containerimage.digest\"")
+
+            if [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ] && [ -n "$IMAGE_REF" ]; then
+              FULL_REF="${IMAGE_REF}@${DIGEST}"
+              SHORT_NAME="${IMAGE_REF%%:*}"
+
+              # Query registry for manifest (we're already authenticated from the push)
+              MANIFEST=$(docker buildx imagetools inspect "$FULL_REF" --raw 2>/dev/null || echo "{}")
+
+              # Check if multi-platform manifest list or index
+              if echo "$MANIFEST" | jq -e '.manifests' > /dev/null 2>&1; then
+                FIRST_DIGEST=$(echo "$MANIFEST" | jq -r '.manifests[0].digest')
+                PLATFORM=$(echo "$MANIFEST" | jq -r '.manifests[0].platform | "\(.os)/\(.architecture)"')
+                LAYER_MANIFEST=$(docker buildx imagetools inspect "${SHORT_NAME}@${FIRST_DIGEST}" --raw 2>/dev/null || echo "{}")
+              else
+                LAYER_MANIFEST="$MANIFEST"
+                PLATFORM="${{ inputs.platforms }}"
+              fi
+
+              # Get all tags for this target
+              ALL_TAGS=$(echo "$METADATA" | jq -r ".[\"$target\"].\"image.name\"" | tr ',' '\n' | sed 's/^/- /')
+
+              # Calculate total compressed size and layer details in one jq call
+              read -r IMAGE_SIZE_MB LAYER_COUNT <<< $(echo "$LAYER_MANIFEST" | jq -r '
+                [(.layers // [])[].size] |
+                [(add // 0) / 1048576 | . * 100 | floor / 100, length] |
+                @tsv' 2>/dev/null || echo "0 0")
+
+              # Build layer breakdown (in order) with hash
+              LAYER_DETAILS=$(echo "$LAYER_MANIFEST" | jq -r '
+                (.layers // []) | to_entries | .[] |
+                "L\(.key)  \(.value.digest | split(":")[1][0:12])  \(.value.size / 1048576 | . * 100 | floor / 100) MB"' 2>/dev/null || echo "")
+
+              IMAGE_LIST="${IMAGE_LIST}
+          **\`${IMAGE_REF}\`** (${PLATFORM})
+          \`\`\`
+          ${LAYER_DETAILS}
+          Total: ${IMAGE_SIZE_MB} MB
+          \`\`\`
+          Tags:
+          ${ALL_TAGS}
+          "
+            fi
+          done
+
           # Generate summary content
-          SUMMARY="## Docker Build Summary
+          SUMMARY="## 🐳 Docker Build Summary
 
-          ### Images Built
-          \`\`\`
-          $(cat tags-override.hcl)
-          \`\`\`
-
+          ### Published Images
+          ${IMAGE_LIST}
           ### Build Configuration
           - **Builder:** ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }}
-          - **Platforms:** ${{ inputs.platforms }}
+          - **Platforms:** \`${{ inputs.platforms }}\`
           - **Compression:** zstd
-
-          ### Security
-          - **Signed:** ${{ inputs.enable_signing && 'Yes' || 'No' }}
-          - **SBOM:** ${{ inputs.enable_sbom && 'Generated' || 'Disabled' }}
-          - **Provenance:** ${{ inputs.enable_provenance && 'mode=min' || 'Disabled' }}"
+          - **Signed:** ${{ inputs.enable_signing && 'Yes' || 'No' }} | **SBOM:** ${{ inputs.enable_sbom && 'Yes' || 'No' }} | **Provenance:** ${{ inputs.enable_provenance && 'Yes' || 'No' }}"
 
           # Write to job summary
           echo "$SUMMARY" >> $GITHUB_STEP_SUMMARY
 
-          # Save for PR comment (escape for JSON)
+          # Save for PR comment
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "comment_body<<$EOF" >> $GITHUB_OUTPUT
           echo "$SUMMARY" >> $GITHUB_OUTPUT

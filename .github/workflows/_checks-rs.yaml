@@ -34,10 +34,10 @@ on:
         type: string
         default: "linux-amd64"
       base_image:
-        description: "Docker image to use (zondax/ubuntu-dev includes node, pnpm, rust)"
+        description: "Docker image to use (zondax/ubuntu-ci includes node, pnpm, rust)"
         required: false
         type: string
-        default: "zondax/ubuntu-dev:22.04"
+        default: "zondax/ubuntu-ci:22.04"
       package_path:
         description: "Path to the Rust package relative to the repository root"
         required: false
@@ -205,8 +205,8 @@ jobs:
       
     steps:
       - name: Setup Ubuntu packages
-        # Skip when using zondax/ubuntu-dev (packages pre-installed, but sudo available if needed)
-        if: inputs.runner_preset == 'linux-amd64' && !startsWith(inputs.base_image, 'zondax/ubuntu-dev')
+        # Skip when using zondax/ubuntu-ci (packages pre-installed, but sudo available if needed)
+        if: inputs.runner_preset == 'linux-amd64' && !startsWith(inputs.base_image, 'zondax/ubuntu-ci')
         uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |

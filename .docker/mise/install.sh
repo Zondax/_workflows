@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mise and tooling installation script for Zondax base images
+# Mise and tooling installation script for Zondax CI base images
 set -euo pipefail
 
 # Install mise
@@ -12,23 +12,18 @@ fi
 mv /root/.local/bin/mise /usr/local/bin/mise
 chmod +x /usr/local/bin/mise
 
-# Setup for the zondax user
-MISE_DATA_DIR="/home/zondax/.local/share/mise"
-MISE_CONFIG_DIR="/home/zondax/.config/mise"
+# Setup mise config for root
+MISE_DATA_DIR="/root/.local/share/mise"
+MISE_CONFIG_DIR="/root/.config/mise"
 
 mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR"
 cp /tmp/mise/config.toml "$MISE_CONFIG_DIR/config.toml"
-chown -R zondax:zondax /home/zondax/.local /home/zondax/.config
 
-# Switch to zondax user and install tools (postinstall hook runs automatically)
-su - zondax -c '
-  export PATH="/usr/local/bin:$PATH"
-  mise trust --all
-  mise install
-'
+# Install tools (postinstall hook runs automatically)
+mise trust --all
+mise install
 
 # Cleanup build artifacts and caches to reduce image size
 rm -rf /tmp/mise
-rm -rf /home/zondax/.cache/pnpm
-rm -rf /home/zondax/.npm/_cacache
-rm -rf /root/.local
+rm -rf /root/.cache/pnpm
+rm -rf /root/.npm/_cacache
