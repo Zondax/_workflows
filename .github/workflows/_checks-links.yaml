@@ -4,9 +4,9 @@ on:
   workflow_call:
     inputs:
       base_image:
-        description: "Docker image to use for base image"
+        description: "Docker image to use (zondax/ubuntu-dev includes node, pnpm, rust)"
         type: string
-        default: "ubuntu:24.04"
+        default: "zondax/ubuntu-dev:24.04"
       build_command:
         description: "Build command to run from package.json"
         type: string

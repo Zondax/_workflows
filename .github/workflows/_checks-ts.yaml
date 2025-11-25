@@ -34,9 +34,9 @@ on:
         type: string
         default: "test:coverage"
       base_image:
-        description: "Docker image to use for base image"
+        description: "Docker image to use (zondax/ubuntu-dev includes node, pnpm, rust)"
         type: string
-        default: "ubuntu:24.04"
+        default: "zondax/ubuntu-dev:24.04"
       test_command:
         description: "Test command to run from package.json"
         type: string
