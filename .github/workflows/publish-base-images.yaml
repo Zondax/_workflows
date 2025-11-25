@@ -19,6 +19,11 @@ on:
   # Manual trigger
   workflow_dispatch:
 
+# Prevent duplicate runs - cancel in-progress runs for same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   publish:
     uses: ./.github/workflows/_publish-docker-bake.yaml
