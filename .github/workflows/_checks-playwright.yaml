@@ -118,6 +118,8 @@ jobs:
             playwrightShard: "2/2"
     container:
       image: ${{ inputs.base_image }}
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
       env:
         PLAYWRIGHT_SHARD: ${{ matrix.playwrightShard }}
         CI: true
