@@ -118,9 +118,8 @@ jobs:
             playwrightShard: "2/2"
     container:
       image: ${{ inputs.base_image }}
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
       env:
+        DOCKER_HOST: unix:///var/run/docker/docker.sock
         PLAYWRIGHT_SHARD: ${{ matrix.playwrightShard }}
         CI: true
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -129,6 +128,8 @@ jobs:
         DISPLAY: ':99'
         GDK_BACKEND: 'x11'
         BACKEND_TIMEOUT: '240000'
+      volumes:
+        - /var/run/docker/docker.sock:/var/run/docker/docker.sock
     environment: ${{ inputs.environment }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
