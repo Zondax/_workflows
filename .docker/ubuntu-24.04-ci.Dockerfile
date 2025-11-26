@@ -19,6 +19,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     build-essential \
     ca-certificates \
     curl \
+    docker.io \
     git \
     jq \
     libssl-dev \
