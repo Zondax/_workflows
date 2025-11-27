@@ -26,6 +26,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     make \
     pkg-config \
     wget \
+    zstd \
     # Tauri/GTK
     libayatana-appindicator3-dev \
     libgtk-3-dev \

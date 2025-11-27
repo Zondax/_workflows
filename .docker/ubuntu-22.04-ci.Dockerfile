@@ -26,6 +26,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     make \
     pkg-config \
     wget \
+    zstd \
     # Tauri/GTK
     javascriptcoregtk-4.1-dev \
     libayatana-appindicator3-dev \
