@@ -451,7 +451,7 @@ jobs:
         with:
           name: coverage-report-rust-${{ github.run_number }}${{ inputs.coverage_artifact_suffix != '' && format('-{0}', inputs.coverage_artifact_suffix) || '' }}
           path: ${{ inputs.package_path }}/tarpaulin-report.json
-          retention-days: 30
+          retention-days: 15
 
       - name: Fail workflow if coverage check failed
         if: inputs.enable_coverage && steps.coverage-check.outputs.coverage_status == 'failed'

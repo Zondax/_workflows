@@ -123,7 +123,7 @@ jobs:
         with:
           name: coverage-report-${{ github.run_number }}
           path: ${{ inputs.package_path }}/profile.cov
-          retention-days: 30
+          retention-days: 15
 
       - name: Quality Gate - Test coverage shall be above threshold
         if: inputs.enable_coverage

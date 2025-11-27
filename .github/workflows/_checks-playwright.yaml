@@ -96,10 +96,6 @@ on:
         description: "Path(s) to Next.js cache directories. Use newlines for multiple paths in monorepos."
         type: string
         default: ".next/cache"
-      post_pr_comment:
-        description: "Post test results as PR comment"
-        type: boolean
-        default: true
     secrets:
       env_local:
         description: "Env local file to set environment variables (one export per line)"
@@ -160,13 +156,6 @@ jobs:
     permissions:
       contents: read
       id-token: write  # Required for Workload Identity Federation
-      pull-requests: write  # Required for PR comments
-    outputs:
-      test_status: ${{ steps.test-results.outputs.status }}
-      passed: ${{ steps.test-results.outputs.passed }}
-      failed: ${{ steps.test-results.outputs.failed }}
-      skipped: ${{ steps.test-results.outputs.skipped }}
-      duration: ${{ steps.test-results.outputs.duration }}
     steps:
       - name: Setup Ubuntu packages
         # Only needed when not using zondax/ubuntu-ci base image
@@ -359,47 +348,6 @@ jobs:
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}
 
-      - name: Parse test results
-        if: always()
-        id: test-results
-        working-directory: ${{ inputs.working_directory }}
-        shell: bash
-        run: |
-          # Check for Playwright JSON report
-          if [ -f "playwright-report/results.json" ]; then
-            passed=$(jq '[.suites[].specs[].tests[] | select(.status == "expected")] | length' playwright-report/results.json 2>/dev/null || echo "0")
-            failed=$(jq '[.suites[].specs[].tests[] | select(.status == "unexpected")] | length' playwright-report/results.json 2>/dev/null || echo "0")
-            skipped=$(jq '[.suites[].specs[].tests[] | select(.status == "skipped")] | length' playwright-report/results.json 2>/dev/null || echo "0")
-            duration=$(jq '.stats.duration // 0' playwright-report/results.json 2>/dev/null || echo "0")
-          elif [ -f "test-results/.last-run.json" ]; then
-            # Alternative: check last-run.json
-            status=$(jq -r '.status' test-results/.last-run.json 2>/dev/null || echo "unknown")
-            passed="0"
-            failed="0"
-            skipped="0"
-            duration="0"
-          else
-            passed="0"
-            failed="0"
-            skipped="0"
-            duration="0"
-          fi
-
-          # Determine overall status
-          if [ "$failed" -gt 0 ]; then
-            status="failed"
-          else
-            status="passed"
-          fi
-
-          echo "status=$status" >> $GITHUB_OUTPUT
-          echo "passed=$passed" >> $GITHUB_OUTPUT
-          echo "failed=$failed" >> $GITHUB_OUTPUT
-          echo "skipped=$skipped" >> $GITHUB_OUTPUT
-          echo "duration=$duration" >> $GITHUB_OUTPUT
-
-          echo "Test Results: passed=$passed, failed=$failed, skipped=$skipped"
-
       - name: Cleanup xvfb and Tauri processes
         if: always()
         run: |
@@ -415,31 +363,13 @@ jobs:
           path: ${{ inputs.working_directory }}/playwright-report/
           retention-days: 15
 
-  post-pr-comment:
-    name: Post PR Comment
-    needs: playwright
-    if: inputs.post_pr_comment && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && always()
-    runs-on: ${{ inputs.runner }}
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Post Playwright results comment
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          issue-number: ${{ github.event.number }}
-          body: |
-            ## 🎭 Playwright Test Results
-
-            | Shard | Status | Passed | Failed | Skipped |
-            |-------|--------|--------|--------|---------|
-            | Shard 1 | ${{ needs.playwright.outputs.test_status == 'passed' && '✅' || '❌' }} | ${{ needs.playwright.outputs.passed || '0' }} | ${{ needs.playwright.outputs.failed || '0' }} | ${{ needs.playwright.outputs.skipped || '0' }} |
-
-            ${{ needs.playwright.outputs.test_status == 'failed' && '
-            ### ❌ Some tests failed
-
-            Please check the [Playwright Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-            ' || '### ✅ All tests passed!' }}
-
-            ---
-            <sub>📎 [View full report artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})</sub>
-          comment-id: playwright-test-results
+      - name: Write job summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "## 🎭 Playwright Shard ${{ matrix.playwrightShard }} ✅" >> $GITHUB_STEP_SUMMARY
+            echo "All tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## 🎭 Playwright Shard ${{ matrix.playwrightShard }} ❌" >> $GITHUB_STEP_SUMMARY
+            echo "Some tests failed - check logs for details" >> $GITHUB_STEP_SUMMARY
+          fi
