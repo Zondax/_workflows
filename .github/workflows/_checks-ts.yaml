@@ -162,6 +162,7 @@ jobs:
         uses: runs-on/cache@v4
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
+          RUNS_ON_S3_FORCE_PATH_STYLE: "true"
           AWS_ACCESS_KEY_ID: ${{ secrets.cache_access_key_id }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.cache_secret_access_key }}
           AWS_ENDPOINT_URL: ${{ inputs.cache_endpoint }}
