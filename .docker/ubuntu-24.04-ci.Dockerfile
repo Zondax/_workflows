@@ -56,6 +56,30 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libxkbcommon0 \
     libxrandr2 \
     xvfb \
+    # Playwright full browser support (Firefox/WebKit)
+    # Fonts
+    fonts-freefont-ttf \
+    fonts-ipafont-gothic \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-tlwg-loma-otf \
+    fonts-unifont \
+    fonts-wqy-zenhei \
+    xfonts-cyrillic \
+    xfonts-encodings \
+    xfonts-scalable \
+    xfonts-utils \
+    # GTK4 for WebKit
+    libgtk-4-1 \
+    # Multimedia/GStreamer
+    ffmpeg \
+    gstreamer1.0-libav \
+    gstreamer1.0-plugins-bad \
+    # Additional libs
+    libevent-2.1-7t64 \
+    libnotify4 \
+    libxss1 \
+    libxv1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
