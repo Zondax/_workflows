@@ -200,6 +200,58 @@ jobs:
           # Show confirmation (only count lines for security)
           echo "Created .env.local file with $(grep -c "=" .env.local) environment variables"
 
+      - name: Cache pnpm store
+        if: inputs.sccache_bucket != ''
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.sccache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.sccache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.sccache_endpoint }}
+          AWS_REGION: ${{ inputs.sccache_region }}
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-main
+            ${{ runner.os }}-pnpm-dev
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Cargo registry
+        if: inputs.use_sccache && inputs.sccache_bucket != ''
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.sccache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.sccache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.sccache_endpoint }}
+          AWS_REGION: ${{ inputs.sccache_region }}
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-main
+            ${{ runner.os }}-cargo-dev
+            ${{ runner.os }}-cargo-
+
+      - name: Cache Next.js build
+        if: inputs.sccache_bucket != ''
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.sccache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.sccache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.sccache_endpoint }}
+          AWS_REGION: ${{ inputs.sccache_region }}
+        with:
+          path: ${{ inputs.working_directory }}/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-
+
       - name: Setup mise
         uses: jdx/mise-action@v3
         with:

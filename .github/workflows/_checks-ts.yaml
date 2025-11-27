@@ -89,6 +89,18 @@ on:
         description: "Runner preset (linux-amd64, macos-arm64)"
         type: string
         default: "linux-amd64"
+      cache_bucket:
+        description: "S3-compatible bucket name for caching (e.g., Cloudflare R2)"
+        type: string
+        default: ""
+      cache_endpoint:
+        description: "S3-compatible endpoint URL for caching"
+        type: string
+        default: ""
+      cache_region:
+        description: "S3 region for cache"
+        type: string
+        default: "auto"
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -98,6 +110,12 @@ on:
         required: false
       codecov_token:
         description: "Codecov token for private repositories"
+        required: false
+      cache_access_key_id:
+        description: "AWS/S3 access key ID for cache backend"
+        required: false
+      cache_secret_access_key:
+        description: "AWS/S3 secret access key for cache backend"
         required: false
 
 jobs:
@@ -138,6 +156,23 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
+
+      - name: Cache pnpm store
+        if: inputs.cache_bucket != ''
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.cache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.cache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.cache_endpoint }}
+          AWS_REGION: ${{ inputs.cache_region }}
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-main
+            ${{ runner.os }}-pnpm-dev
+            ${{ runner.os }}-pnpm-
 
       - name: Setup mise
         uses: jdx/mise-action@v3

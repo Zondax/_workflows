@@ -233,6 +233,26 @@ jobs:
           workload_identity_provider: ${{ vars.PULUMI_FRONTEND_WIF_PROVIDER }}
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
+      - name: Cache Cargo registry
+        if: inputs.sccache_bucket != ''
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.sccache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.sccache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.sccache_endpoint }}
+          AWS_REGION: ${{ inputs.sccache_region }}
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-cargo-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-main
+            ${{ runner.os }}-cargo-dev
+            ${{ runner.os }}-cargo-
+
       - name: Setup mise
         uses: jdx/mise-action@v3
         with:
