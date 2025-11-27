@@ -269,6 +269,7 @@ jobs:
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
         env:
+          KIND_EXPERIMENTAL_DOCKER_NETWORK: ${{ job.container.network }}
           RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
           SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
