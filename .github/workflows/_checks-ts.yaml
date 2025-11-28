@@ -12,7 +12,7 @@ on:
         description: "Enable TS typecheck"
         required: false
         type: boolean
-        default: false
+        default: true
       enable_tests:
         description: "Enable tests execution"
         required: false
