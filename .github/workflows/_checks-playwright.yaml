@@ -188,6 +188,18 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
+      - name: Check for cache control in PR title
+        id: cache-control
+        shell: bash
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if echo "$PR_TITLE" | grep -qiE '\[no[_-]?cache\]|\[cache[_-]?off\]'; then
+            echo "Cache disabled via PR title"
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Authenticate with GCP
         if: ${{ inputs.autoinit_env && inputs.environment != '' }}
         uses: zondax/actions/gcp-wif-auth@v1
@@ -209,7 +221,7 @@ jobs:
           echo "Created .env.local file with $(grep -c "=" .env.local) environment variables"
 
       - name: Cache Cargo registry
-        if: inputs.use_sccache && inputs.sccache_bucket != ''
+        if: inputs.use_sccache && inputs.sccache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
         uses: runs-on/cache@v4
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
@@ -230,7 +242,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Cache Next.js build
-        if: inputs.enable_nextjs_cache && inputs.sccache_bucket != ''
+        if: inputs.enable_nextjs_cache && inputs.sccache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
         uses: runs-on/cache@v4
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
@@ -263,7 +275,7 @@ jobs:
           fi
 
       - name: Cache pnpm store
-        if: inputs.sccache_bucket != '' && steps.pnpm-cache.outputs.STORE_PATH != ''
+        if: inputs.sccache_bucket != '' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
         uses: runs-on/cache@v4
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
