@@ -159,6 +159,18 @@ on:
         description: "Use SSL/TLS for sccache S3 connection (set true for HTTPS endpoints)"
         type: boolean
         default: true
+      enable_integration_tests:
+        description: "Enable integration tests (TypeScript client vs Rust server)"
+        type: boolean
+        default: false
+      integration_test_command:
+        description: "Integration test command to run (requires enable_node: true)"
+        type: string
+        default: "pnpm test:integration"
+      integration_build_command:
+        description: "Command to build test binaries before integration tests"
+        type: string
+        default: ""
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -380,6 +392,18 @@ jobs:
           SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
         run: ${{ inputs.coverage_command }} ${{ inputs.test_args }}
+
+      - name: Build integration test binaries
+        if: inputs.enable_integration_tests && inputs.integration_build_command != ''
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.integration_build_command }}
+
+      - name: Run integration tests
+        if: inputs.enable_integration_tests
+        run: ${{ inputs.integration_test_command }}
 
       - name: Security audit with cargo-audit
         if: inputs.enable_security_audit

@@ -101,6 +101,14 @@ on:
         description: "S3 region for cache"
         type: string
         default: "auto"
+      enable_integration_tests:
+        description: "Enable integration tests"
+        type: boolean
+        default: false
+      integration_test_command:
+        description: "Integration test command to run from package.json"
+        type: string
+        default: "test:integration"
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -252,6 +260,10 @@ jobs:
       - name: Run tests with coverage
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.coverage_command }}
+
+      - name: Run integration tests
+        if: ${{ inputs.enable_integration_tests }}
+        run: ${{ steps.pm.outputs.pm }} ${{ inputs.integration_test_command }}
 
       - name: Vitest Coverage Report
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
