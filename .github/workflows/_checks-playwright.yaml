@@ -264,18 +264,43 @@ jobs:
           cache: false
           working_directory: ${{ inputs.working_directory }}
 
+      - name: Detect package manager
+        id: pm
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
+            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
+          else
+            # Default detection
+            if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
+              echo "pm=bun" >> $GITHUB_OUTPUT
+              echo "pm_name=bun" >> $GITHUB_OUTPUT
+            elif [ -f "pnpm-lock.yaml" ]; then
+              echo "pm=pnpm run" >> $GITHUB_OUTPUT
+              echo "pm_name=pnpm" >> $GITHUB_OUTPUT
+            elif [ -f "yarn.lock" ]; then
+              echo "pm=yarn run" >> $GITHUB_OUTPUT
+              echo "pm_name=yarn" >> $GITHUB_OUTPUT
+            elif [ -f "package-lock.json" ]; then
+              echo "pm=npm run" >> $GITHUB_OUTPUT
+              echo "pm_name=npm" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Could not detect package manager. No lock file found (bun.lockb, bun.lock, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
+              echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
+              exit 1
+            fi
+          fi
+
       - name: Get pnpm store directory
-        if: inputs.sccache_bucket != ''
+        if: inputs.sccache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm'
         id: pnpm-cache
         working-directory: ${{ inputs.working_directory }}
         shell: bash
         run: |
-          if command -v pnpm &> /dev/null; then
-            echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-          fi
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
       - name: Cache pnpm store
-        if: inputs.sccache_bucket != '' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
+        if: inputs.sccache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
         uses: runs-on/cache@v4
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
@@ -292,6 +317,22 @@ jobs:
             ${{ runner.os }}-pnpm-dev
             ${{ runner.os }}-pnpm-
 
+      - name: Cache Bun dependencies
+        if: inputs.sccache_bucket != '' && steps.pm.outputs.pm_name == 'bun' && steps.cache-control.outputs.enabled != 'false'
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
+          RUNS_ON_S3_FORCE_PATH_STYLE: "true"
+          AWS_ACCESS_KEY_ID: ${{ secrets.sccache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.sccache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.sccache_endpoint }}
+          AWS_REGION: ${{ inputs.sccache_region }}
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb', 'bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
       - name: Run ci_postinstall
         working-directory: ${{ inputs.working_directory }}
         run: |
@@ -307,29 +348,6 @@ jobs:
         if: inputs.system_deps_command != ''
         working-directory: ${{ inputs.working_directory }}
         run: ${{ inputs.system_deps_command }}
-
-      - name: Detect package manager
-        id: pm
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          if mise tasks --no-header 2>/dev/null | grep -q "^ci_detect_pm"; then
-            echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
-          else
-            # Default detection
-            if [ -f "bun.lockb" ]; then
-              echo "pm=bun" >> $GITHUB_OUTPUT
-            elif [ -f "pnpm-lock.yaml" ]; then
-              echo "pm=pnpm run" >> $GITHUB_OUTPUT
-            elif [ -f "yarn.lock" ]; then
-              echo "pm=yarn run" >> $GITHUB_OUTPUT
-            elif [ -f "package-lock.json" ]; then
-              echo "pm=npm run" >> $GITHUB_OUTPUT
-            else
-              echo "Error: Could not detect package manager. No lock file found (bun.lockb, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
-              echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
-              exit 1
-            fi
-          fi
 
       - name: Initialize environment
         if: ${{ inputs.autoinit_env }}

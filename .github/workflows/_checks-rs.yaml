@@ -34,7 +34,7 @@ on:
         type: string
         default: "linux-amd64"
       base_image:
-        description: "Docker image to use (zondax/ubuntu-ci includes node, pnpm, rust)"
+        description: "Docker image to use (zondax/ubuntu-ci includes node, bun, pnpm, rust)"
         required: false
         type: string
         default: "zondax/ubuntu-ci:22.04"
@@ -300,7 +300,7 @@ jobs:
             echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
           else
             # Default detection
-            if [ -f "bun.lockb" ]; then
+            if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
               echo "pm=bun" >> $GITHUB_OUTPUT
             elif [ -f "pnpm-lock.yaml" ]; then
               echo "pm=pnpm run" >> $GITHUB_OUTPUT
@@ -309,7 +309,7 @@ jobs:
             elif [ -f "package-lock.json" ]; then
               echo "pm=npm run" >> $GITHUB_OUTPUT
             else
-              echo "Error: Could not detect package manager. No lock file found (bun.lockb, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
+              echo "Error: Could not detect package manager. No lock file found (bun.lockb, bun.lock, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
               echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
               exit 1
             fi

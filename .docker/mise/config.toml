@@ -2,6 +2,7 @@
 # This is copied into base images and provides default tooling
 
 [tools]
+bun = "1"
 pnpm = "10"
 node = "24"
 rust = { version = "1.90", profile = "default" }

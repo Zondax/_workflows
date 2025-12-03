@@ -29,7 +29,7 @@ on:
         type: boolean
         default: false
       base_image:
-        description: "Docker image to use (zondax/ubuntu-ci includes node, pnpm, rust)"
+        description: "Docker image to use (zondax/ubuntu-ci includes node, bun, pnpm, rust)"
         required: false
         type: string
         default: "zondax/ubuntu-ci:24.04"
@@ -77,6 +77,18 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
+      cache_bucket:
+        description: "S3-compatible bucket name for caching (e.g., Cloudflare R2)"
+        type: string
+        default: ""
+      cache_endpoint:
+        description: "S3-compatible endpoint URL for caching"
+        type: string
+        default: ""
+      cache_region:
+        description: "S3 region for cache"
+        type: string
+        default: "auto"
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -86,6 +98,12 @@ on:
         required: false
       codecov_token:
         description: "Codecov token for private repositories"
+        required: false
+      cache_access_key_id:
+        description: "AWS/S3 access key ID for cache backend"
+        required: false
+      cache_secret_access_key:
+        description: "AWS/S3 secret access key for cache backend"
         required: false
 
 jobs:
@@ -119,17 +137,23 @@ jobs:
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
 
+      - name: Check for cache control in PR title
+        id: cache-control
+        shell: bash
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if echo "$PR_TITLE" | grep -qiE '\[no[_-]?cache\]|\[cache[_-]?off\]'; then
+            echo "Cache disabled via PR title"
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Setup mise
         uses: jdx/mise-action@v3
         with:
           install: true
           cache: false
-
-      - name: Run ci_postinstall
-        run: |
-          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
-            mise run ci_postinstall
-          fi
 
       - name: Detect package manager
         id: pm
@@ -138,19 +162,70 @@ jobs:
             echo "$(mise run ci_detect_pm)" >> $GITHUB_OUTPUT
           else
             # Default detection
-            if [ -f "bun.lockb" ]; then
+            if [ -f "bun.lockb" ] || [ -f "bun.lock" ]; then
               echo "pm=bun" >> $GITHUB_OUTPUT
+              echo "pm_name=bun" >> $GITHUB_OUTPUT
             elif [ -f "pnpm-lock.yaml" ]; then
               echo "pm=pnpm run" >> $GITHUB_OUTPUT
+              echo "pm_name=pnpm" >> $GITHUB_OUTPUT
             elif [ -f "yarn.lock" ]; then
               echo "pm=yarn run" >> $GITHUB_OUTPUT
+              echo "pm_name=yarn" >> $GITHUB_OUTPUT
             elif [ -f "package-lock.json" ]; then
               echo "pm=npm run" >> $GITHUB_OUTPUT
+              echo "pm_name=npm" >> $GITHUB_OUTPUT
             else
-              echo "Error: Could not detect package manager. No lock file found (bun.lockb, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
+              echo "Error: Could not detect package manager. No lock file found (bun.lockb, bun.lock, pnpm-lock.yaml, yarn.lock, or package-lock.json)."
               echo "Either add a lock file or define a 'ci_detect_pm' mise task to specify the package manager."
               exit 1
             fi
+          fi
+
+      - name: Get pnpm store directory
+        if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm'
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
+          RUNS_ON_S3_FORCE_PATH_STYLE: "true"
+          AWS_ACCESS_KEY_ID: ${{ secrets.cache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.cache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.cache_endpoint }}
+          AWS_REGION: ${{ inputs.cache_region }}
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-main
+            ${{ runner.os }}-pnpm-dev
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Bun dependencies
+        if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'bun' && steps.cache-control.outputs.enabled != 'false'
+        uses: runs-on/cache@v4
+        env:
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
+          RUNS_ON_S3_FORCE_PATH_STYLE: "true"
+          AWS_ACCESS_KEY_ID: ${{ secrets.cache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.cache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.cache_endpoint }}
+          AWS_REGION: ${{ inputs.cache_region }}
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb', 'bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Run ci_postinstall
+        run: |
+          if mise tasks --no-header 2>/dev/null | grep -q "^ci_postinstall"; then
+            mise run ci_postinstall
           fi
 
       - name: Check format
