@@ -81,6 +81,10 @@ on:
         description: "Timeout in minutes for the job"
         type: number
         default: 10
+      enable_lint:
+        description: "Enable atlas migrate lint (requires Atlas Pro subscription)"
+        type: boolean
+        default: true
     secrets:
       DATABASE_URL:
         description: "Database connection URL for the target environment (for traditional PostgreSQL)"
@@ -208,7 +212,7 @@ jobs:
             --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public"
 
       - name: Lint migrations
-        if: inputs.action == 'validate' || inputs.action == 'deploy'
+        if: inputs.enable_lint && (inputs.action == 'validate' || inputs.action == 'deploy')
         run: |
           atlas migrate lint \
             --dir "file://${{ inputs.migrations_path }}" \
@@ -234,7 +238,7 @@ jobs:
             --dev-url "docker+postgres://_/${{ inputs.postgres_image }}/dev?search_path=public"
 
       - name: Lint migrations before deploy
-        if: inputs.action == 'deploy'
+        if: inputs.enable_lint && inputs.action == 'deploy'
         run: |
           atlas migrate lint \
             --dir "file://${{ inputs.migrations_path }}" \
