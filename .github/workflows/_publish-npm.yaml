@@ -1,5 +1,9 @@
 name: Reusable Publish NPM
 
+# Uses OIDC Trusted Publishing - no tokens needed
+# Configure trusted publisher on npmjs.com for your package
+# See: https://docs.npmjs.com/trusted-publishers/
+
 on:
   workflow_call:
     inputs:
@@ -21,16 +25,13 @@ on:
         required: false
         type: string
         default: ""
-      base_image:
-        description: "Docker image to use (zondax/ubuntu-ci includes node, bun, pnpm, rust)"
+      node_version:
+        description: "Node.js version to use"
         required: false
         type: string
-        default: "zondax/ubuntu-ci:24.04"
+        default: "22"
 
     secrets:
-      NPM_TOKEN:
-        description: "NPM token for publishing"
-        required: true
       app_id:
         description: "GitHub App ID"
         required: false
@@ -41,21 +42,12 @@ on:
 jobs:
   publish:
     timeout-minutes: ${{ inputs.timeout_minutes }}
-    runs-on: "zondax-runners"
-    container:
-      image: ${{ inputs.base_image }}
+    runs-on: ubuntu-latest # GitHub-hosted runners required for OIDC trusted publishing
+    permissions:
+      contents: read
+      id-token: write # Required for OIDC trusted publishing
 
     steps:
-      - name: Setup Ubuntu packages
-        # Skip when using zondax/ubuntu-ci (packages pre-installed, but sudo available if needed)
-        if: ${{ !startsWith(inputs.base_image, 'zondax/ubuntu-ci') }}
-        uses: zondax/actions/setup-ubuntu-packages@v1
-        with:
-          packages: |
-            - git
-            - unzip
-            - jq
-
       - name: Checkout with GitHub App
         uses: zondax/actions/checkout-with-app@v1
         with:
@@ -100,9 +92,10 @@ jobs:
             fi
           fi
 
-      - name: Configure npm registry
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
+          node-version: ${{ inputs.node_version }}
           registry-url: "https://registry.npmjs.org"
           scope: "@zondax"
 
@@ -128,8 +121,6 @@ jobs:
       - name: Publish package
         if: ${{ !inputs.dry_run }}
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Skip publishing (dry-run mode)
         if: ${{ inputs.dry_run }}
