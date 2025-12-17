@@ -56,7 +56,7 @@ jobs:
           step-summary: true
           style: file # uses .clang-format
           thread-comments: true
-          tidy-checks: "" # use only .clang-tidy checks
+          tidy-checks: ${{ inputs.use_latest_builder && '-*' || '' }}
       - name: Fail if errors
         if: steps.linter.outputs.checks-failed > 0
         run: |
