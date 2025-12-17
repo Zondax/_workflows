@@ -13,11 +13,16 @@ on:
         required: false
         type: boolean
         default: false
+      use_latest_builder:
+        description: 'Use the latest (non-legacy) ledger-app-builder image'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   lint:
     runs-on: ${{ inputs.runs-on }}
-    container: ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-legacy:latest
+    container: ${{ inputs.use_latest_builder && 'ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder:latest' || 'ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-legacy:latest' }}
     steps:
       - uses: actions/checkout@v5
         with:
