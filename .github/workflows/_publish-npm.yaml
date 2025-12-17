@@ -99,6 +99,12 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           scope: "@zondax"
 
+      - name: Upgrade npm for OIDC support
+        run: |
+          echo "Current npm version: $(npm --version)"
+          npm install -g npm@latest
+          echo "Updated npm version: $(npm --version)"
+
       - name: Build package
         run: if grep -q '"build"' package.json; then ${{ steps.pm.outputs.pm }} build; else echo "No build script found, skipping"; fi
 
