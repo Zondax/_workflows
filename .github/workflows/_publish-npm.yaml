@@ -118,9 +118,28 @@ jobs:
             echo "Copied README.npm.md to README.md"
           fi
 
+      - name: Debug OIDC environment
+        run: |
+          echo "=== npm version ==="
+          npm --version
+          echo ""
+          echo "=== Node version ==="
+          node --version
+          echo ""
+          echo "=== OIDC Token Info ==="
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL is set: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL != '' }}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN is set: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN != '' }}"
+          echo ""
+          echo "=== GitHub Context ==="
+          echo "Repository: ${{ github.repository }}"
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Workflow ref: ${{ github.workflow_ref }}"
+          echo "Job workflow ref: ${{ github.job_workflow_sha }}"
+          echo "Run ID: ${{ github.run_id }}"
+
       - name: Publish package
         if: ${{ !inputs.dry_run }}
-        run: npm publish
+        run: npm publish --provenance --access public --verbose
 
       - name: Skip publishing (dry-run mode)
         if: ${{ inputs.dry_run }}
