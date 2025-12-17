@@ -40,6 +40,7 @@ jobs:
       - name: Generate compilation database
         run: bear -- make -j BOLOS_SDK="$NANOSP_SDK"
       - name: Setup python
+        if: ${{ !inputs.use_latest_builder }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -55,7 +56,7 @@ jobs:
           step-summary: true
           style: file # uses .clang-format
           thread-comments: true
-          tidy-checks: "" # use only .clang-tidy checks
+          tidy-checks: ${{ inputs.use_latest_builder && '-*' || '' }}
       - name: Fail if errors
         if: steps.linter.outputs.checks-failed > 0
         run: |
