@@ -145,7 +145,16 @@ jobs:
 
       - name: Publish package
         if: ${{ !inputs.dry_run }}
-        run: npm publish --provenance --access public --verbose
+        run: |
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            echo "Prerelease detected via GitHub release flag"
+            npm publish --provenance --access public --tag prerelease --verbose
+          else
+            echo "Stable release"
+            npm publish --provenance --access public --verbose
+          fi
+        env:
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
 
       - name: Skip publishing (dry-run mode)
         if: ${{ inputs.dry_run }}
