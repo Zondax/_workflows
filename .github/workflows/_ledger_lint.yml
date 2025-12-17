@@ -40,6 +40,7 @@ jobs:
       - name: Generate compilation database
         run: bear -- make -j BOLOS_SDK="$NANOSP_SDK"
       - name: Setup python
+        if: ${{ !inputs.use_latest_builder }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
