@@ -146,15 +146,24 @@ jobs:
       - name: Publish package
         if: ${{ !inputs.dry_run }}
         run: |
+          # Provenance only supported for public repos
+          PROVENANCE_FLAG=""
+          if [[ "$REPO_VISIBILITY" == "public" ]]; then
+            PROVENANCE_FLAG="--provenance"
+          else
+            echo "Skipping provenance (private repo)"
+          fi
+
           if [[ "$IS_PRERELEASE" == "true" ]]; then
             echo "Prerelease detected via GitHub release flag"
-            npm publish --provenance --access public --tag prerelease --verbose
+            npm publish $PROVENANCE_FLAG --access public --tag prerelease --verbose
           else
             echo "Stable release"
-            npm publish --provenance --access public --verbose
+            npm publish $PROVENANCE_FLAG --access public --verbose
           fi
         env:
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          REPO_VISIBILITY: ${{ github.event.repository.visibility }}
 
       - name: Skip publishing (dry-run mode)
         if: ${{ inputs.dry_run }}
