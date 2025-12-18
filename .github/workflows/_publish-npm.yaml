@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: "22"
+      readme_strip_gh_modifiers:
+        description: "Strip GitHub theme modifiers (#gh-light-mode-only, #gh-dark-mode-only) from README for npm compatibility"
+        required: false
+        type: boolean
+        default: false
 
     secrets:
       app_id:
@@ -116,6 +121,18 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           echo "Package version: $VERSION"
           echo "::notice title=NPM Package Version::$VERSION"
+
+      - name: Strip GitHub theme modifiers from README
+        if: ${{ inputs.readme_strip_gh_modifiers }}
+        run: |
+          if [ -f README.md ]; then
+            # Remove GitHub theme modifiers and clean up dark mode images
+            sed -i 's/#gh-light-mode-only//g' README.md
+            sed -i '/gh-dark-mode-only/d' README.md
+            # Clean up any double spaces left behind
+            sed -i 's/  */ /g' README.md
+            echo "Stripped GitHub theme modifiers from README.md"
+          fi
 
       - name: Copy README.npm.md to README.md if exists
         run: |
