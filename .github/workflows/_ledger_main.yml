@@ -27,6 +27,11 @@ on:
         required: false
         type: boolean
         default: true
+      rust-version:
+        description: "Rust toolchain version to use"
+        required: false
+        type: string
+        default: "stable"
 
 jobs:
   setup:
@@ -68,7 +73,7 @@ jobs:
         if: ${{ inputs.has-rust }}
         uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
         with:
-          toolchain: stable
+          toolchain: ${{ inputs.rust-version }}
       - name: Run CMake
         run: mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Debug .. && make
       - run: make cpp_test
@@ -95,8 +100,9 @@ jobs:
           submodules: recursive
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ inputs.rust-version }}
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
@@ -111,7 +117,7 @@ jobs:
             ${{ runner.os }}-rust-
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
-        run: rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+        run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
       - name: Build Standard app
         id: build
         shell: bash -l {0}
@@ -198,7 +204,7 @@ jobs:
         if: ${{ inputs.has-rust }}
         uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
         with:
-          toolchain: stable
+          toolchain: ${{ inputs.rust-version }}
       - name: Setup Node.js
         uses: actions/setup-node@v4.1.0
         with:
@@ -243,8 +249,9 @@ jobs:
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ inputs.rust-version }}
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
@@ -259,7 +266,7 @@ jobs:
             ${{ runner.os }}-rust-
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
-        run: rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+        run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
       - name: Build NanoS
         shell: bash -l {0}
         run: |
@@ -303,8 +310,9 @@ jobs:
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ inputs.rust-version }}
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
@@ -319,7 +327,7 @@ jobs:
             ${{ runner.os }}-rust-
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
-        run: rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+        run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
       - name: Build NanoSP
         shell: bash -l {0}
         run: |
@@ -363,8 +371,9 @@ jobs:
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ inputs.rust-version }}
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
@@ -379,7 +388,7 @@ jobs:
             ${{ runner.os }}-rust-
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
-        run: rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+        run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
       - name: Build Stax
         shell: bash -l {0}
         run: |
@@ -422,8 +431,9 @@ jobs:
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ inputs.rust-version }}
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
@@ -438,7 +448,7 @@ jobs:
             ${{ runner.os }}-rust-
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
-        run: rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+        run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
       - name: Build Flex
         shell: bash -l {0}
         run: |
@@ -481,8 +491,9 @@ jobs:
         run: pip install ledgerblue --break-system-packages
       - name: Setup Rust environment
         if: ${{ inputs.has-rust }}
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ inputs.rust-version }}
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
@@ -497,7 +508,7 @@ jobs:
             ${{ runner.os }}-rust-
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
-        run: rustup component add rust-src --toolchain stable-x86_64-unknown-linux-gnu
+        run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
       - name: Build Apex P
         shell: bash -l {0}
         run: |
