@@ -33,6 +33,26 @@ on:
         required: false
         type: string
         default: "test:coverage"
+      coverage_threshold_lines:
+        description: "Minimum line coverage percentage required (0 to disable)"
+        required: false
+        type: number
+        default: 0
+      coverage_threshold_statements:
+        description: "Minimum statement coverage percentage required (0 to disable)"
+        required: false
+        type: number
+        default: 0
+      coverage_threshold_functions:
+        description: "Minimum function coverage percentage required (0 to disable)"
+        required: false
+        type: number
+        default: 0
+      coverage_threshold_branches:
+        description: "Minimum branch coverage percentage required (0 to disable)"
+        required: false
+        type: number
+        default: 0
       base_image:
         description: "Docker image to use (zondax/ubuntu-ci includes node, bun, pnpm, rust)"
         type: string
@@ -289,6 +309,106 @@ jobs:
         with:
           vite-config-path: ./vitest.config.ts
           working-directory: .
+
+      - name: Quality Gate - Test coverage shall be above threshold
+        if: ${{ inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_threshold_lines > 0 || inputs.coverage_threshold_statements > 0 || inputs.coverage_threshold_functions > 0 || inputs.coverage_threshold_branches > 0) }}
+        shell: bash
+        env:
+          THRESHOLD_LINES: ${{ inputs.coverage_threshold_lines }}
+          THRESHOLD_STATEMENTS: ${{ inputs.coverage_threshold_statements }}
+          THRESHOLD_FUNCTIONS: ${{ inputs.coverage_threshold_functions }}
+          THRESHOLD_BRANCHES: ${{ inputs.coverage_threshold_branches }}
+        run: |
+          echo "🔍 Quality Gate: Test Coverage Check"
+          echo "----------------------------------------"
+
+          # Check if coverage summary file exists
+          if [ ! -f "coverage/coverage-summary.json" ]; then
+            echo "❌ Coverage file not found: coverage/coverage-summary.json"
+            echo "Make sure your coverage command generates a json-summary reporter"
+            exit 1
+          fi
+
+          # Helper to safely extract and validate coverage metrics
+          get_coverage_value() {
+            local metric="$1"
+            local value
+
+            # Use jq -e to fail if the path does not exist; // empty prevents literal "null"
+            if ! value=$(jq -e ".total.${metric}.pct // empty" coverage/coverage-summary.json 2>/dev/null); then
+              echo "❌ Failed to read '${metric}' coverage from coverage/coverage-summary.json" >&2
+              exit 1
+            fi
+
+            if [ -z "$value" ]; then
+              echo "❌ Coverage value for '${metric}' is missing or null in coverage/coverage-summary.json" >&2
+              exit 1
+            fi
+
+            if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "❌ Coverage value for '${metric}' is not a valid number: '$value'" >&2
+              exit 1
+            fi
+
+            echo "$value"
+          }
+
+          # Extract all coverage metrics with validation
+          lines=$(get_coverage_value "lines")
+          statements=$(get_coverage_value "statements")
+          functions=$(get_coverage_value "functions")
+          branches=$(get_coverage_value "branches")
+
+          echo "📊 Current Coverage:"
+          echo "  Lines:      ${lines}%"
+          echo "  Statements: ${statements}%"
+          echo "  Functions:  ${functions}%"
+          echo "  Branches:   ${branches}%"
+          echo ""
+          echo "📋 Thresholds:"
+          echo "  Lines:      ${THRESHOLD_LINES}%"
+          echo "  Statements: ${THRESHOLD_STATEMENTS}%"
+          echo "  Functions:  ${THRESHOLD_FUNCTIONS}%"
+          echo "  Branches:   ${THRESHOLD_BRANCHES}%"
+          echo "----------------------------------------"
+
+          failed=0
+
+          # Helper for portable floating point comparison using awk
+          check_threshold() {
+            local name="$1"
+            local value="$2"
+            local threshold="$3"
+
+            # Skip if threshold is 0 (disabled) - use awk for numeric comparison
+            if awk "BEGIN {exit !($threshold > 0)}"; then
+              if awk "BEGIN {exit !($value >= $threshold)}"; then
+                echo "✅ ${name}: PASSED (${value}% >= ${threshold}%)"
+              else
+                echo "❌ ${name}: FAILED (${value}% < ${threshold}%)"
+                return 1
+              fi
+            fi
+            return 0
+          }
+
+          # Check each metric
+          check_threshold "Lines     " "$lines" "$THRESHOLD_LINES" || failed=1
+          check_threshold "Statements" "$statements" "$THRESHOLD_STATEMENTS" || failed=1
+          check_threshold "Functions " "$functions" "$THRESHOLD_FUNCTIONS" || failed=1
+          check_threshold "Branches  " "$branches" "$THRESHOLD_BRANCHES" || failed=1
+
+          if [ "$failed" -eq 1 ]; then
+            echo ""
+            echo "💡 How to improve coverage:"
+            echo "  - Add more unit tests for uncovered code paths"
+            echo "  - Focus on critical business logic first"
+            echo "  - Run your test:coverage script locally to see detailed report"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All coverage thresholds passed!"
 
       - name: Upload coverage reports to Codecov
         if: ${{ inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage }}
