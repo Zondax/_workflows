@@ -406,9 +406,9 @@ jobs:
             PROJECT_ARG="--project=${{ inputs.playwright_project }}"
           fi
           if [ -n "${{ inputs.playwright_grep }}" ]; then
-            GREP_ARG="--grep=${{ inputs.playwright_grep }}"
+            GREP_ARG="--grep=\"${{ inputs.playwright_grep }}\""
           fi
-          npx playwright test --list $SHARD_ARG $PROJECT_ARG $GREP_ARG || echo "Note: Test listing may not be available in all configurations"
+          eval "npx playwright test --list $SHARD_ARG $PROJECT_ARG $GREP_ARG" || echo "Note: Test listing may not be available in all configurations"
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
@@ -424,10 +424,10 @@ jobs:
           # Build the test command with optional flags
           CMD="${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}"
           if [ -n "$PLAYWRIGHT_PROJECT" ]; then
-            CMD="$CMD --project=$PLAYWRIGHT_PROJECT"
+            CMD="$CMD --project=\"$PLAYWRIGHT_PROJECT\""
           fi
           if [ -n "$PLAYWRIGHT_GREP" ]; then
-            CMD="$CMD --grep=$PLAYWRIGHT_GREP"
+            CMD="$CMD --grep=\"$PLAYWRIGHT_GREP\""
           fi
           echo "Running: $CMD"
           eval $CMD
