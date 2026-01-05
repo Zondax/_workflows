@@ -110,10 +110,18 @@ on:
         description: "Grep pattern to filter tests (e.g., '@smoke', '@integration'). Passed to --grep flag."
         type: string
         default: ""
+      playwright_grep_invert:
+        description: "Grep pattern to exclude tests (e.g., 'Slow Tests'). Passed to --grep-invert flag."
+        type: string
+        default: ""
       disable_sharding:
         description: "Disable sharding and run all tests in a single job. Useful for tests that require isolation."
         type: boolean
         default: false
+      artifact_suffix:
+        description: "Suffix to append to artifact names for uniqueness (e.g., 'dind-1'). Useful when calling workflow multiple times."
+        type: string
+        default: ""
     secrets:
       env_local:
         description: "Env local file to set environment variables (one export per line)"
@@ -396,11 +404,13 @@ jobs:
           echo "Current shard: ${PLAYWRIGHT_SHARD:-'N/A (sharding disabled)'}"
           echo "Project filter: ${{ inputs.playwright_project || 'all projects' }}"
           echo "Grep filter: ${{ inputs.playwright_grep || 'none' }}"
+          echo "Grep invert: ${{ inputs.playwright_grep_invert || 'none' }}"
           echo ""
           echo "Listing tests:"
           SHARD_ARG=""
           PROJECT_ARG=""
           GREP_ARG=""
+          GREP_INVERT_ARG=""
           if [ -n "$PLAYWRIGHT_SHARD" ]; then
             SHARD_ARG="--shard=$PLAYWRIGHT_SHARD"
           fi
@@ -410,7 +420,10 @@ jobs:
           if [ -n "${{ inputs.playwright_grep }}" ]; then
             GREP_ARG="--grep=\"${{ inputs.playwright_grep }}\""
           fi
-          eval "npx playwright test --list $SHARD_ARG $PROJECT_ARG $GREP_ARG" || echo "Note: Test listing may not be available in all configurations"
+          if [ -n "${{ inputs.playwright_grep_invert }}" ]; then
+            GREP_INVERT_ARG="--grep-invert=\"${{ inputs.playwright_grep_invert }}\""
+          fi
+          eval "npx playwright test --list $SHARD_ARG $PROJECT_ARG $GREP_ARG $GREP_INVERT_ARG" || echo "Note: Test listing may not be available in all configurations"
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
@@ -422,6 +435,7 @@ jobs:
           # Pass project and grep filters via env vars for the test command to use
           PLAYWRIGHT_PROJECT: ${{ inputs.playwright_project }}
           PLAYWRIGHT_GREP: ${{ inputs.playwright_grep }}
+          PLAYWRIGHT_GREP_INVERT: ${{ inputs.playwright_grep_invert }}
         run: |
           # Build the test command with optional flags
           CMD="${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}"
@@ -430,6 +444,9 @@ jobs:
           fi
           if [ -n "$PLAYWRIGHT_GREP" ]; then
             CMD="$CMD --grep=\"$PLAYWRIGHT_GREP\""
+          fi
+          if [ -n "$PLAYWRIGHT_GREP_INVERT" ]; then
+            CMD="$CMD --grep-invert=\"$PLAYWRIGHT_GREP_INVERT\""
           fi
           echo "Running: $CMD"
           eval $CMD
@@ -445,7 +462,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.position }}
+          name: playwright-report-${{ inputs.artifact_suffix && format('{0}-', inputs.artifact_suffix) || '' }}${{ matrix.position }}
           path: ${{ inputs.working_directory }}/playwright-report/
           retention-days: 15
 
