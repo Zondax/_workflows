@@ -96,6 +96,24 @@ on:
         description: "Path(s) to Next.js cache directories. Use newlines for multiple paths in monorepos."
         type: string
         default: ".next/cache"
+      # Custom environment variables for test configuration
+      extra_env:
+        description: "Additional environment variables (KEY=VALUE format, one per line)"
+        type: string
+        default: ""
+      # Playwright test filtering options
+      playwright_project:
+        description: "Playwright project to run (e.g., 'chromium', 'webkit'). If empty, runs all projects."
+        type: string
+        default: ""
+      playwright_grep:
+        description: "Grep pattern to filter tests (e.g., '@smoke', '@integration'). Passed to --grep flag."
+        type: string
+        default: ""
+      disable_sharding:
+        description: "Disable sharding and run all tests in a single job. Useful for tests that require isolation."
+        type: boolean
+        default: false
     secrets:
       env_local:
         description: "Env local file to set environment variables (one export per line)"
@@ -115,15 +133,12 @@ on:
 
 jobs:
   playwright:
-    name: Playwright Shard
+    name: Playwright ${{ inputs.disable_sharding && 'Tests' || 'Shard' }}
     runs-on: ${{ inputs.runner }}
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - position: shard1
-            playwrightShard: "1/2"
-          - position: shard2
-            playwrightShard: "2/2"
+        include: ${{ inputs.disable_sharding && fromJson('[{"position":"single","playwrightShard":""}]') || fromJson('[{"position":"shard1","playwrightShard":"1/2"},{"position":"shard2","playwrightShard":"2/2"}]') }}
     container:
       image: ${{ inputs.base_image }}
       env:
@@ -187,6 +202,17 @@ jobs:
           checkout_submodules: ${{ inputs.checkout_submodules }}
           app_id: ${{ secrets.app_id }}
           app_pem: ${{ secrets.app_pem }}
+
+      - name: Set extra environment variables
+        if: inputs.extra_env != ''
+        shell: bash
+        run: |
+          echo "${{ inputs.extra_env }}" | while IFS= read -r line; do
+            if [ -n "$line" ] && [[ "$line" == *"="* ]]; then
+              echo "$line" >> $GITHUB_ENV
+              echo "Set env: ${line%%=*}"
+            fi
+          done
 
       - name: Check for cache control in PR title
         id: cache-control
@@ -365,9 +391,26 @@ jobs:
       - name: Verify shard configuration
         working-directory: ${{ inputs.working_directory }}
         run: |
-          echo "Current shard: $PLAYWRIGHT_SHARD"
-          echo "Listing tests in this shard:"
-          npx playwright test --list --shard=$PLAYWRIGHT_SHARD || echo "Note: Test listing may not be available in all configurations"
+          echo "=== Playwright Configuration ==="
+          echo "Sharding: ${{ inputs.disable_sharding && 'DISABLED' || 'ENABLED' }}"
+          echo "Current shard: ${PLAYWRIGHT_SHARD:-'N/A (sharding disabled)'}"
+          echo "Project filter: ${{ inputs.playwright_project || 'all projects' }}"
+          echo "Grep filter: ${{ inputs.playwright_grep || 'none' }}"
+          echo ""
+          echo "Listing tests:"
+          SHARD_ARG=""
+          PROJECT_ARG=""
+          GREP_ARG=""
+          if [ -n "$PLAYWRIGHT_SHARD" ]; then
+            SHARD_ARG="--shard=$PLAYWRIGHT_SHARD"
+          fi
+          if [ -n "${{ inputs.playwright_project }}" ]; then
+            PROJECT_ARG="--project=${{ inputs.playwright_project }}"
+          fi
+          if [ -n "${{ inputs.playwright_grep }}" ]; then
+            GREP_ARG="--grep=\"${{ inputs.playwright_grep }}\""
+          fi
+          eval "npx playwright test --list $SHARD_ARG $PROJECT_ARG $GREP_ARG" || echo "Note: Test listing may not be available in all configurations"
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.working_directory }}
@@ -376,7 +419,20 @@ jobs:
           RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
           SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
-        run: ${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}
+          # Pass project and grep filters via env vars for the test command to use
+          PLAYWRIGHT_PROJECT: ${{ inputs.playwright_project }}
+          PLAYWRIGHT_GREP: ${{ inputs.playwright_grep }}
+        run: |
+          # Build the test command with optional flags
+          CMD="${{ steps.pm.outputs.pm }} ${{ inputs.test_command }}"
+          if [ -n "$PLAYWRIGHT_PROJECT" ]; then
+            CMD="$CMD --project=\"$PLAYWRIGHT_PROJECT\""
+          fi
+          if [ -n "$PLAYWRIGHT_GREP" ]; then
+            CMD="$CMD --grep=\"$PLAYWRIGHT_GREP\""
+          fi
+          echo "Running: $CMD"
+          eval $CMD
 
       - name: Cleanup xvfb and Tauri processes
         if: always()
@@ -396,10 +452,17 @@ jobs:
       - name: Write job summary
         if: always()
         run: |
+          # Build job identifier
+          if [ -n "${{ matrix.playwrightShard }}" ]; then
+            JOB_ID="Shard ${{ matrix.playwrightShard }}"
+          else
+            JOB_ID="Tests"
+          fi
+
           if [ "${{ job.status }}" == "success" ]; then
-            echo "## 🎭 Playwright Shard ${{ matrix.playwrightShard }} ✅" >> $GITHUB_STEP_SUMMARY
+            echo "## 🎭 Playwright $JOB_ID ✅" >> $GITHUB_STEP_SUMMARY
             echo "All tests passed" >> $GITHUB_STEP_SUMMARY
           else
-            echo "## 🎭 Playwright Shard ${{ matrix.playwrightShard }} ❌" >> $GITHUB_STEP_SUMMARY
+            echo "## 🎭 Playwright $JOB_ID ❌" >> $GITHUB_STEP_SUMMARY
             echo "Some tests failed - check logs for details" >> $GITHUB_STEP_SUMMARY
           fi
