@@ -196,7 +196,7 @@ jobs:
   post-coverage-comment:
     needs: checks
     if: inputs.enable_coverage && inputs.post_pr_comment && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && always() && needs.checks.outputs.coverage_status != ''
-    uses: ./.github/workflows/_post-pr-comment-reusable.yml
+    uses: zondax/_workflows/.github/workflows/_post-pr-comment-reusable.yml@v5
     secrets: inherit
     with:
       issue_number: ${{ github.event.number }}
