@@ -395,7 +395,7 @@ jobs:
       - name: Install Playwright browsers
         working-directory: ${{ inputs.working_directory }}
         run: |
-          sudo apt-get update
+          apt-get update
           npx ${{ inputs.install_command }}
 
       - name: Verify shard configuration
