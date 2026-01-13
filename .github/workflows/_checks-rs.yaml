@@ -323,6 +323,8 @@ jobs:
       - name: Setup sccache
         if: inputs.use_sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: "v0.12.0"
 
       - name: Setup Rust cache
         if: inputs.cache_cargo && !inputs.use_sccache && steps.cache-control.outputs.enabled != 'false'

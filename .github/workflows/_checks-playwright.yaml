@@ -377,6 +377,8 @@ jobs:
       - name: Setup sccache
         if: inputs.use_sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: "v0.12.0"
 
       - name: Install system dependencies
         if: inputs.system_deps_command != ''
