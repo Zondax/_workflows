@@ -337,6 +337,7 @@ jobs:
         with:
           install: true
           cache: false
+          cache_save: false
           working_directory: ${{ inputs.working_directory }}
 
       - name: Detect package manager

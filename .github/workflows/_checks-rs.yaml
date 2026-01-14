@@ -283,6 +283,7 @@ jobs:
         with:
           install: true
           cache: false
+          cache_save: false
           working_directory: ${{ inputs.package_path }}
 
       - name: Run ci_postinstall

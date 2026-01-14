@@ -154,6 +154,7 @@ jobs:
         with:
           install: true
           cache: false
+          cache_save: false
 
       - name: Detect package manager
         id: pm
