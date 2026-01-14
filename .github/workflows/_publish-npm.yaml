@@ -63,6 +63,7 @@ jobs:
         with:
           install: true
           cache: false
+          cache_save: false
 
       - name: Run ci_postinstall
         run: |
