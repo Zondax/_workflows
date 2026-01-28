@@ -118,8 +118,24 @@ on:
         description: "Disable sharding and run all tests in a single job. Useful for tests that require isolation."
         type: boolean
         default: false
+      shard_count:
+        description: "Number of shards to split tests into (default: 2). Ignored if disable_sharding is true."
+        type: number
+        default: 2
       artifact_suffix:
         description: "Suffix to append to artifact names for uniqueness (e.g., 'dind-1'). Useful when calling workflow multiple times."
+        type: string
+        default: ""
+      build_artifact_name:
+        description: "Name of the build artifact to download. If provided, skips build and uses the artifact instead."
+        type: string
+        default: ""
+      build_artifact_path:
+        description: "Path where to extract the build artifact. Defaults to working_directory. Use 'apps' for monorepo artifacts uploaded from apps/ directory."
+        type: string
+        default: ""
+      post_artifact_command:
+        description: "Command to run after downloading artifact (e.g., 'chmod +x path/to/binary'). Runs in working_directory."
         type: string
         default: ""
     secrets:
@@ -140,13 +156,38 @@ on:
         required: false
 
 jobs:
+  setup:
+    name: Setup Matrix
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate shard matrix
+        id: set-matrix
+        run: |
+          if [ "${{ inputs.disable_sharding }}" == "true" ]; then
+            echo 'matrix=[{"position":"single","playwrightShard":""}]' >> $GITHUB_OUTPUT
+          else
+            SHARD_COUNT=${{ inputs.shard_count }}
+            MATRIX="["
+            for i in $(seq 1 $SHARD_COUNT); do
+              if [ $i -gt 1 ]; then
+                MATRIX="$MATRIX,"
+              fi
+              MATRIX="$MATRIX{\"position\":\"shard$i\",\"playwrightShard\":\"$i/$SHARD_COUNT\"}"
+            done
+            MATRIX="$MATRIX]"
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          fi
+
   playwright:
     name: Playwright ${{ inputs.disable_sharding && 'Tests' || 'Shard' }}
+    needs: setup
     runs-on: ${{ inputs.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ inputs.disable_sharding && fromJson('[{"position":"single","playwrightShard":""}]') || fromJson('[{"position":"shard1","playwrightShard":"1/2"},{"position":"shard2","playwrightShard":"2/2"}]') }}
+        include: ${{ fromJson(needs.setup.outputs.matrix) }}
     container:
       image: ${{ inputs.base_image }}
       env:
@@ -390,7 +431,39 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.env_init_command }}
 
+      - name: Download build artifact
+        if: inputs.build_artifact_name != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.build_artifact_name }}
+          path: ${{ inputs.build_artifact_path != '' && format('{0}/{1}', inputs.working_directory, inputs.build_artifact_path) || inputs.working_directory }}
+
+      - name: Verify downloaded artifact
+        if: inputs.build_artifact_name != ''
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          echo "=== Verifying artifact download ==="
+          ARTIFACT_PATH="${{ inputs.build_artifact_path }}"
+          if [ -n "$ARTIFACT_PATH" ]; then
+            echo "Artifact downloaded to: ./$ARTIFACT_PATH"
+            echo "Directory structure:"
+            ls -la "./$ARTIFACT_PATH" || echo "ERROR: Artifact path not found"
+            echo ""
+            echo "Full tree (depth 3):"
+            find "./$ARTIFACT_PATH" -maxdepth 3 -type d 2>/dev/null | head -30 || true
+          else
+            echo "Artifact downloaded to: ."
+            echo "Directory structure:"
+            ls -la "." | head -20
+          fi
+
+      - name: Run post-artifact command
+        if: inputs.build_artifact_name != '' && inputs.post_artifact_command != ''
+        working-directory: ${{ inputs.working_directory }}
+        run: ${{ inputs.post_artifact_command }}
+
       - name: Run build
+        if: inputs.build_artifact_name == ''
         working-directory: ${{ inputs.working_directory }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.build_command }}
 
