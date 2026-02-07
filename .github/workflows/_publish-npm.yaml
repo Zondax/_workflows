@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: "22"
+      npm_scope:
+        description: "npm scope for registry auth (e.g. @zondax, @kunobi)"
+        required: false
+        type: string
+        default: "@zondax"
 
     secrets:
       app_id:
@@ -98,7 +103,7 @@ jobs:
         with:
           node-version: ${{ inputs.node_version }}
           registry-url: "https://registry.npmjs.org"
-          scope: "@zondax"
+          scope: ${{ inputs.npm_scope }}
 
       - name: Upgrade npm for OIDC support
         run: |
@@ -112,7 +117,7 @@ jobs:
       - name: Set version from Git
         run: |
           if git describe --tags --abbrev=0 --match='*.*.*' 2>/dev/null; then
-            npm version from-git --no-git-tag-version
+            npm version from-git --no-git-tag-version --allow-same-version
           elif [ "$DRY_RUN" = "true" ]; then
             echo "No semver tags found, keeping version from package.json (dry-run)"
           else
