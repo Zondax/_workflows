@@ -109,7 +109,17 @@ jobs:
         run: if grep -q '"build"' package.json; then ${{ steps.pm.outputs.pm }} build; else echo "No build script found, skipping"; fi
 
       - name: Set version from Git
-        run: npm version from-git --no-git-tag-version
+        run: |
+          if git describe --tags --abbrev=0 --match='*.*.*' 2>/dev/null; then
+            npm version from-git --no-git-tag-version
+          elif [ "$DRY_RUN" = "true" ]; then
+            echo "No semver tags found, keeping version from package.json (dry-run)"
+          else
+            echo "::error::No semver tags found. Cannot publish without a version tag."
+            exit 1
+          fi
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
 
       - name: Log package version
         run: |
@@ -165,6 +175,9 @@ jobs:
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
           REPO_VISIBILITY: ${{ github.event.repository.visibility }}
 
-      - name: Skip publishing (dry-run mode)
+      - name: Dry-run publish
         if: ${{ inputs.dry_run }}
-        run: echo "Dry-run mode enabled. Skipping npm publish."
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Dry-run validating package at version: $VERSION"
+          npm pack --dry-run
