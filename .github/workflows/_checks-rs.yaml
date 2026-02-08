@@ -29,10 +29,15 @@ on:
         type: string
         default: ""
       runner_preset:
-        description: "Runner preset (linux-amd64, macos-arm64)"
+        description: "Runner preset (linux-amd64, macos-arm64). Ignored when runs_on is set."
         required: false
         type: string
         default: "linux-amd64"
+      runs_on:
+        description: "Runner label (e.g. 'ubuntu-latest', 'zondax-runners'). Overridden by runner_preset for macos-arm64."
+        required: false
+        type: string
+        default: "zondax-runners"
       base_image:
         description: "Docker image to use (zondax/ubuntu-ci includes node, bun, pnpm, rust)"
         required: false
@@ -191,8 +196,8 @@ permissions:
 
 jobs:
   checks-rust:
-    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && '["self-hosted", "macOS", "ARM64"]' || inputs.runner_preset == 'linux-amd64' && '["zondax-runners"]' || '["zondax-runners"]') }}
-    container: ${{ inputs.runner_preset == 'linux-amd64' && inputs.base_image || '' }}
+    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && '["self-hosted", "macOS", "ARM64"]' || format('["{0}"]', inputs.runs_on)) }}
+    container: ${{ inputs.runs_on == 'zondax-runners' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
     env:
@@ -218,7 +223,7 @@ jobs:
     steps:
       - name: Setup Ubuntu packages
         # Skip when using zondax/ubuntu-ci (packages pre-installed, but sudo available if needed)
-        if: inputs.runner_preset == 'linux-amd64' && !startsWith(inputs.base_image, 'zondax/ubuntu-ci')
+        if: inputs.runs_on == 'zondax-runners' && !startsWith(inputs.base_image, 'zondax/ubuntu-ci')
         uses: zondax/actions/setup-ubuntu-packages@v1
         with:
           packages: |
