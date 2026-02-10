@@ -133,6 +133,10 @@ on:
         description: "Integration test command to run from package.json"
         type: string
         default: "test:integration"
+      cache_pnpm:
+        description: "Cache pnpm store to S3 (disable for dedicated/persistent runners)"
+        type: boolean
+        default: true
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -235,14 +239,14 @@ jobs:
           fi
 
       - name: Get pnpm store directory
-        if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm'
+        if: inputs.cache_pnpm && inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm'
         id: pnpm-cache
         shell: bash
         run: |
           echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
       - name: Cache pnpm store
-        if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
+        if: inputs.cache_pnpm && inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
         uses: runs-on/cache@v4
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
@@ -274,6 +278,11 @@ jobs:
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb', 'bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-bun-
+
+      - name: Prune stale pnpm store entries
+        if: steps.pm.outputs.pm_name == 'pnpm'
+        shell: bash
+        run: pnpm store prune 2>/dev/null || true
 
       - name: Run ci_postinstall
         run: |
