@@ -157,7 +157,7 @@ on:
 jobs:
   checks-ts:
     runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && '["self-hosted", "macOS", "ARM64"]' || format('["{0}"]', inputs.runs_on)) }}
-    container: ${{ inputs.runs_on == 'zondax-runners' && inputs.base_image || '' }}
+    container: ${{ inputs.runner_preset != 'macos-arm64' && inputs.runs_on == 'zondax-runners' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
     permissions:
