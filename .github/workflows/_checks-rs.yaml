@@ -368,14 +368,6 @@ jobs:
           CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
         run: ${{ inputs.format_command }}
 
-      - name: Build
-        if: inputs.enable_build
-        env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
-        run: ${{ inputs.build_command }}
-
       - name: Run clippy
         if: inputs.enable_linting
         env:
@@ -412,6 +404,14 @@ jobs:
       - name: Run integration tests
         if: inputs.enable_integration_tests
         run: ${{ inputs.integration_test_command }}
+
+      - name: Build
+        if: inputs.enable_build
+        env:
+          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
+          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+        run: ${{ inputs.build_command }}
 
       - name: Security audit with cargo-audit
         if: inputs.enable_security_audit
