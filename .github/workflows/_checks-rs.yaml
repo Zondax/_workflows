@@ -128,7 +128,7 @@ on:
         type: string
         default: "cargo audit"
       system_deps_command:
-        description: "Command to install system dependencies (e.g., 'apt-get update && apt-get install -y sccache')"
+        description: "Command to install system dependencies"
         required: false
         type: string
         default: ""
@@ -144,26 +144,22 @@ on:
         description: "Command to initialize environment (without package manager prefix)"
         type: string
         default: "env:init:ci"
-      use_sccache:
-        description: "Enable sccache for Rust compilation caching"
+      use_rust_cache:
+        description: "Enable Rust compilation caching via kache"
         type: boolean
         default: false
-      sccache_bucket:
-        description: "S3-compatible bucket name for sccache (e.g., Cloudflare R2)"
+      cache_bucket:
+        description: "S3-compatible bucket name for caching (e.g., Cloudflare R2)"
         type: string
         default: ""
-      sccache_endpoint:
-        description: "S3-compatible endpoint URL for sccache"
+      cache_endpoint:
+        description: "S3-compatible endpoint URL for caching"
         type: string
         default: ""
-      sccache_region:
-        description: "S3 region for sccache"
+      cache_region:
+        description: "S3 region for caching"
         type: string
         default: "auto"
-      sccache_use_ssl:
-        description: "Use SSL/TLS for sccache S3 connection (set true for HTTPS endpoints)"
-        type: boolean
-        default: true
       enable_integration_tests:
         description: "Enable integration tests (TypeScript client vs Rust server)"
         type: boolean
@@ -183,11 +179,11 @@ on:
       app_pem:
         description: "GitHub App PEM"
         required: false
-      sccache_access_key_id:
-        description: "AWS/S3 access key ID for sccache backend"
+      cache_access_key_id:
+        description: "AWS/S3 access key ID for cache backend"
         required: false
-      sccache_secret_access_key:
-        description: "AWS/S3 secret access key for sccache backend"
+      cache_secret_access_key:
+        description: "AWS/S3 secret access key for cache backend"
         required: false
 
 permissions:
@@ -201,14 +197,9 @@ jobs:
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
     env:
-      # sccache S3-compatible backend configuration (only if enabled)
-      SCCACHE_BUCKET: ${{ inputs.use_sccache && inputs.sccache_bucket || '' }}
-      SCCACHE_ENDPOINT: ${{ inputs.use_sccache && inputs.sccache_endpoint || '' }}
-      SCCACHE_REGION: ${{ inputs.use_sccache && inputs.sccache_region || 'auto' }}
-      SCCACHE_S3_USE_SSL: ${{ inputs.use_sccache && inputs.sccache_use_ssl && 'true' || 'false' }}
-      SCCACHE_CACHE_SIZE: 100G
-      AWS_ACCESS_KEY_ID: ${{ inputs.use_sccache && secrets.sccache_access_key_id || '' }}
-      AWS_SECRET_ACCESS_KEY: ${{ inputs.use_sccache && secrets.sccache_secret_access_key || '' }}
+      # S3 credentials for runs-on/cache steps (Cargo registry, pnpm store)
+      AWS_ACCESS_KEY_ID: ${{ inputs.cache_bucket != '' && secrets.cache_access_key_id || '' }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.cache_bucket != '' && secrets.cache_secret_access_key || '' }}
     defaults:
       run:
         working-directory: ${{ inputs.package_path }}
@@ -263,15 +254,15 @@ jobs:
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
       - name: Cache Cargo registry
-        if: inputs.sccache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
+        if: inputs.cache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
         uses: runs-on/cache@v4
         env:
-          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.sccache_bucket }}
+          RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
-          AWS_ACCESS_KEY_ID: ${{ secrets.sccache_access_key_id }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.sccache_secret_access_key }}
-          AWS_ENDPOINT_URL: ${{ inputs.sccache_endpoint }}
-          AWS_REGION: ${{ inputs.sccache_region }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.cache_access_key_id }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.cache_secret_access_key }}
+          AWS_ENDPOINT_URL: ${{ inputs.cache_endpoint }}
+          AWS_REGION: ${{ inputs.cache_region }}
         with:
           path: |
             ~/.cargo/registry/index
@@ -326,14 +317,18 @@ jobs:
         working-directory: ${{ inputs.package_path }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.env_init_command }}
 
-      - name: Setup sccache
-        if: inputs.use_sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Setup kache
+        if: inputs.use_rust_cache
+        uses: kunobi-ninja/kache-action@v1
         with:
-          version: "v0.12.0"
+          s3-bucket: ${{ inputs.cache_bucket }}
+          s3-endpoint: ${{ inputs.cache_endpoint }}
+          s3-region: ${{ inputs.cache_region }}
+          s3-access-key-id: ${{ secrets.cache_access_key_id }}
+          s3-secret-access-key: ${{ secrets.cache_secret_access_key }}
 
       - name: Setup Rust cache
-        if: inputs.cache_cargo && !inputs.use_sccache && steps.cache-control.outputs.enabled != 'false'
+        if: inputs.cache_cargo && !inputs.use_rust_cache && steps.cache-control.outputs.enabled != 'false'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.package_path }}
@@ -363,42 +358,32 @@ jobs:
 
       - name: Check formatting
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: ${{ inputs.format_command }}
 
       - name: Run clippy
         if: inputs.enable_linting
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
           RUSTFLAGS: "-D warnings"
         run: ${{ inputs.lint_command }}
 
       - name: Run tests
         if: inputs.enable_tests && !inputs.enable_coverage
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: ${{ inputs.test_command }} ${{ inputs.test_args }}
 
       - name: Run tests with coverage
         if: inputs.enable_tests && inputs.enable_coverage
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: ${{ inputs.coverage_command }} ${{ inputs.test_args }}
 
       - name: Build integration test binaries
         if: inputs.enable_integration_tests && inputs.integration_build_command != ''
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: ${{ inputs.integration_build_command }}
 
       - name: Run integration tests
@@ -408,25 +393,19 @@ jobs:
       - name: Build
         if: inputs.enable_build
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: ${{ inputs.build_command }}
 
       - name: Security audit with cargo-audit
         if: inputs.enable_security_audit
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: ${{ inputs.audit_command }}
 
       - name: Security audit with cargo-deny
         if: inputs.enable_security_audit
         env:
-          RUSTC_WRAPPER: ${{ inputs.use_sccache && 'sccache' || '' }}
-          SCCACHE_GHA_ENABLED: ${{ inputs.use_sccache && 'true' || '' }}
-          CARGO_INCREMENTAL: ${{ inputs.use_sccache && '0' || '' }}
+          CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
         run: cargo deny check
 
       - name: Quality Gate - Test coverage shall be above threshold
