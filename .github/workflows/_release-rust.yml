@@ -1,0 +1,242 @@
+name: Reusable Rust Release
+
+on:
+  workflow_call:
+    inputs:
+      binary_name:
+        description: "Name of the binary to build (used for archive naming: {name}-{target}.tar.gz)"
+        required: true
+        type: string
+      targets:
+        description: "JSON array of Rust target triples to build"
+        required: false
+        type: string
+        default: '["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "x86_64-pc-windows-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]'
+      runner:
+        description: "Runner label for all build jobs"
+        required: false
+        type: string
+        default: "kunobi-runners"
+      rust_toolchain:
+        description: "Rust toolchain to use"
+        required: false
+        type: string
+        default: "stable"
+      build_args:
+        description: "Extra arguments passed to cargo/cross build (e.g., --features foo)"
+        required: false
+        type: string
+        default: ""
+      strip_binaries:
+        description: "Strip debug symbols from binaries"
+        required: false
+        type: boolean
+        default: true
+      release_draft:
+        description: "Create the GitHub Release as a draft"
+        required: false
+        type: boolean
+        default: false
+      extra_build_env:
+        description: "Extra environment variables for build (one KEY=value per line)"
+        required: false
+        type: string
+        default: ""
+      checkout_submodules:
+        description: "Checkout submodules"
+        required: false
+        type: boolean
+        default: false
+      github_app_auth:
+        description: "Use GitHub App Token for checkout"
+        required: false
+        type: boolean
+        default: false
+      github_app_repos:
+        description: "Additional repositories to access (one per line)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      app_id:
+        description: "GitHub App ID"
+        required: false
+      app_pem:
+        description: "GitHub App PEM"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  # --- Job 1: Compute build matrix from target list ---
+  setup:
+    name: Setup build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Compute matrix
+        id: matrix
+        shell: bash
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          # For each target, compute: use_cross, archive_ext, binary_ext
+          MATRIX=$(echo "$TARGETS" | jq -c '[.[] | {
+            target: .,
+            use_cross: (test("linux|windows")),
+            archive_ext: (if test("windows") then "zip" else "tar.gz" end),
+            binary_ext: (if test("windows") then ".exe" else "" end)
+          }]')
+          echo "matrix={\"include\":$MATRIX}" >> $GITHUB_OUTPUT
+          echo "Matrix: $MATRIX"
+
+  # --- Job 2: Build each target ---
+  build:
+    name: Build ${{ matrix.target }}
+    needs: setup
+    runs-on: ${{ inputs.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout with GitHub App
+        uses: zondax/actions/checkout-with-app@v1
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.rust_toolchain }}
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Set extra environment
+        if: inputs.extra_build_env != ''
+        env:
+          EXTRA_BUILD_ENV: ${{ inputs.extra_build_env }}
+        run: |
+          echo "$EXTRA_BUILD_ENV" | while IFS= read -r line; do
+            if [[ -n "$line" && "$line" != \#* ]]; then
+              echo "$line" >> $GITHUB_ENV
+            fi
+          done
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+          BUILD_ARGS: ${{ inputs.build_args }}
+        run: |
+          BUILD_CMD="cargo"
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            BUILD_CMD="cross"
+          fi
+          $BUILD_CMD build --release --target "$TARGET" $BUILD_ARGS
+
+      - name: Strip binary
+        if: inputs.strip_binaries
+        env:
+          TARGET: ${{ matrix.target }}
+          BINARY_NAME: ${{ inputs.binary_name }}${{ matrix.binary_ext }}
+        run: |
+          BIN="target/$TARGET/release/$BINARY_NAME"
+          if [[ "$TARGET" == *"windows"* ]]; then
+            echo "Skipping strip for Windows"
+          elif [ "${{ matrix.use_cross }}" = "true" ]; then
+            docker run --rm -v "$(pwd):/workspace" -w /workspace \
+              "ghcr.io/cross-rs/$TARGET:main" \
+              sh -c "strip $BIN 2>/dev/null || true"
+          else
+            strip "$BIN"
+          fi
+
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+          BINARY_NAME: ${{ inputs.binary_name }}
+          BINARY_EXT: ${{ matrix.binary_ext }}
+          ARCHIVE_EXT: ${{ matrix.archive_ext }}
+        run: |
+          ARCHIVE="${BINARY_NAME}-${TARGET}.${ARCHIVE_EXT}"
+          if [[ "$ARCHIVE_EXT" == "zip" ]]; then
+            cd "target/$TARGET/release"
+            zip "../../../$ARCHIVE" "${BINARY_NAME}${BINARY_EXT}"
+            cd ../../..
+          else
+            tar czf "$ARCHIVE" -C "target/$TARGET/release" "${BINARY_NAME}${BINARY_EXT}"
+          fi
+
+      - name: Checksum
+        env:
+          TARGET: ${{ matrix.target }}
+          BINARY_NAME: ${{ inputs.binary_name }}
+          ARCHIVE_EXT: ${{ matrix.archive_ext }}
+        run: |
+          ARCHIVE="${BINARY_NAME}-${TARGET}.${ARCHIVE_EXT}"
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+          else
+            shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.binary_name }}-${{ matrix.target }}
+          retention-days: 1
+          path: |
+            ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+            ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
+
+  # --- Job 3: Create/upload GitHub Release ---
+  release:
+    name: Upload release assets
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with GitHub App
+        uses: zondax/actions/checkout-with-app@v1
+        with:
+          github_app_auth: ${{ inputs.github_app_auth }}
+          github_app_repos: ${{ inputs.github_app_repos }}
+          checkout_submodules: ${{ inputs.checkout_submodules }}
+          app_id: ${{ secrets.app_id }}
+          app_pem: ${{ secrets.app_pem }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create or upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # Create release if it doesn't exist
+          if ! gh release view "$TAG_NAME" &>/dev/null; then
+            DRAFT_FLAG=""
+            if [ "${{ inputs.release_draft }}" = "true" ]; then
+              DRAFT_FLAG="--draft"
+            fi
+            gh release create "$TAG_NAME" $DRAFT_FLAG --generate-notes
+          fi
+          # Upload assets (--clobber overwrites existing)
+          gh release upload "$TAG_NAME" artifacts/* --clobber
