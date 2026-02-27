@@ -330,10 +330,10 @@ jobs:
 
       - name: Setup Rust cache
         if: inputs.cache_cargo && !inputs.use_rust_cache && steps.cache-control.outputs.enabled != 'false'
-        uses: Swatinem/rust-cache@v2
+        uses: kunobi-ninja/kache-action@v1
         with:
-          workspaces: ${{ inputs.package_path }}
-          cache-on-failure: true
+          github-cache: "true"
+          cache-executables: "false"
 
       - name: Install cargo-tarpaulin for coverage
         if: inputs.enable_coverage
