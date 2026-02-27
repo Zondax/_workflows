@@ -331,9 +331,6 @@ jobs:
       - name: Setup Rust cache
         if: inputs.cache_cargo && !inputs.use_rust_cache && steps.cache-control.outputs.enabled != 'false'
         uses: kunobi-ninja/kache-action@v1
-        with:
-          github-cache: "true"
-          cache-executables: "false"
 
       - name: Install cargo-tarpaulin for coverage
         if: inputs.enable_coverage
