@@ -151,6 +151,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BUILD_ARGS: ${{ inputs.build_args }}
+          CROSS_REMOTE: ${{ matrix.use_cross && '1' || '' }}
         run: |
           BUILD_CMD="cargo"
           if [ "${{ matrix.use_cross }}" = "true" ]; then
