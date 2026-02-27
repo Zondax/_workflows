@@ -12,11 +12,16 @@ on:
         required: false
         type: string
         default: '["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "x86_64-pc-windows-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]'
-      runner:
-        description: "Runner label for all build jobs"
+      runner_linux:
+        description: "Runner label for Linux/Windows cross-compilation jobs"
         required: false
         type: string
         default: "kunobi-runners"
+      runner_macos:
+        description: "Runner label for macOS native builds"
+        required: false
+        type: string
+        default: "macos-latest"
       rust_toolchain:
         description: "Rust toolchain to use"
         required: false
@@ -81,10 +86,13 @@ jobs:
         shell: bash
         env:
           TARGETS: ${{ inputs.targets }}
+          RUNNER_LINUX: ${{ inputs.runner_linux }}
+          RUNNER_MACOS: ${{ inputs.runner_macos }}
         run: |
-          # For each target, compute: use_cross, archive_ext, binary_ext
-          MATRIX=$(echo "$TARGETS" | jq -c '[.[] | {
+          # For each target, compute: runner, use_cross, archive_ext, binary_ext
+          MATRIX=$(echo "$TARGETS" | jq -c --arg rl "$RUNNER_LINUX" --arg rm "$RUNNER_MACOS" '[.[] | {
             target: .,
+            runner: (if test("apple-darwin") then $rm else $rl end),
             use_cross: (test("linux|windows")),
             archive_ext: (if test("windows") then "zip" else "tar.gz" end),
             binary_ext: (if test("windows") then ".exe" else "" end)
@@ -96,7 +104,7 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     needs: setup
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
