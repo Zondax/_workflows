@@ -18,10 +18,10 @@ on:
         type: string
         default: "kunobi-runners"
       runner_macos:
-        description: "Runner label for macOS native builds"
+        description: 'Runner labels for macOS native builds (JSON array, e.g. ["self-hosted", "macOS", "ARM64"])'
         required: false
         type: string
-        default: "macos-latest"
+        default: '["self-hosted", "macOS", "ARM64"]'
       rust_toolchain:
         description: "Rust toolchain to use"
         required: false
@@ -89,8 +89,12 @@ jobs:
           RUNNER_LINUX: ${{ inputs.runner_linux }}
           RUNNER_MACOS: ${{ inputs.runner_macos }}
         run: |
+          # Parse runner inputs: runner_macos may be a JSON array, runner_linux a plain string
+          MACOS_RUNNER=$(echo "$RUNNER_MACOS" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_MACOS\"")
+          LINUX_RUNNER=$(echo "$RUNNER_LINUX" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_LINUX\"")
+
           # For each target, compute: runner, use_cross, archive_ext, binary_ext
-          MATRIX=$(echo "$TARGETS" | jq -c --arg rl "$RUNNER_LINUX" --arg rm "$RUNNER_MACOS" '[.[] | {
+          MATRIX=$(echo "$TARGETS" | jq -c --argjson rl "$LINUX_RUNNER" --argjson rm "$MACOS_RUNNER" '[.[] | {
             target: .,
             runner: (if test("apple-darwin") then $rm else $rl end),
             use_cross: (test("linux|windows")),
