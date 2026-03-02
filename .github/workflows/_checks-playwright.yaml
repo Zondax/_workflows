@@ -257,8 +257,9 @@ jobs:
       - name: Check for cache control in PR title
         id: cache-control
         shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
           if echo "$PR_TITLE" | grep -qiE '\[no[_-]?cache\]|\[cache[_-]?off\]'; then
             echo "Cache disabled via PR title"
             echo "enabled=false" >> $GITHUB_OUTPUT
