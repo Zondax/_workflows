@@ -216,6 +216,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
     outputs:
       coverage_percentage: ${{ steps.coverage-check.outputs.coverage_percentage }}
       coverage_status: ${{ steps.coverage-check.outputs.coverage_status }}
