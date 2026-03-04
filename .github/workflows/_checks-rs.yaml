@@ -615,7 +615,9 @@ jobs:
             [ -z "$file" ] && continue
             abs_path="${repo_root}/${file}"
 
-            file_data=$(jq --arg p "$abs_path" '.files[] | select(.path[] == $p)' tarpaulin-report.json 2>/dev/null)
+            # Tarpaulin stores paths as arrays of components: ["/", "dir", "file.rs"]
+            # Reconstruct full path: root element + join rest with "/"
+            file_data=$(jq --arg p "$abs_path" '.files[] | select((.path | .[0] + (.[1:] | join("/"))) == $p)' tarpaulin-report.json 2>/dev/null)
 
             if [ -z "$file_data" ] || [ "$file_data" = "null" ]; then
               continue
