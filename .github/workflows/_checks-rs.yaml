@@ -587,11 +587,10 @@ jobs:
           # NOTE: fetches up to 100 files per page (GitHub API max). PRs with >100
           # changed files will only analyse the first 100; this covers the vast
           # majority of PRs in practice.
-          pr_files=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+          pr_json=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
-            | jq -r '.[].filename')
-          changed_files=$(echo "$pr_files" | grep -E '\.rs$' | grep -v '_test\.rs$\|/tests/\|/test_' || true)
+            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100")
+          changed_files=$(echo "$pr_json" | jq -r '.[].filename' | grep -E '\.rs$' | grep -v '_test\.rs$\|/tests/\|/test_' || true)
 
           if [ -z "$changed_files" ]; then
             echo "No coverable Rust source files changed"
@@ -602,6 +601,20 @@ jobs:
 
           echo "Changed files:"
           echo "$changed_files" | while read f; do echo "  - $f"; done
+
+          # Extract added/modified line numbers from a unified diff patch.
+          # Only lines starting with '+' (excluding the hunk header) are counted.
+          get_added_lines() {
+            local patch="$1"
+            if [ -z "$patch" ]; then return; fi
+            echo "$patch" | awk '
+              /^@@/ { split($3, parts, ","); sub(/^\+/, "", parts[1]); new_line = parts[1] + 0; next }
+              /^\\/ { next }
+              /^\+/ { print new_line; new_line++; next }
+              /^-/  { next }
+              { new_line++ }
+            '
+          }
 
           # GITHUB_WORKSPACE points to the repo checkout root regardless of
           # working-directory. GitHub API returns repo-relative filenames, so we
@@ -615,6 +628,20 @@ jobs:
             [ -z "$file" ] && continue
             abs_path="${repo_root}/${file}"
 
+            # Extract the patch (unified diff) for this file from the API response
+            file_patch=$(echo "$pr_json" | jq -r --arg f "$file" '.[] | select(.filename == $f) | .patch // empty')
+            added_lines=$(get_added_lines "$file_patch")
+
+            if [ -z "$added_lines" ]; then
+              echo "  ${file}: no added lines — skipped"
+              continue
+            fi
+
+            line_count=$(echo "$added_lines" | wc -l | tr -d ' ')
+
+            # Convert added lines to a JSON array for jq consumption
+            added_json=$(echo "$added_lines" | jq -R 'tonumber' | jq -s '.')
+
             # Tarpaulin stores paths as arrays of components: ["/", "dir", "file.rs"]
             # Reconstruct full path: root element + join rest with "/"
             file_data=$(jq --arg p "$abs_path" '.files[] | select((.path | .[0] + (.[1:] | join("/"))) == $p)' tarpaulin-report.json 2>/dev/null)
@@ -623,14 +650,17 @@ jobs:
               continue
             fi
 
-            file_coverable=$(echo "$file_data" | jq '.coverable')
-            file_covered=$(echo "$file_data" | jq '.covered')
+            # Only count traces whose line is in the set of added lines
+            read file_coverable file_covered <<< $(echo "$file_data" | jq --argjson lines "$added_json" '
+              [.traces[] | select(.line as $l | $lines | any(. == $l))] |
+              "\(length) \([.[] | select(.stats.Line > 0)] | length)"
+            ' -r)
 
             if [ "$file_coverable" -gt 0 ] 2>/dev/null; then
               total_coverable=$((total_coverable + file_coverable))
               total_covered=$((total_covered + file_covered))
               file_pct=$(awk "BEGIN {printf \"%.1f\", ($file_covered/$file_coverable)*100}")
-              echo "  ${file}: ${file_covered}/${file_coverable} (${file_pct}%)"
+              echo "  ${file}: ${file_covered}/${file_coverable} (${file_pct}%) [${line_count} lines changed]"
             fi
           done <<< "$changed_files"
 

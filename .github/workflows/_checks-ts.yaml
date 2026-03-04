@@ -575,11 +575,10 @@ jobs:
           # NOTE: fetches up to 100 files per page (GitHub API max). PRs with >100
           # changed files will only analyse the first 100; this covers the vast
           # majority of PRs in practice.
-          pr_files=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+          pr_json=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
-            | jq -r '.[].filename')
-          changed_files=$(echo "$pr_files" | grep -E '\.(ts|tsx)$' | grep -v '\.test\.\|\.spec\.\|__tests__\|__mocks__' || true)
+            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100")
+          changed_files=$(echo "$pr_json" | jq -r '.[].filename' | grep -E '\.(ts|tsx)$' | grep -v '\.test\.\|\.spec\.\|__tests__\|__mocks__' || true)
 
           if [ -z "$changed_files" ]; then
             echo "No coverable source files changed"
@@ -592,6 +591,20 @@ jobs:
           echo "Changed files:"
           echo "$changed_files" | while read f; do echo "  - $f"; done
 
+          # Extract added/modified line numbers from a unified diff patch.
+          # Only lines starting with '+' (excluding the hunk header) are counted.
+          get_added_lines() {
+            local patch="$1"
+            if [ -z "$patch" ]; then return; fi
+            echo "$patch" | awk '
+              /^@@/ { split($3, parts, ","); sub(/^\+/, "", parts[1]); new_line = parts[1] + 0; next }
+              /^\\/ { next }
+              /^\+/ { print new_line; new_line++; next }
+              /^-/  { next }
+              { new_line++ }
+            '
+          }
+
           workspace=$(pwd)
           total_statements=0
           covered_statements=0
@@ -600,6 +613,20 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             abs_path="${workspace}/${file}"
+
+            # Extract the patch (unified diff) for this file from the API response
+            file_patch=$(echo "$pr_json" | jq -r --arg f "$file" '.[] | select(.filename == $f) | .patch // empty')
+            added_lines=$(get_added_lines "$file_patch")
+
+            if [ -z "$added_lines" ]; then
+              echo "  ${file}: no added lines — skipped"
+              continue
+            fi
+
+            line_count=$(echo "$added_lines" | wc -l | tr -d ' ')
+
+            # Convert added lines to a JSON array for jq consumption
+            added_json=$(echo "$added_lines" | jq -R 'tonumber' | jq -s '.')
 
             # Try absolute path lookup first, then relative
             file_coverage=$(jq --arg p "$abs_path" '.[$p] // empty' coverage/coverage-final.json 2>/dev/null)
@@ -611,15 +638,22 @@ jobs:
               continue
             fi
 
-            file_total=$(echo "$file_coverage" | jq '[.s | to_entries[] | .value] | length')
-            file_covered=$(echo "$file_coverage" | jq '[.s | to_entries[] | select(.value > 0)] | length')
+            # Only count statements whose line range overlaps with added lines
+            read file_total file_covered <<< $(echo "$file_coverage" | jq --argjson lines "$added_json" '
+              .statementMap as $map | .s as $hits |
+              [$map | to_entries[] |
+                select(.value.start.line as $sl | .value.end.line as $el |
+                  ($lines | any(. as $l | $l >= $sl and $l <= $el))) |
+                {covered: ($hits[.key] > 0)}] |
+              "\(length) \([.[] | select(.covered)] | length)"
+            ' -r)
 
             if [ "$file_total" -gt 0 ]; then
               file_pct=$(awk "BEGIN {printf \"%.1f\", ($file_covered/$file_total)*100}")
               total_statements=$((total_statements + file_total))
               covered_statements=$((covered_statements + file_covered))
               report_lines="${report_lines}${file}|${file_total}|${file_covered}|${file_pct}\n"
-              echo "  ${file}: ${file_covered}/${file_total} (${file_pct}%)"
+              echo "  ${file}: ${file_covered}/${file_total} (${file_pct}%) [${line_count} lines changed]"
             fi
           done <<< "$changed_files"
 
