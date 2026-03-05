@@ -53,6 +53,21 @@ on:
         required: false
         type: number
         default: 0
+      upload_coverage_artifact:
+        description: "Upload coverage JSON reports as artifacts"
+        required: false
+        type: boolean
+        default: false
+      coverage_regression_tolerance:
+        description: "Max allowed coverage drop vs baseline in percentage points (0 to disable). Only applies on PRs."
+        required: false
+        type: number
+        default: 0
+      coverage_diff_threshold:
+        description: "Minimum coverage percentage for changed files (0 to disable). Only applies on PRs."
+        required: false
+        type: number
+        default: 0
       base_image:
         description: "Docker image to use (zondax/ubuntu-ci includes node, bun, pnpm, rust)"
         type: string
@@ -164,6 +179,15 @@ jobs:
       contents: read
       id-token: write  # Required for Workload Identity Federation
       pull-requests: write  # Required for coverage report comments
+    outputs:
+      coverage_lines: ${{ steps.extract-coverage.outputs.lines }}
+      coverage_statements: ${{ steps.extract-coverage.outputs.statements }}
+      coverage_functions: ${{ steps.extract-coverage.outputs.functions }}
+      coverage_branches: ${{ steps.extract-coverage.outputs.branches }}
+      regression_status: ${{ steps.regression-check.outputs.status }}
+      regression_message: ${{ steps.regression-check.outputs.message }}
+      diff_coverage_pct: ${{ steps.diff-coverage.outputs.percentage }}
+      diff_coverage_status: ${{ steps.diff-coverage.outputs.status }}
 
     steps:
       - name: Setup Ubuntu packages
@@ -314,9 +338,56 @@ jobs:
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.coverage_command }}
 
+      - name: Extract coverage metrics
+        if: ${{ inputs.enable_tests && inputs.enable_coverage }}
+        id: extract-coverage
+        shell: bash
+        run: |
+          if [ ! -f "coverage/coverage-summary.json" ]; then
+            echo "Coverage summary not found, skipping extraction"
+            exit 0
+          fi
+
+          for metric in lines statements functions branches; do
+            value=$(jq -e ".total.${metric}.pct // empty" coverage/coverage-summary.json 2>/dev/null)
+            if [ -n "$value" ]; then
+              echo "${metric}=${value}" >> $GITHUB_OUTPUT
+            else
+              echo "${metric}=0" >> $GITHUB_OUTPUT
+            fi
+          done
+
+          echo "Coverage metrics extracted successfully"
+
       - name: Run integration tests
         if: ${{ inputs.enable_integration_tests }}
         run: ${{ steps.pm.outputs.pm }} ${{ inputs.integration_test_command }}
+
+      - name: Save coverage baseline
+        if: ${{ github.event_name == 'push' && inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
+        shell: bash
+        run: |
+          mkdir -p coverage-baseline
+          cp coverage/coverage-summary.json coverage-baseline/ 2>/dev/null || true
+          cp coverage/coverage-final.json coverage-baseline/ 2>/dev/null || true
+          echo "Saved coverage baseline for branch ${{ github.ref_name }}"
+
+      - name: Cache coverage baseline
+        if: ${{ github.event_name == 'push' && inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
+        uses: actions/cache/save@v4
+        with:
+          key: coverage-baseline-${{ github.ref_name }}-ts-${{ github.sha }}
+          path: coverage-baseline/
+
+      - name: Restore coverage baseline
+        if: ${{ github.event_name == 'pull_request' && inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
+        id: baseline-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: coverage-baseline-${{ github.base_ref }}-ts-no-exact-match
+          restore-keys: |
+            coverage-baseline-${{ github.base_ref }}-ts-
+          path: coverage-baseline/
 
       - name: Vitest Coverage Report
         if: ${{ inputs.enable_tests && inputs.enable_coverage }}
@@ -324,6 +395,59 @@ jobs:
         with:
           vite-config-path: ./vitest.config.ts
           working-directory: .
+
+      - name: Coverage regression check
+        if: ${{ github.event_name == 'pull_request' && inputs.enable_tests && inputs.enable_coverage && inputs.coverage_regression_tolerance > 0 }}
+        id: regression-check
+        shell: bash
+        env:
+          TOLERANCE: ${{ inputs.coverage_regression_tolerance }}
+        run: |
+          echo "Coverage Regression Check (tolerance: ${TOLERANCE}%)"
+          echo "----------------------------------------"
+
+          if [ ! -f "coverage-baseline/coverage-summary.json" ]; then
+            echo "No baseline found — skipping regression check"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            echo "message=No baseline found — first push to target branch with coverage will create the baseline" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          failed=0
+          message=""
+
+          for metric in lines statements functions branches; do
+            current=$(jq -e ".total.${metric}.pct // empty" coverage/coverage-summary.json 2>/dev/null)
+            baseline=$(jq -e ".total.${metric}.pct // empty" coverage-baseline/coverage-summary.json 2>/dev/null)
+
+            if [ -z "$current" ] || [ -z "$baseline" ]; then
+              continue
+            fi
+
+            delta=$(awk "BEGIN {printf \"%.2f\", $current - $baseline}")
+            drop=$(awk "BEGIN {printf \"%.2f\", $baseline - $current}")
+
+            if awk "BEGIN {exit !($drop > $TOLERANCE)}"; then
+              echo "FAIL ${metric}: ${baseline}% -> ${current}% (${delta}%, exceeds -${TOLERANCE}% tolerance)"
+              message="${message}${metric}: ${baseline}% -> ${current}% (${delta}%); "
+              failed=1
+            else
+              echo "PASS ${metric}: ${baseline}% -> ${current}% (${delta}%)"
+            fi
+          done
+
+          if [ "$failed" -eq 1 ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "message=Regression detected: ${message}" >> $GITHUB_OUTPUT
+            echo ""
+            echo "Coverage regression exceeds tolerance of ${TOLERANCE}%"
+            exit 1
+          else
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "message=No regression detected" >> $GITHUB_OUTPUT
+            echo ""
+            echo "No coverage regression detected"
+          fi
 
       - name: Quality Gate - Test coverage shall be above threshold
         if: ${{ inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_threshold_lines > 0 || inputs.coverage_threshold_statements > 0 || inputs.coverage_threshold_functions > 0 || inputs.coverage_threshold_branches > 0) }}
@@ -425,6 +549,150 @@ jobs:
           echo ""
           echo "✅ All coverage thresholds passed!"
 
+      - name: Diff coverage check
+        if: ${{ github.event_name == 'pull_request' && inputs.enable_tests && inputs.enable_coverage && inputs.coverage_diff_threshold > 0 }}
+        id: diff-coverage
+        shell: bash
+        env:
+          THRESHOLD: ${{ inputs.coverage_diff_threshold }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Diff Coverage Check (threshold: ${THRESHOLD}%)"
+          echo "----------------------------------------"
+
+          if [ ! -f "coverage/coverage-final.json" ]; then
+            echo "coverage-final.json not found — skipping diff coverage"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            echo "percentage=0" >> $GITHUB_OUTPUT
+            echo "report=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Get changed TS/TSX files from the GitHub API (reliable with shallow clones).
+          # Uses curl instead of gh CLI since the job may run inside a Docker container.
+          # NOTE: fetches up to 100 files per page (GitHub API max). PRs with >100
+          # changed files will only analyse the first 100; this covers the vast
+          # majority of PRs in practice.
+          pr_json=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100")
+          changed_files=$(echo "$pr_json" | jq -r '.[].filename' | grep -E '\.(ts|tsx)$' | grep -v '\.test\.\|\.spec\.\|__tests__\|__mocks__' || true)
+
+          if [ -z "$changed_files" ]; then
+            echo "No coverable source files changed"
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "percentage=100" >> $GITHUB_OUTPUT
+            echo "report=No coverable source files changed" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$changed_files" | while read f; do echo "  - $f"; done
+
+          # Extract added/modified line numbers from a unified diff patch.
+          # Only lines starting with '+' (excluding the hunk header) are counted.
+          get_added_lines() {
+            local patch="$1"
+            if [ -z "$patch" ]; then return; fi
+            echo "$patch" | awk '
+              /^@@/ { split($3, parts, ","); sub(/^\+/, "", parts[1]); new_line = parts[1] + 0; next }
+              /^\\/ { next }
+              /^\+/ { print new_line; new_line++; next }
+              /^-/  { next }
+              { new_line++ }
+            '
+          }
+
+          workspace=$(pwd)
+          total_statements=0
+          covered_statements=0
+          report_lines=""
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            abs_path="${workspace}/${file}"
+
+            # Extract the patch (unified diff) for this file from the API response
+            file_patch=$(echo "$pr_json" | jq -r --arg f "$file" '.[] | select(.filename == $f) | .patch // empty')
+            added_lines=$(get_added_lines "$file_patch")
+
+            if [ -z "$added_lines" ]; then
+              echo "  ${file}: no added lines — skipped"
+              continue
+            fi
+
+            line_count=$(echo "$added_lines" | wc -l | tr -d ' ')
+
+            # Convert added lines to a JSON array for jq consumption
+            added_json=$(echo "$added_lines" | jq -R 'tonumber' | jq -s '.')
+
+            # Try absolute path lookup first, then relative
+            file_coverage=$(jq --arg p "$abs_path" '.[$p] // empty' coverage/coverage-final.json 2>/dev/null)
+            if [ -z "$file_coverage" ] || [ "$file_coverage" = "null" ]; then
+              file_coverage=$(jq --arg p "$file" '.[$p] // empty' coverage/coverage-final.json 2>/dev/null)
+            fi
+
+            if [ -z "$file_coverage" ] || [ "$file_coverage" = "null" ]; then
+              continue
+            fi
+
+            # Only count statements whose line range overlaps with added lines
+            read file_total file_covered <<< $(echo "$file_coverage" | jq --argjson lines "$added_json" '
+              .statementMap as $map | .s as $hits |
+              [$map | to_entries[] |
+                select(.value.start.line as $sl | .value.end.line as $el |
+                  ($lines | any(. as $l | $l >= $sl and $l <= $el))) |
+                {covered: ($hits[.key] > 0)}] |
+              "\(length) \([.[] | select(.covered)] | length)"
+            ' -r)
+
+            if [ "$file_total" -gt 0 ]; then
+              file_pct=$(awk "BEGIN {printf \"%.1f\", ($file_covered/$file_total)*100}")
+              total_statements=$((total_statements + file_total))
+              covered_statements=$((covered_statements + file_covered))
+              report_lines="${report_lines}${file}|${file_total}|${file_covered}|${file_pct}\n"
+              echo "  ${file}: ${file_covered}/${file_total} (${file_pct}%) [${line_count} lines changed]"
+            fi
+          done <<< "$changed_files"
+
+          if [ "$total_statements" -eq 0 ]; then
+            echo "No coverable statements in changed files"
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "percentage=100" >> $GITHUB_OUTPUT
+            echo "report=No coverable statements in changed files" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          diff_pct=$(awk "BEGIN {printf \"%.1f\", ($covered_statements/$total_statements)*100}")
+          echo ""
+          echo "Diff coverage: ${covered_statements}/${total_statements} statements (${diff_pct}%)"
+
+          echo "percentage=${diff_pct}" >> $GITHUB_OUTPUT
+          echo "report<<REPORT_EOF" >> $GITHUB_OUTPUT
+          echo -e "$report_lines" >> $GITHUB_OUTPUT
+          echo "REPORT_EOF" >> $GITHUB_OUTPUT
+
+          if awk "BEGIN {exit !($diff_pct >= $THRESHOLD)}"; then
+            echo "Diff coverage passed (${diff_pct}% >= ${THRESHOLD}%)"
+            echo "status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "Diff coverage failed (${diff_pct}% < ${THRESHOLD}%)"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Upload coverage reports as artifacts
+        if: ${{ inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-ts-${{ github.run_number }}
+          path: |
+            coverage/coverage-summary.json
+            coverage/coverage-final.json
+          retention-days: 15
+
       - name: Upload coverage reports to Codecov
         if: ${{ inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage }}
         uses: codecov/codecov-action@v5
@@ -432,3 +700,32 @@ jobs:
           token: ${{ secrets.codecov_token }}
           flags: ${{ inputs.codecov_flags }}
           fail_ci_if_error: false
+
+  post-coverage-comment:
+    needs: checks-ts
+    if: >-
+      inputs.enable_tests && inputs.enable_coverage &&
+      (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) &&
+      (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
+      always() &&
+      needs.checks-ts.outputs.coverage_lines != ''
+    uses: zondax/_workflows/.github/workflows/_post-pr-comment-reusable.yml@v5
+    secrets: inherit
+    with:
+      issue_number: ${{ github.event.number }}
+      comment_identifier: "ts-coverage-quality-gate"
+      comment_body: |
+        ## ${{ (needs.checks-ts.outputs.regression_status == 'failed' || needs.checks-ts.outputs.diff_coverage_status == 'failed') && '❌' || '✅' }} TypeScript Coverage Quality Gate
+
+        | Metric | Current |
+        |--------|---------|
+        | **Lines** | ${{ needs.checks-ts.outputs.coverage_lines }}% |
+        | **Statements** | ${{ needs.checks-ts.outputs.coverage_statements }}% |
+        | **Functions** | ${{ needs.checks-ts.outputs.coverage_functions }}% |
+        | **Branches** | ${{ needs.checks-ts.outputs.coverage_branches }}% |
+
+        ${{ needs.checks-ts.outputs.regression_status == 'failed' && format('**❌ Regression:** {0}', needs.checks-ts.outputs.regression_message) || needs.checks-ts.outputs.regression_status == 'passed' && '**✅ Regression:** No coverage regression detected' || needs.checks-ts.outputs.regression_status == 'skipped' && '**⚠️ Regression:** No baseline available yet' || '' }}
+
+        ${{ needs.checks-ts.outputs.diff_coverage_status == 'failed' && format('**❌ Diff coverage:** {0}% (required: {1}%)', needs.checks-ts.outputs.diff_coverage_pct, inputs.coverage_diff_threshold) || needs.checks-ts.outputs.diff_coverage_status == 'passed' && format('**✅ Diff coverage:** {0}%', needs.checks-ts.outputs.diff_coverage_pct) || '' }}
+
+        ---

@@ -28,6 +28,16 @@ on:
         required: false
         type: string
         default: ""
+      coverage_regression_tolerance:
+        description: "Max allowed coverage drop vs baseline in percentage points (0 to disable). Only applies on PRs."
+        required: false
+        type: number
+        default: 0
+      coverage_diff_threshold:
+        description: "Minimum coverage percentage for changed files (0 to disable). Only applies on PRs."
+        required: false
+        type: number
+        default: 0
       runner_preset:
         description: "Runner preset (linux-amd64, macos-arm64). Ignored when runs_on is set."
         required: false
@@ -206,10 +216,15 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
     outputs:
       coverage_percentage: ${{ steps.coverage-check.outputs.coverage_percentage }}
       coverage_status: ${{ steps.coverage-check.outputs.coverage_status }}
       coverage_message: ${{ steps.coverage-check.outputs.coverage_message }}
+      regression_status: ${{ steps.regression-check.outputs.status }}
+      regression_message: ${{ steps.regression-check.outputs.message }}
+      diff_coverage_pct: ${{ steps.diff-coverage.outputs.percentage }}
+      diff_coverage_status: ${{ steps.diff-coverage.outputs.status }}
       
     steps:
       - name: Setup Ubuntu packages
@@ -474,6 +489,199 @@ jobs:
           path: ${{ inputs.package_path }}/tarpaulin-report.json
           retention-days: 15
 
+      - name: Save coverage baseline
+        if: ${{ github.event_name == 'push' && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
+        shell: bash
+        run: |
+          mkdir -p coverage-baseline
+          cp tarpaulin-report.json coverage-baseline/ 2>/dev/null || true
+          echo "Saved Rust coverage baseline for branch ${{ github.ref_name }}"
+
+      - name: Cache coverage baseline
+        if: ${{ github.event_name == 'push' && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
+        uses: actions/cache/save@v4
+        with:
+          key: coverage-baseline-${{ github.ref_name }}-rs-${{ inputs.coverage_artifact_suffix }}-${{ github.sha }}
+          path: coverage-baseline/
+
+      - name: Restore coverage baseline
+        if: ${{ github.event_name == 'pull_request' && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
+        id: baseline-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: coverage-baseline-${{ github.base_ref }}-rs-${{ inputs.coverage_artifact_suffix }}-no-exact-match
+          restore-keys: |
+            coverage-baseline-${{ github.base_ref }}-rs-${{ inputs.coverage_artifact_suffix }}-
+          path: coverage-baseline/
+
+      - name: Coverage regression check
+        if: ${{ github.event_name == 'pull_request' && inputs.enable_coverage && inputs.coverage_regression_tolerance > 0 }}
+        id: regression-check
+        shell: bash
+        env:
+          TOLERANCE: ${{ inputs.coverage_regression_tolerance }}
+        run: |
+          echo "Rust Coverage Regression Check (tolerance: ${TOLERANCE}%)"
+          echo "----------------------------------------"
+
+          if [ ! -f "coverage-baseline/tarpaulin-report.json" ]; then
+            echo "No baseline found — skipping regression check"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            echo "message=No baseline found" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          current=$(jq -r '.coverage' tarpaulin-report.json 2>/dev/null)
+          baseline=$(jq -r '.coverage' coverage-baseline/tarpaulin-report.json 2>/dev/null)
+
+          if [ -z "$current" ] || [ "$current" = "null" ] || [ -z "$baseline" ] || [ "$baseline" = "null" ]; then
+            echo "Could not extract coverage values"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            echo "message=Could not extract coverage values" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          current=$(awk -v c="$current" 'BEGIN {printf "%.2f", c}')
+          baseline=$(awk -v b="$baseline" 'BEGIN {printf "%.2f", b}')
+          delta=$(awk "BEGIN {printf \"%.2f\", $current - $baseline}")
+          drop=$(awk "BEGIN {printf \"%.2f\", $baseline - $current}")
+
+          echo "Baseline: ${baseline}% -> Current: ${current}% (delta: ${delta}%)"
+
+          if awk "BEGIN {exit !($drop > $TOLERANCE)}"; then
+            echo "Coverage dropped ${drop}% (exceeds ${TOLERANCE}% tolerance)"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "message=Coverage dropped from ${baseline}% to ${current}% (${delta}%, exceeds -${TOLERANCE}% tolerance)" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "No regression (${delta}%)"
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "message=No regression: ${baseline}% -> ${current}% (${delta}%)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Diff coverage check
+        if: ${{ github.event_name == 'pull_request' && inputs.enable_coverage && inputs.coverage_diff_threshold > 0 }}
+        id: diff-coverage
+        shell: bash
+        env:
+          THRESHOLD: ${{ inputs.coverage_diff_threshold }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Rust Diff Coverage Check (threshold: ${THRESHOLD}%)"
+          echo "----------------------------------------"
+
+          if [ ! -f "tarpaulin-report.json" ]; then
+            echo "tarpaulin-report.json not found — skipping"
+            echo "status=skipped" >> $GITHUB_OUTPUT
+            echo "percentage=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Get changed Rust files from the GitHub API (reliable with shallow clones).
+          # Uses curl instead of gh CLI since the job may run inside a Docker container.
+          # NOTE: fetches up to 100 files per page (GitHub API max). PRs with >100
+          # changed files will only analyse the first 100; this covers the vast
+          # majority of PRs in practice.
+          pr_json=$(curl -s -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100")
+          changed_files=$(echo "$pr_json" | jq -r '.[].filename' | grep -E '\.rs$' | grep -v '_test\.rs$\|/tests/\|/test_' || true)
+
+          if [ -z "$changed_files" ]; then
+            echo "No coverable Rust source files changed"
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "percentage=100" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$changed_files" | while read f; do echo "  - $f"; done
+
+          # Extract added/modified line numbers from a unified diff patch.
+          # Only lines starting with '+' (excluding the hunk header) are counted.
+          get_added_lines() {
+            local patch="$1"
+            if [ -z "$patch" ]; then return; fi
+            echo "$patch" | awk '
+              /^@@/ { split($3, parts, ","); sub(/^\+/, "", parts[1]); new_line = parts[1] + 0; next }
+              /^\\/ { next }
+              /^\+/ { print new_line; new_line++; next }
+              /^-/  { next }
+              { new_line++ }
+            '
+          }
+
+          # GITHUB_WORKSPACE points to the repo checkout root regardless of
+          # working-directory. GitHub API returns repo-relative filenames, so we
+          # need the repo root to build the absolute paths tarpaulin records.
+          repo_root="${GITHUB_WORKSPACE}"
+
+          total_coverable=0
+          total_covered=0
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            abs_path="${repo_root}/${file}"
+
+            # Extract the patch (unified diff) for this file from the API response
+            file_patch=$(echo "$pr_json" | jq -r --arg f "$file" '.[] | select(.filename == $f) | .patch // empty')
+            added_lines=$(get_added_lines "$file_patch")
+
+            if [ -z "$added_lines" ]; then
+              echo "  ${file}: no added lines — skipped"
+              continue
+            fi
+
+            line_count=$(echo "$added_lines" | wc -l | tr -d ' ')
+
+            # Convert added lines to a JSON array for jq consumption
+            added_json=$(echo "$added_lines" | jq -R 'tonumber' | jq -s '.')
+
+            # Tarpaulin stores paths as arrays of components: ["/", "dir", "file.rs"]
+            # Reconstruct full path: root element + join rest with "/"
+            file_data=$(jq --arg p "$abs_path" '.files[] | select((.path | .[0] + (.[1:] | join("/"))) == $p)' tarpaulin-report.json 2>/dev/null)
+
+            if [ -z "$file_data" ] || [ "$file_data" = "null" ]; then
+              continue
+            fi
+
+            # Only count traces whose line is in the set of added lines
+            read file_coverable file_covered <<< $(echo "$file_data" | jq --argjson lines "$added_json" '
+              [.traces[] | select(.line as $l | $lines | any(. == $l))] |
+              "\(length) \([.[] | select(.stats.Line > 0)] | length)"
+            ' -r)
+
+            if [ "$file_coverable" -gt 0 ] 2>/dev/null; then
+              total_coverable=$((total_coverable + file_coverable))
+              total_covered=$((total_covered + file_covered))
+              file_pct=$(awk "BEGIN {printf \"%.1f\", ($file_covered/$file_coverable)*100}")
+              echo "  ${file}: ${file_covered}/${file_coverable} (${file_pct}%) [${line_count} lines changed]"
+            fi
+          done <<< "$changed_files"
+
+          if [ "$total_coverable" -eq 0 ]; then
+            echo "No coverable lines in changed files"
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "percentage=100" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          diff_pct=$(awk "BEGIN {printf \"%.1f\", ($total_covered/$total_coverable)*100}")
+          echo ""
+          echo "Diff coverage: ${total_covered}/${total_coverable} (${diff_pct}%)"
+          echo "percentage=${diff_pct}" >> $GITHUB_OUTPUT
+
+          if awk "BEGIN {exit !($diff_pct >= $THRESHOLD)}"; then
+            echo "Diff coverage passed (${diff_pct}% >= ${THRESHOLD}%)"
+            echo "status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "Diff coverage failed (${diff_pct}% < ${THRESHOLD}%)"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
       - name: Fail workflow if coverage check failed
         if: inputs.enable_coverage && steps.coverage-check.outputs.coverage_status == 'failed'
         run: |
@@ -492,20 +700,16 @@ jobs:
       issue_number: ${{ github.event.number }}
       comment_identifier: "rust-coverage-report"
       comment_body: |
-        ## ${{ needs.checks-rust.outputs.coverage_status == 'passed' && '✅' || needs.checks-rust.outputs.coverage_status == 'failed' && '❌' || '⚠️' }} Rust Test Coverage Report
-        
+        ## ${{ (needs.checks-rust.outputs.coverage_status == 'passed' && needs.checks-rust.outputs.regression_status != 'failed' && needs.checks-rust.outputs.diff_coverage_status != 'failed') && '✅' || '❌' }} Rust Test Coverage Report
+
         | Metric | Value |
         |--------|-------|
         | **Current Coverage** | ${{ needs.checks-rust.outputs.coverage_percentage }}% |
         | **Required Threshold** | ${{ inputs.coverage_threshold }}% |
-        | **Status** | **${{ needs.checks-rust.outputs.coverage_status == 'passed' && 'PASSED' || needs.checks-rust.outputs.coverage_status == 'failed' && 'FAILED' || 'ERROR' }}** |
-        
-        ${{ needs.checks-rust.outputs.coverage_status == 'failed' && '
-        ### 💡 How to improve coverage:
-        - Add more unit tests to increase coverage
-        - Focus on untested critical paths with `#[cfg(test)]` modules
-        - Use `cargo tarpaulin --ignored` to include ignored tests
-        - Consider adjusting threshold if current coverage is acceptable
-        ' || '' }}
-        
-        --- 
+        | **Threshold Status** | **${{ needs.checks-rust.outputs.coverage_status == 'passed' && 'PASSED' || needs.checks-rust.outputs.coverage_status == 'failed' && 'FAILED' || 'ERROR' }}** |
+
+        ${{ needs.checks-rust.outputs.regression_status == 'failed' && format('**❌ Regression:** {0}', needs.checks-rust.outputs.regression_message) || needs.checks-rust.outputs.regression_status == 'passed' && format('**✅ Regression:** {0}', needs.checks-rust.outputs.regression_message) || needs.checks-rust.outputs.regression_status == 'skipped' && '**⚠️ Regression:** No baseline available yet' || '' }}
+
+        ${{ needs.checks-rust.outputs.diff_coverage_status == 'failed' && format('**❌ Diff coverage:** {0}% (required: {1}%)', needs.checks-rust.outputs.diff_coverage_pct, inputs.coverage_diff_threshold) || needs.checks-rust.outputs.diff_coverage_status == 'passed' && format('**✅ Diff coverage:** {0}%', needs.checks-rust.outputs.diff_coverage_pct) || '' }}
+
+        ---
