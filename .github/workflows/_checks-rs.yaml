@@ -700,16 +700,18 @@ jobs:
       issue_number: ${{ github.event.number }}
       comment_identifier: "rust-coverage-report"
       comment_body: |
-        ## ${{ (needs.checks-rust.outputs.coverage_status == 'passed' && needs.checks-rust.outputs.regression_status != 'failed' && needs.checks-rust.outputs.diff_coverage_status != 'failed') && '✅' || '❌' }} Rust Test Coverage Report
+        ## ${{ (needs.checks-rust.outputs.regression_status != 'failed' && needs.checks-rust.outputs.diff_coverage_status != 'failed') && '✅' || '❌' }} Rust Coverage Quality Gate
 
-        | Metric | Value |
-        |--------|-------|
-        | **Current Coverage** | ${{ needs.checks-rust.outputs.coverage_percentage }}% |
-        | **Required Threshold** | ${{ inputs.coverage_threshold }}% |
-        | **Threshold Status** | **${{ needs.checks-rust.outputs.coverage_status == 'passed' && 'PASSED' || needs.checks-rust.outputs.coverage_status == 'failed' && 'FAILED' || 'ERROR' }}** |
+        **Current coverage:** ${{ needs.checks-rust.outputs.coverage_percentage }}%
 
-        ${{ needs.checks-rust.outputs.regression_status == 'failed' && format('**❌ Regression:** {0}', needs.checks-rust.outputs.regression_message) || needs.checks-rust.outputs.regression_status == 'passed' && format('**✅ Regression:** {0}', needs.checks-rust.outputs.regression_message) || needs.checks-rust.outputs.regression_status == 'skipped' && '**⚠️ Regression:** No baseline available yet' || '' }}
+        ### Quality Gates
 
-        ${{ needs.checks-rust.outputs.diff_coverage_status == 'failed' && format('**❌ Diff coverage:** {0}% (required: {1}%)', needs.checks-rust.outputs.diff_coverage_pct, inputs.coverage_diff_threshold) || needs.checks-rust.outputs.diff_coverage_status == 'passed' && format('**✅ Diff coverage:** {0}%', needs.checks-rust.outputs.diff_coverage_pct) || '' }}
+        | Gate | Status | Details |
+        |------|--------|---------|
+        | **Regression** | ${{ needs.checks-rust.outputs.regression_status == 'failed' && '❌ Fail' || needs.checks-rust.outputs.regression_status == 'passed' && '✅ Pass' || '⚠️ Skipped' }} | ${{ needs.checks-rust.outputs.regression_status == 'failed' && needs.checks-rust.outputs.regression_message || needs.checks-rust.outputs.regression_status == 'passed' && needs.checks-rust.outputs.regression_message || 'No baseline available yet' }} |
+        | **Diff coverage** | ${{ needs.checks-rust.outputs.diff_coverage_status == 'failed' && '❌ Fail' || needs.checks-rust.outputs.diff_coverage_status == 'passed' && '✅ Pass' || '⚠️ Skipped' }} | ${{ needs.checks-rust.outputs.diff_coverage_status == 'failed' && format('{0}% of changed lines covered (required: {1}%)', needs.checks-rust.outputs.diff_coverage_pct, inputs.coverage_diff_threshold) || needs.checks-rust.outputs.diff_coverage_status == 'passed' && format('{0}% of changed lines covered', needs.checks-rust.outputs.diff_coverage_pct) || 'No coverable lines changed' }} |
+
+        > **Regression** — overall coverage must not drop by more than ${{ inputs.coverage_regression_tolerance }}% vs the base branch.
+        > **Diff coverage** — new/modified lines in this PR must have at least ${{ inputs.coverage_diff_threshold }}% test coverage.
 
         ---

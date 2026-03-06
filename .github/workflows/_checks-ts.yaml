@@ -715,7 +715,7 @@ jobs:
       issue_number: ${{ github.event.number }}
       comment_identifier: "ts-coverage-quality-gate"
       comment_body: |
-        ## ${{ (needs.checks-ts.outputs.regression_status == 'failed' || needs.checks-ts.outputs.diff_coverage_status == 'failed') && '❌' || '✅' }} TypeScript Coverage Quality Gate
+        ## ${{ (needs.checks-ts.outputs.regression_status != 'failed' && needs.checks-ts.outputs.diff_coverage_status != 'failed') && '✅' || '❌' }} TypeScript Coverage Quality Gate
 
         | Metric | Current |
         |--------|---------|
@@ -724,8 +724,14 @@ jobs:
         | **Functions** | ${{ needs.checks-ts.outputs.coverage_functions }}% |
         | **Branches** | ${{ needs.checks-ts.outputs.coverage_branches }}% |
 
-        ${{ needs.checks-ts.outputs.regression_status == 'failed' && format('**❌ Regression:** {0}', needs.checks-ts.outputs.regression_message) || needs.checks-ts.outputs.regression_status == 'passed' && '**✅ Regression:** No coverage regression detected' || needs.checks-ts.outputs.regression_status == 'skipped' && '**⚠️ Regression:** No baseline available yet' || '' }}
+        ### Quality Gates
 
-        ${{ needs.checks-ts.outputs.diff_coverage_status == 'failed' && format('**❌ Diff coverage:** {0}% (required: {1}%)', needs.checks-ts.outputs.diff_coverage_pct, inputs.coverage_diff_threshold) || needs.checks-ts.outputs.diff_coverage_status == 'passed' && format('**✅ Diff coverage:** {0}%', needs.checks-ts.outputs.diff_coverage_pct) || '' }}
+        | Gate | Status | Details |
+        |------|--------|---------|
+        | **Regression** | ${{ needs.checks-ts.outputs.regression_status == 'failed' && '❌ Fail' || needs.checks-ts.outputs.regression_status == 'passed' && '✅ Pass' || '⚠️ Skipped' }} | ${{ needs.checks-ts.outputs.regression_status == 'failed' && needs.checks-ts.outputs.regression_message || needs.checks-ts.outputs.regression_status == 'passed' && 'No coverage regression detected' || 'No baseline available yet' }} |
+        | **Diff coverage** | ${{ needs.checks-ts.outputs.diff_coverage_status == 'failed' && '❌ Fail' || needs.checks-ts.outputs.diff_coverage_status == 'passed' && '✅ Pass' || '⚠️ Skipped' }} | ${{ needs.checks-ts.outputs.diff_coverage_status == 'failed' && format('{0}% of changed lines covered (required: {1}%)', needs.checks-ts.outputs.diff_coverage_pct, inputs.coverage_diff_threshold) || needs.checks-ts.outputs.diff_coverage_status == 'passed' && format('{0}% of changed lines covered', needs.checks-ts.outputs.diff_coverage_pct) || 'No coverable lines changed' }} |
+
+        > **Regression** — overall coverage must not drop by more than ${{ inputs.coverage_regression_tolerance }}% vs the base branch.
+        > **Diff coverage** — new/modified lines in this PR must have at least ${{ inputs.coverage_diff_threshold }}% test coverage.
 
         ---
