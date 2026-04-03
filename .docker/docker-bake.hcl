@@ -13,7 +13,7 @@
 #   docker buildx bake -f .docker/docker-bake.hcl --set "*.tags=mytest:local"
 
 group "default" {
-  targets = ["ubuntu-22-ci", "ubuntu-24-ci"]
+  targets = ["ubuntu-22-ci", "ubuntu-22-tauri", "ubuntu-24-ci", "ubuntu-24-tauri"]
 }
 
 # Common configuration inherited by all targets
@@ -26,17 +26,37 @@ target "_common" {
 target "ubuntu-22-ci" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-22.04-ci.Dockerfile"
+  target     = "ubuntu-22-playwright"
   tags       = ["zondax/ubuntu-ci:22.04"]
   cache-from = ["type=registry,ref=zondax/ubuntu-ci:22.04-cache"]
   cache-to   = ["type=registry,ref=zondax/ubuntu-ci:22.04-cache,mode=max"]
 }
 
+target "ubuntu-22-tauri" {
+  inherits   = ["_common"]
+  dockerfile = ".docker/ubuntu-22.04-ci.Dockerfile"
+  target     = "ubuntu-22-tauri"
+  tags       = ["zondax/ubuntu-ci-tauri:22.04"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-ci-tauri:22.04-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-ci-tauri:22.04-cache,mode=max"]
+}
+
 target "ubuntu-24-ci" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-24.04-ci.Dockerfile"
+  target     = "ubuntu-24-playwright"
   tags       = ["zondax/ubuntu-ci:24.04"]
   cache-from = ["type=registry,ref=zondax/ubuntu-ci:24.04-cache"]
   cache-to   = ["type=registry,ref=zondax/ubuntu-ci:24.04-cache,mode=max"]
+}
+
+target "ubuntu-24-tauri" {
+  inherits   = ["_common"]
+  dockerfile = ".docker/ubuntu-24.04-ci.Dockerfile"
+  target     = "ubuntu-24-tauri"
+  tags       = ["zondax/ubuntu-ci-tauri:24.04"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-ci-tauri:24.04-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-ci-tauri:24.04-cache,mode=max"]
 }
 
 # Future base images can be added here:

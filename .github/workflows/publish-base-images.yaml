@@ -30,7 +30,7 @@ jobs:
     with:
       registry: dockerhub
       bake_file: .docker/docker-bake.hcl
-      # Build all targets in default group (ubuntu-22-dev, ubuntu-24-dev)
+      # Build all targets in default group (ubuntu-22-ci, ubuntu-24-ci, ubuntu-24-tauri)
       # Image names come from the bake file itself
       bake_targets: ""
     secrets:
