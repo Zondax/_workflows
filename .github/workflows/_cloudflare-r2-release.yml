@@ -271,8 +271,9 @@ jobs:
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
       - name: Setup mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@v4
         with:
+          version: 2026.4.3
           install: true
           cache: true
 
@@ -482,35 +483,94 @@ jobs:
           echo "📁 Latest upload path: $LATEST_PATH"
           echo "📁 Versioned upload path: $VERSIONED_PATH"
 
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          version: 2026.4.3
+          install: true
+          cache: true
+          tool_versions: |
+            rclone 1.73.3
+
+      - name: Configure rclone
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.r2_access_key_id }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.r2_secret_access_key }}
+        run: |
+          cat > "$RUNNER_TEMP/rclone.conf" <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = https://${{ inputs.r2_account_id }}.r2.cloudflarestorage.com
+          region = auto
+          no_check_bucket = true
+          EOF
+          chmod 600 "$RUNNER_TEMP/rclone.conf"
+          echo "RCLONE_CONFIG=$RUNNER_TEMP/rclone.conf" >> $GITHUB_ENV
+
       - name: Upload to Latest
         id: upload-latest
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ inputs.r2_account_id }}
-          r2-access-key-id: ${{ secrets.r2_access_key_id }}
-          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
-          r2-bucket: ${{ inputs.r2_bucket }}
-          source-dir: upload
-          destination-dir: ${{ steps.paths.outputs.latest_path }}
-          output-file-url: true
-          multipart-size: ${{ inputs.multipart_size }}
-          max-retries: ${{ inputs.max_retries }}
-          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+        env:
+          DESTINATION_PATH: ${{ steps.paths.outputs.latest_path }}
+        run: |
+          rclone_args=(
+            copy
+            upload
+            "r2:${{ inputs.r2_bucket }}/${DESTINATION_PATH}"
+            --config "$RCLONE_CONFIG"
+            --retries "${{ inputs.max_retries }}"
+            --s3-upload-cutoff "${{ inputs.multipart_size }}M"
+          )
+
+          if [[ "${{ inputs.multipart_concurrent }}" != "true" ]]; then
+            rclone_args+=(--s3-upload-concurrency 1)
+          fi
+
+          mise exec rclone@1.73.3 -- rclone "${rclone_args[@]}"
+
+          urls_file="$RUNNER_TEMP/upload-latest-urls.txt"
+          : > "$urls_file"
+          while IFS= read -r -d '' file; do
+            rel_path="${file#upload/}"
+            printf 'https://%s.r2.cloudflarestorage.com/%s/%s/%s\n' "${{ inputs.r2_account_id }}" "${{ inputs.r2_bucket }}" "$DESTINATION_PATH" "$rel_path" >> "$urls_file"
+          done < <(find upload -type f -print0 | sort -z)
+
+          echo "file-urls<<EOF" >> "$GITHUB_OUTPUT"
+          cat "$urls_file" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Upload to Versioned/Commit folder
         id: upload-versioned
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ inputs.r2_account_id }}
-          r2-access-key-id: ${{ secrets.r2_access_key_id }}
-          r2-secret-access-key: ${{ secrets.r2_secret_access_key }}
-          r2-bucket: ${{ inputs.r2_bucket }}
-          source-dir: upload
-          destination-dir: ${{ steps.paths.outputs.versioned_path }}
-          output-file-url: true
-          multipart-size: ${{ inputs.multipart_size }}
-          max-retries: ${{ inputs.max_retries }}
-          multipart-concurrent: ${{ inputs.multipart_concurrent }}
+        env:
+          DESTINATION_PATH: ${{ steps.paths.outputs.versioned_path }}
+        run: |
+          rclone_args=(
+            copy
+            upload
+            "r2:${{ inputs.r2_bucket }}/${DESTINATION_PATH}"
+            --config "$RCLONE_CONFIG"
+            --retries "${{ inputs.max_retries }}"
+            --s3-upload-cutoff "${{ inputs.multipart_size }}M"
+          )
+
+          if [[ "${{ inputs.multipart_concurrent }}" != "true" ]]; then
+            rclone_args+=(--s3-upload-concurrency 1)
+          fi
+
+          mise exec rclone@1.73.3 -- rclone "${rclone_args[@]}"
+
+          urls_file="$RUNNER_TEMP/upload-versioned-urls.txt"
+          : > "$urls_file"
+          while IFS= read -r -d '' file; do
+            rel_path="${file#upload/}"
+            printf 'https://%s.r2.cloudflarestorage.com/%s/%s/%s\n' "${{ inputs.r2_account_id }}" "${{ inputs.r2_bucket }}" "$DESTINATION_PATH" "$rel_path" >> "$urls_file"
+          done < <(find upload -type f -print0 | sort -z)
+
+          echo "file-urls<<EOF" >> "$GITHUB_OUTPUT"
+          cat "$urls_file" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Generate upload outputs
         id: generate-outputs
@@ -618,17 +678,40 @@ jobs:
 
       - name: Create Release
         id: release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ steps.release-type.outputs.release_name }}
-          tag_name: ${{ github.ref_name }}
-          draft: ${{ inputs.release_draft }}
-          prerelease: ${{ steps.release-type.outputs.is_prerelease }}
-          files: release-artifacts/**/*
-          body_path: release_body.md
-          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NAME: ${{ steps.release-type.outputs.release_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_DRAFT: ${{ inputs.release_draft }}
+          RELEASE_PRERELEASE: ${{ steps.release-type.outputs.is_prerelease }}
+        run: |
+          mapfile -d '' release_files < <(find release-artifacts -type f -print0 | sort -z)
+
+          if [[ ${#release_files[@]} -eq 0 ]]; then
+            echo "No release artifacts found"
+            exit 1
+          fi
+
+          release_notes="$(cat release_body.md)"
+          create_args=("$RELEASE_TAG" --title "$RELEASE_NAME" --notes "$release_notes" --generate-notes)
+
+          if [[ "$RELEASE_DRAFT" == "true" ]]; then
+            create_args+=(--draft)
+          fi
+
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+            create_args+=(--prerelease)
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${release_files[@]}" --clobber
+          else
+            gh release create "${create_args[@]}" "${release_files[@]}"
+          fi
+
+          release_json="$(gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")"
+          echo "html_url=$(jq -r '.html_url' <<<"$release_json")" >> "$GITHUB_OUTPUT"
+          echo "id=$(jq -r '.id' <<<"$release_json")" >> "$GITHUB_OUTPUT"
 
       - name: Display release info
         run: |

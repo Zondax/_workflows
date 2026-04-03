@@ -65,13 +65,19 @@ jobs:
           sudo update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 10
       - name: Install deps
         run: make deps
-      - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2.0.2
+      - name: Setup mise
+        uses: jdx/mise-action@v4
         with:
-          cmake-version: "3.28.0"
+          version: 2026.4.3
+          install: true
+          cache: false
+          cache_save: false
+          tool_versions: |
+            cmake 3.28.0
+          reshim: true
       - name: Setup Rust
         if: ${{ inputs.has-rust }}
-        uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ inputs.rust-version }}
       - name: Run CMake
@@ -202,11 +208,11 @@ jobs:
           sudo update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 10
       - name: Setup Rust
         if: ${{ inputs.has-rust }}
-        uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ inputs.rust-version }}
       - name: Setup Node.js
-        uses: actions/setup-node@v4.1.0
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
       - name: Install yarn
@@ -278,14 +284,16 @@ jobs:
       - name: Create or Update Release (1)
         if: ${{ github.ref == 'refs/heads/main' }}
         id: create_release_0
-        uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ./app/pkg/installer_nanos.sh
-          tag_name: ${{ steps.nanos.outputs.tag_name }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.nanos.outputs.tag_name }}
+          RELEASE_FILE: ./app/pkg/installer_nanos.sh
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_FILE" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_FILE"
+          fi
 
   build_package_nanosp:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
@@ -339,14 +347,16 @@ jobs:
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_nanosp
-        uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ./app/pkg/installer_nanos_plus.sh
-          tag_name: ${{ steps.nanosp.outputs.tag_name }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.nanosp.outputs.tag_name }}
+          RELEASE_FILE: ./app/pkg/installer_nanos_plus.sh
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_FILE" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_FILE"
+          fi
 
   build_package_stax:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
@@ -399,14 +409,16 @@ jobs:
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_stax
-        uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ./app/pkg/installer_stax.sh
-          tag_name: ${{ steps.stax.outputs.tag_name }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.stax.outputs.tag_name }}
+          RELEASE_FILE: ./app/pkg/installer_stax.sh
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_FILE" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_FILE"
+          fi
 
   build_package_flex:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
@@ -459,14 +471,16 @@ jobs:
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_flex
-        uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ./app/pkg/installer_flex.sh
-          tag_name: ${{ steps.flex.outputs.tag_name }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.flex.outputs.tag_name }}
+          RELEASE_FILE: ./app/pkg/installer_flex.sh
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_FILE" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_FILE"
+          fi
 
   build_package_apex_p:
     needs: [setup, cpp_test, build_ledger, test_zemu, rust_tests]
@@ -519,11 +533,13 @@ jobs:
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_apex_p
-        uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: ./app/pkg/installer_apex_p.sh
-          tag_name: ${{ steps.apex_p.outputs.tag_name }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.apex_p.outputs.tag_name }}
+          RELEASE_FILE: ./app/pkg/installer_apex_p.sh
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_FILE" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_FILE"
+          fi
