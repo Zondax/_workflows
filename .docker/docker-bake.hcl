@@ -27,7 +27,12 @@ target "ubuntu-22-ci" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-22.04-ci.Dockerfile"
   target     = "ubuntu-22-playwright"
-  tags       = ["zondax/ubuntu-ci:22.04"]
+  # Keep the generic tag as a compatibility alias while consumers migrate
+  # to explicit workload tags.
+  tags = [
+    "zondax/ubuntu-ci:22.04",
+    "zondax/ubuntu-ci:22.04-playwright",
+  ]
   cache-from = ["type=registry,ref=zondax/ubuntu-ci:22.04-cache"]
   cache-to   = ["type=registry,ref=zondax/ubuntu-ci:22.04-cache,mode=max"]
 }
@@ -45,7 +50,12 @@ target "ubuntu-24-ci" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-24.04-ci.Dockerfile"
   target     = "ubuntu-24-playwright"
-  tags       = ["zondax/ubuntu-ci:24.04"]
+  # Keep the generic tag as a compatibility alias while consumers migrate
+  # to explicit workload tags.
+  tags = [
+    "zondax/ubuntu-ci:24.04",
+    "zondax/ubuntu-ci:24.04-playwright",
+  ]
   cache-from = ["type=registry,ref=zondax/ubuntu-ci:24.04-cache"]
   cache-to   = ["type=registry,ref=zondax/ubuntu-ci:24.04-cache,mode=max"]
 }
