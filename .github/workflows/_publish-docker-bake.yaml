@@ -355,9 +355,15 @@ jobs:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           METADATA='${{ steps.bake.outputs.metadata }}'
-          for digest in $(echo "$METADATA" | jq -r '.[].digest // empty'); do
-            echo "Signing: $digest"
-            cosign sign --yes "$digest"
+          echo "$METADATA" | jq -c 'to_entries[]' | while read -r entry; do
+            IMAGE_REF=$(echo "$entry" | jq -r '.value."image.name"' | tr ',' '\n' | head -1)
+            DIGEST=$(echo "$entry" | jq -r '.value."containerimage.digest" // .value.digest // empty')
+
+            if [ -n "$IMAGE_REF" ] && [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+              FULL_REF="${IMAGE_REF}@${DIGEST}"
+              echo "Signing: $FULL_REF"
+              cosign sign --yes "$FULL_REF"
+            fi
           done
 
       - name: Build Summary
