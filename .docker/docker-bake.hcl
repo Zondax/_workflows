@@ -36,9 +36,9 @@ target "ubuntu-22-tauri" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-22.04-ci.Dockerfile"
   target     = "ubuntu-22-tauri"
-  tags       = ["zondax/ubuntu-ci-tauri:22.04"]
-  cache-from = ["type=registry,ref=zondax/ubuntu-ci-tauri:22.04-cache"]
-  cache-to   = ["type=registry,ref=zondax/ubuntu-ci-tauri:22.04-cache,mode=max"]
+  tags       = ["zondax/ubuntu-ci:22.04-tauri"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-ci:22.04-tauri-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-ci:22.04-tauri-cache,mode=max"]
 }
 
 target "ubuntu-24-ci" {
@@ -54,9 +54,9 @@ target "ubuntu-24-tauri" {
   inherits   = ["_common"]
   dockerfile = ".docker/ubuntu-24.04-ci.Dockerfile"
   target     = "ubuntu-24-tauri"
-  tags       = ["zondax/ubuntu-ci-tauri:24.04"]
-  cache-from = ["type=registry,ref=zondax/ubuntu-ci-tauri:24.04-cache"]
-  cache-to   = ["type=registry,ref=zondax/ubuntu-ci-tauri:24.04-cache,mode=max"]
+  tags       = ["zondax/ubuntu-ci:24.04-tauri"]
+  cache-from = ["type=registry,ref=zondax/ubuntu-ci:24.04-tauri-cache"]
+  cache-to   = ["type=registry,ref=zondax/ubuntu-ci:24.04-tauri-cache,mode=max"]
 }
 
 # Future base images can be added here:
