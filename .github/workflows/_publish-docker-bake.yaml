@@ -218,21 +218,132 @@ jobs:
 
           echo "tags_file=tags-override.hcl" >> $GITHUB_OUTPUT
 
+      - name: Resolve Bake Plan
+        id: plan
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+        run: |
+          set -euo pipefail
+
+          declare -a requested_targets=()
+          if [ -n "${{ inputs.bake_targets }}" ]; then
+            while IFS= read -r target; do
+              [ -n "$target" ] || continue
+              requested_targets+=("$target")
+            done < <(printf '%s' "${{ inputs.bake_targets }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d')
+          fi
+
+          bake_args=(
+            docker buildx bake
+            -f "${{ inputs.bake_file }}"
+            -f "${{ steps.tags.outputs.tags_file }}"
+            --print
+          )
+
+          if [ "${#requested_targets[@]}" -gt 0 ]; then
+            bake_args+=("${requested_targets[@]}")
+          fi
+
+          "${bake_args[@]}" > bake-plan.json
+
+          if [ "${#requested_targets[@]}" -gt 0 ]; then
+            printf '%s\n' "${requested_targets[@]}" > bake-targets.txt
+          else
+            jq -r '.group.default.targets[]? // empty' bake-plan.json > bake-targets.txt
+            if [ ! -s bake-targets.txt ]; then
+              jq -r '.target | keys[]' bake-plan.json > bake-targets.txt
+            fi
+          fi
+
+          echo "Resolved bake targets:"
+          cat bake-targets.txt
+
+          echo "plan_file=bake-plan.json" >> $GITHUB_OUTPUT
+          echo "targets_file=bake-targets.txt" >> $GITHUB_OUTPUT
+
       - name: Build and Push
         id: bake
-        uses: docker/bake-action@v5
-        with:
-          workdir: ${{ inputs.workdir }}
-          files: |
-            ${{ inputs.workdir }}/${{ inputs.bake_file }}
-            ${{ inputs.workdir }}/${{ steps.tags.outputs.tags_file }}
-          targets: ${{ inputs.bake_targets }}
-          push: true
-          provenance: ${{ inputs.enable_provenance && 'mode=min' || 'false' }}
-          sbom: ${{ inputs.enable_sbom }}
-          set: |
-            *.platform=${{ inputs.platforms }}
-            *.output=type=registry,compression=zstd,compression-level=3
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+        env:
+          USE_REGISTRY_CACHE: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          plan_file="${{ steps.plan.outputs.plan_file }}"
+          targets_file="${{ steps.plan.outputs.targets_file }}"
+          metadata_file="bake-metadata.json"
+          echo '{}' > "$metadata_file"
+
+          while IFS= read -r target; do
+            [ -n "$target" ] || continue
+
+            echo "::group::Build and push ${target}"
+
+            metadata_target_file="bake-${target}.json"
+            bake_args=(
+              docker buildx bake
+              --progress=plain
+              --metadata-file "$metadata_target_file"
+              -f "${{ inputs.bake_file }}"
+              -f "${{ steps.tags.outputs.tags_file }}"
+              "$target"
+              --set "*.platform=${{ inputs.platforms }}"
+              --set "*.output=type=registry,compression=zstd,compression-level=3"
+            )
+
+            if [ "${USE_REGISTRY_CACHE}" != "true" ]; then
+              bake_args+=(
+                --set "*.cache-from="
+                --set "*.cache-to="
+              )
+            fi
+
+            if [ "${{ inputs.enable_provenance }}" = "true" ]; then
+              bake_args+=(--provenance=mode=min)
+            else
+              bake_args+=(--provenance=false)
+            fi
+
+            if [ "${{ inputs.enable_sbom }}" = "true" ]; then
+              bake_args+=(--sbom=true)
+            else
+              bake_args+=(--sbom=false)
+            fi
+
+            "${bake_args[@]}"
+
+            primary_tag=$(jq -r --arg target "$target" '.target[$target].tags[0]' "$plan_file")
+            image_names=$(jq -r --arg target "$target" '.target[$target].tags | join(",")' "$plan_file")
+            digest=$(docker buildx imagetools inspect "$primary_tag" --format '{{json .Manifest}}' | jq -r '.digest')
+
+            tmp_metadata="$(mktemp)"
+            jq \
+              --arg target "$target" \
+              --arg image_names "$image_names" \
+              --arg digest "$digest" \
+              '. + {
+                ($target): {
+                  "image.name": $image_names,
+                  "containerimage.digest": $digest,
+                  "digest": $digest
+                }
+              }' \
+              "$metadata_file" > "$tmp_metadata"
+            mv "$tmp_metadata" "$metadata_file"
+
+            echo "::endgroup::"
+          done < "$targets_file"
+
+          primary_target="$(head -n1 "$targets_file")"
+          primary_digest="$(jq -r --arg target "$primary_target" '.[$target].digest // empty' "$metadata_file")"
+
+          {
+            echo "metadata<<EOF"
+            cat "$metadata_file"
+            echo "EOF"
+            echo "digest=${primary_digest}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         if: inputs.enable_signing
