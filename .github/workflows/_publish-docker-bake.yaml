@@ -218,10 +218,28 @@ jobs:
 
           echo "tags_file=tags-override.hcl" >> $GITHUB_OUTPUT
 
+      - name: Derive version from git ref
+        id: version
+        run: |
+          REF="${GITHUB_REF:-}"
+          if [[ "$REF" == refs/tags/v* ]]; then
+            TAG="${REF#refs/tags/}"        # v0.7.59
+            VER="${TAG#v}"                 # 0.7.59
+          else
+            TAG="dev"
+            VER="0.0.0"
+          fi
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VER"   >> $GITHUB_OUTPUT
+          echo "Derived VERSION=$VER  IMAGE_TAG=$TAG  (from $REF)"
+
       - name: Resolve Bake Plan
         id: plan
         shell: bash
         working-directory: ${{ inputs.workdir }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
         run: |
           set -euo pipefail
 
@@ -266,6 +284,8 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.workdir }}
         env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
           USE_REGISTRY_CACHE: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
         run: |
           set -euo pipefail
