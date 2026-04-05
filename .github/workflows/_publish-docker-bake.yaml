@@ -264,16 +264,11 @@ jobs:
 
           "${bake_args[@]}" > bake-plan.json
 
-          if [ "${#requested_targets[@]}" -gt 0 ]; then
-            # Requested names may include groups — resolve to actual .target keys
-            # (bake --print already filters output to the requested group/targets)
-            jq -r '.target | keys[]' bake-plan.json > bake-targets.txt
-          else
-            jq -r '.group.default.targets[]? // empty' bake-plan.json > bake-targets.txt
-            if [ ! -s bake-targets.txt ]; then
-              jq -r '.target | keys[]' bake-plan.json > bake-targets.txt
-            fi
-          fi
+          # Extract publishable targets: only those with a non-empty tags array.
+          # This filters out dependency targets (builder, runtime-base) and
+          # unexpanded matrix base names that have no tags of their own.
+          jq -r '[.target | to_entries[] | select(.value.tags != null and (.value.tags | length) > 0) | .key] | .[]' \
+            bake-plan.json > bake-targets.txt
 
           echo "Resolved bake targets:"
           cat bake-targets.txt
