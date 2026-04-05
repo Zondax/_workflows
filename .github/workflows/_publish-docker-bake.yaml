@@ -265,7 +265,9 @@ jobs:
           "${bake_args[@]}" > bake-plan.json
 
           if [ "${#requested_targets[@]}" -gt 0 ]; then
-            printf '%s\n' "${requested_targets[@]}" > bake-targets.txt
+            # Requested names may include groups — resolve to actual .target keys
+            # (bake --print already filters output to the requested group/targets)
+            jq -r '.target | keys[]' bake-plan.json > bake-targets.txt
           else
             jq -r '.group.default.targets[]? // empty' bake-plan.json > bake-targets.txt
             if [ ! -s bake-targets.txt ]; then
