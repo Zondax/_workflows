@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS ubuntu-24-base
 
 LABEL org.opencontainers.image.source="https://github.com/zondax/_workflows"
 LABEL org.opencontainers.image.description="Zondax Ubuntu 24.04 CI base image"
@@ -7,15 +7,11 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.title="ubuntu-ci"
 LABEL org.opencontainers.image.base.name="ubuntu:24.04"
 
-# Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
+ARG MISE_VERSION=2026.4.3
 
-# Install all system packages in a single layer (reduces image size)
-# - Base dev tools
-# - Tauri/GTK dependencies (webkit2gtk-4.1 with libsoup3 for Ubuntu 24.04)
-# - Playwright/Chromium dependencies
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    # Base dev tools
+# Shared tooling used by all Ubuntu 24.04 CI variants.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     curl \
@@ -27,14 +23,38 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     pkg-config \
     wget \
     zstd \
-    # Tauri/GTK
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+COPY ./.docker/zondax_CA.crt /usr/local/share/ca-certificates/zondax_CA.crt
+RUN update-ca-certificates
+
+COPY ./.docker/mise /tmp/mise
+RUN chmod +x /tmp/mise/install.sh && MISE_VERSION="$MISE_VERSION" /tmp/mise/install.sh
+
+ENV PATH="/root/.local/share/mise/shims:${PATH}"
+ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"
+
+FROM ubuntu-24-base AS ubuntu-24-tauri
+
+# Tauri desktop build and headless e2e dependencies without Playwright browser extras.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    file \
     libayatana-appindicator3-dev \
     libgtk-3-dev \
     librsvg2-dev \
     libsoup-3.0-dev \
     libwebkit2gtk-4.1-dev \
+    libxdo-dev \
     patchelf \
-    # Playwright/Chromium
+    xvfb \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+FROM ubuntu-24-tauri AS ubuntu-24-playwright
+
+# Browser automation extras layered on top of the Tauri-capable image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2t64 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -43,8 +63,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libcups2 \
     libdbus-1-3 \
     libdrm2 \
+    libevent-2.1-7t64 \
     libgbm1 \
     libglib2.0-0 \
+    libgtk-4-1 \
+    libnotify4 \
     libnspr4 \
     libnss3 \
     libpango-1.0-0 \
@@ -56,9 +79,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
-    xvfb \
-    # Playwright full browser support (Firefox/WebKit)
-    # Fonts
+    libxss1 \
+    libxv1 \
+    ffmpeg \
     fonts-freefont-ttf \
     fonts-ipafont-gothic \
     fonts-liberation \
@@ -66,32 +89,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     fonts-tlwg-loma-otf \
     fonts-unifont \
     fonts-wqy-zenhei \
+    gstreamer1.0-libav \
+    gstreamer1.0-plugins-bad \
     xfonts-cyrillic \
     xfonts-encodings \
     xfonts-scalable \
     xfonts-utils \
-    # GTK4 for WebKit
-    libgtk-4-1 \
-    # Multimedia/GStreamer
-    ffmpeg \
-    gstreamer1.0-libav \
-    gstreamer1.0-plugins-bad \
-    # Additional libs
-    libevent-2.1-7t64 \
-    libnotify4 \
-    libxss1 \
-    libxv1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Add Zondax CA certificate
-COPY ./.docker/zondax_CA.crt /usr/local/share/ca-certificates/zondax_CA.crt
-RUN update-ca-certificates
-
-# Install mise and tools (node, pnpm, rust, playwright via postinstall hook)
-COPY ./.docker/mise /tmp/mise
-RUN chmod +x /tmp/mise/install.sh && /tmp/mise/install.sh
-
-# Environment for mise
-ENV PATH="/root/.local/share/mise/shims:${PATH}"
-ENV PLAYWRIGHT_BROWSERS_PATH="/root/.cache/ms-playwright"

@@ -33,17 +33,17 @@ on:
         type: boolean
         default: false
 
-      # REMOTE BUILDER
+      # DEPRECATED REMOTE BUILDER INPUTS
       enable_remote_builder:
-        description: "Use remote BuildKit builder for faster builds"
+        description: "Deprecated: ignored. This workflow now uses a local DinD-backed Buildx builder."
         type: boolean
-        default: true
+        default: false
       remote_builder_url:
-        description: "Remote BuildKit URL"
+        description: "Deprecated: ignored."
         type: string
         default: "tcp://buildkit.zondax.dev:8372"
       remote_builder_name:
-        description: "Name for the remote builder instance"
+        description: "Deprecated: ignored."
         type: string
         default: "zondax-builder"
 
@@ -117,11 +117,27 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
+    env:
+      DOCKER_HOST: tcp://127.0.0.1:2375
+      DOCKER_TLS_CERTDIR: ""
     permissions:
       contents: read
       packages: write
       pull-requests: write # For PR comments
       id-token: write # For OIDC (Cosign, GCP WIF)
+    services:
+      docker:
+        image: docker:28-dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        options: >-
+          --privileged
+          --health-cmd "docker info >/dev/null 2>&1 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 2375:2375
 
     outputs:
       image_tags: ${{ steps.tags.outputs.tags_file }}
@@ -147,22 +163,26 @@ jobs:
 
       - name: Set up QEMU
         if: inputs.enable_multiarch
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
-      - name: Set up Docker Buildx (local)
-        if: ${{ !inputs.enable_remote_builder }}
-        uses: docker/setup-buildx-action@v3
+      - name: Warn on deprecated remote builder inputs
+        if: ${{ inputs.enable_remote_builder || inputs.remote_builder_url != 'tcp://buildkit.zondax.dev:8372' || inputs.remote_builder_name != 'zondax-builder' }}
+        run: |
+          echo "::warning::Remote builder inputs are deprecated and ignored. This workflow now uses a local DinD-backed Buildx builder."
 
-      - name: Set up Docker Buildx (remote)
-        if: ${{ inputs.enable_remote_builder }}
-        uses: docker/setup-buildx-action@v3
+      - name: Verify Docker daemon
+        run: |
+          docker version
+          docker info
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
         with:
-          driver: remote
-          endpoint: ${{ inputs.remote_builder_url }}
+          driver: docker-container
 
       - name: Login to Docker Hub
         if: contains(inputs.registry, 'dockerhub') || inputs.registry == 'both'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -179,7 +199,7 @@ jobs:
         run: gcloud auth configure-docker ${{ vars.PULUMI_GAR_LOCATION }}-docker.pkg.dev
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -198,21 +218,152 @@ jobs:
 
           echo "tags_file=tags-override.hcl" >> $GITHUB_OUTPUT
 
+      - name: Derive version from git ref
+        id: version
+        run: |
+          REF="${GITHUB_REF:-}"
+          if [[ "$REF" == refs/tags/v* ]]; then
+            TAG="${REF#refs/tags/}"        # v0.7.59
+            VER="${TAG#v}"                 # 0.7.59
+          else
+            TAG="dev"
+            VER="0.0.0"
+          fi
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VER"   >> $GITHUB_OUTPUT
+          echo "Derived VERSION=$VER  IMAGE_TAG=$TAG  (from $REF)"
+
+      - name: Resolve Bake Plan
+        id: plan
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          declare -a requested_targets=()
+          if [ -n "${{ inputs.bake_targets }}" ]; then
+            while IFS= read -r target; do
+              [ -n "$target" ] || continue
+              requested_targets+=("$target")
+            done < <(printf '%s' "${{ inputs.bake_targets }}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d')
+          fi
+
+          bake_args=(
+            docker buildx bake
+            -f "${{ inputs.bake_file }}"
+            -f "${{ steps.tags.outputs.tags_file }}"
+            --print
+          )
+
+          if [ "${#requested_targets[@]}" -gt 0 ]; then
+            bake_args+=("${requested_targets[@]}")
+          fi
+
+          "${bake_args[@]}" > bake-plan.json
+
+          if [ "${#requested_targets[@]}" -gt 0 ]; then
+            printf '%s\n' "${requested_targets[@]}" > bake-targets.txt
+          else
+            jq -r '.group.default.targets[]? // empty' bake-plan.json > bake-targets.txt
+            if [ ! -s bake-targets.txt ]; then
+              jq -r '.target | keys[]' bake-plan.json > bake-targets.txt
+            fi
+          fi
+
+          echo "Resolved bake targets:"
+          cat bake-targets.txt
+
+          echo "plan_file=bake-plan.json" >> $GITHUB_OUTPUT
+          echo "targets_file=bake-targets.txt" >> $GITHUB_OUTPUT
+
       - name: Build and Push
         id: bake
-        uses: docker/bake-action@v5
-        with:
-          workdir: ${{ inputs.workdir }}
-          files: |
-            ${{ inputs.workdir }}/${{ inputs.bake_file }}
-            ${{ inputs.workdir }}/${{ steps.tags.outputs.tags_file }}
-          targets: ${{ inputs.bake_targets }}
-          push: true
-          provenance: ${{ inputs.enable_provenance && 'mode=min' || 'false' }}
-          sbom: ${{ inputs.enable_sbom }}
-          set: |
-            *.platform=${{ inputs.platforms }}
-            *.output=type=registry,compression=zstd,compression-level=3
+        shell: bash
+        working-directory: ${{ inputs.workdir }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+          USE_REGISTRY_CACHE: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+
+          plan_file="${{ steps.plan.outputs.plan_file }}"
+          targets_file="${{ steps.plan.outputs.targets_file }}"
+          metadata_file="bake-metadata.json"
+          echo '{}' > "$metadata_file"
+
+          while IFS= read -r target; do
+            [ -n "$target" ] || continue
+
+            echo "::group::Build and push ${target}"
+
+            metadata_target_file="bake-${target}.json"
+            bake_args=(
+              docker buildx bake
+              --progress=plain
+              --metadata-file "$metadata_target_file"
+              -f "${{ inputs.bake_file }}"
+              -f "${{ steps.tags.outputs.tags_file }}"
+              "$target"
+              --set "*.platform=${{ inputs.platforms }}"
+              --set "*.output=type=registry,compression=zstd,compression-level=3"
+            )
+
+            if [ "${USE_REGISTRY_CACHE}" != "true" ]; then
+              bake_args+=(
+                --set "*.cache-from="
+                --set "*.cache-to="
+              )
+            fi
+
+            if [ "${{ inputs.enable_provenance }}" = "true" ]; then
+              bake_args+=(--provenance=mode=min)
+            else
+              bake_args+=(--provenance=false)
+            fi
+
+            if [ "${{ inputs.enable_sbom }}" = "true" ]; then
+              bake_args+=(--sbom=true)
+            else
+              bake_args+=(--sbom=false)
+            fi
+
+            "${bake_args[@]}"
+
+            primary_tag=$(jq -r --arg target "$target" '.target[$target].tags[0]' "$plan_file")
+            image_names=$(jq -r --arg target "$target" '.target[$target].tags | join(",")' "$plan_file")
+            digest=$(docker buildx imagetools inspect "$primary_tag" --format '{{json .Manifest}}' | jq -r '.digest')
+
+            tmp_metadata="$(mktemp)"
+            jq \
+              --arg target "$target" \
+              --arg image_names "$image_names" \
+              --arg digest "$digest" \
+              '. + {
+                ($target): {
+                  "image.name": $image_names,
+                  "containerimage.digest": $digest,
+                  "digest": $digest
+                }
+              }' \
+              "$metadata_file" > "$tmp_metadata"
+            mv "$tmp_metadata" "$metadata_file"
+
+            echo "::endgroup::"
+          done < "$targets_file"
+
+          primary_target="$(head -n1 "$targets_file")"
+          primary_digest="$(jq -r --arg target "$primary_target" '.[$target].digest // empty' "$metadata_file")"
+
+          {
+            echo "metadata<<EOF"
+            cat "$metadata_file"
+            echo "EOF"
+            echo "digest=${primary_digest}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         if: inputs.enable_signing
@@ -224,9 +375,15 @@ jobs:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           METADATA='${{ steps.bake.outputs.metadata }}'
-          for digest in $(echo "$METADATA" | jq -r '.[].digest // empty'); do
-            echo "Signing: $digest"
-            cosign sign --yes "$digest"
+          echo "$METADATA" | jq -c 'to_entries[]' | while read -r entry; do
+            IMAGE_REF=$(echo "$entry" | jq -r '.value."image.name"' | tr ',' '\n' | head -1)
+            DIGEST=$(echo "$entry" | jq -r '.value."containerimage.digest" // .value.digest // empty')
+
+            if [ -n "$IMAGE_REF" ] && [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+              FULL_REF="${IMAGE_REF}@${DIGEST}"
+              echo "Signing: $FULL_REF"
+              cosign sign --yes "$FULL_REF"
+            fi
           done
 
       - name: Build Summary
@@ -292,7 +449,7 @@ jobs:
           ### Published Images
           ${IMAGE_LIST}
           ### Build Configuration
-          - **Builder:** ${{ inputs.enable_remote_builder && format('Remote ({0})', inputs.remote_builder_url) || 'Local' }}
+          - **Builder:** Docker-in-Docker (local Buildx)
           - **Platforms:** \`${{ inputs.platforms }}\`
           - **Compression:** zstd
           - **Signed:** ${{ inputs.enable_signing && 'Yes' || 'No' }} | **SBOM:** ${{ inputs.enable_sbom && 'Yes' || 'No' }} | **Provenance:** ${{ inputs.enable_provenance && 'Yes' || 'No' }}"

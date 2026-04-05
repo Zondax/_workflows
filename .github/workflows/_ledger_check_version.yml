@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     steps:
       - id: checkTag
-        uses: mukunku/tag-exists-action@v1.0.0
+        uses: Zondax/tag-exists-action@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

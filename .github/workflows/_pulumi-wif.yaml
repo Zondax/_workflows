@@ -121,7 +121,7 @@ jobs:
           PULUMI_CLOUD_SQL_INSTANCE: ${{ vars.PULUMI_CLOUD_SQL_INSTANCE }}
 
       - name: Setup mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@v4
         with:
           install: true
           cache: false

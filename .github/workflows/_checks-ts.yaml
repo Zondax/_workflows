@@ -231,7 +231,7 @@ jobs:
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
       - name: Setup mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@v4
         with:
           install: true
           cache: false
