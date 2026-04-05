@@ -38,6 +38,11 @@ on:
         required: false
         type: number
         default: 0
+      coverage_file_summary:
+        description: "Write per-file coverage breakdown to GitHub Actions job summary (requires enable_coverage)"
+        required: false
+        type: boolean
+        default: false
       runner_preset:
         description: "Runner preset (linux-amd64, macos-arm64). Ignored when runs_on is set."
         required: false
@@ -480,6 +485,85 @@ jobs:
             echo "coverage_message=Coverage check FAILED (${coverage_percent}% < ${TESTCOVERAGE_THRESHOLD}%)" >> $GITHUB_OUTPUT
             exit 1
           fi
+
+      - name: Per-file coverage summary
+        if: inputs.enable_coverage && inputs.coverage_file_summary
+        shell: bash
+        run: |
+          if [ ! -f "tarpaulin-report.json" ]; then
+            echo "tarpaulin-report.json not found — skipping file summary"
+            exit 0
+          fi
+          python3 - <<'PYEOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+
+          with open("tarpaulin-report.json") as f:
+              data = json.load(f)
+
+          print("## Rust Coverage — Per-File Breakdown")
+          print()
+
+          total_lines = 0
+          covered_lines = 0
+          file_stats = []
+
+          for fi in data.get("files", []):
+              path_parts = fi.get("path", [])
+              if not path_parts:
+                  continue
+              path = path_parts[0] + "/".join(path_parts[1:])
+
+              if "proto/generated" in path or "/target/" in path:
+                  continue
+
+              traces = fi.get("traces", [])
+              if not traces:
+                  continue
+
+              file_total = len(traces)
+              file_covered = sum(1 for t in traces if t.get("stats", {}).get("Line", 0) > 0)
+              total_lines += file_total
+              covered_lines += file_covered
+              pct = (file_covered / file_total * 100) if file_total > 0 else 0
+
+              short = path
+              for prefix in ["/__w/", "/home/runner/work/"]:
+                  if prefix in short:
+                      # Keep from the second path component after the prefix (repo name repeated)
+                      parts = short.split(prefix, 1)[1].split("/", 2)
+                      short = parts[2] if len(parts) > 2 else short
+              file_stats.append((short, file_covered, file_total, pct))
+
+          overall_pct = (covered_lines / total_lines * 100) if total_lines > 0 else 0
+          print(f"**Overall: {covered_lines}/{total_lines} lines ({overall_pct:.1f}%)**")
+          print()
+
+          low = sorted(
+              [f for f in file_stats if f[3] < 50 and f[2] >= 10],
+              key=lambda x: x[3],
+          )
+
+          if low:
+              print(f"### Files below 50% coverage ({len(low)} files)")
+              print()
+              print("| Coverage | Lines | File |")
+              print("|----------|-------|------|")
+              for path, cov, tot, pct in low:
+                  icon = "🔴" if pct < 10 else "🟠" if pct < 30 else "🟡"
+                  print(f"| {icon} {pct:.0f}% | {cov}/{tot} | `{path}` |")
+              print()
+
+          file_stats.sort(key=lambda x: x[3])
+          print(f"<details><summary>All files ({len(file_stats)} total)</summary>")
+          print()
+          print("| Coverage | Lines | File |")
+          print("|----------|-------|------|")
+          for path, cov, tot, pct in file_stats:
+              icon = "🟢" if pct >= 80 else "🟡" if pct >= 50 else "🟠" if pct >= 30 else "🔴"
+              print(f"| {icon} {pct:.0f}% | {cov}/{tot} | `{path}` |")
+          print()
+          print("</details>")
+          PYEOF
 
       - name: Upload coverage report as artifact
         if: inputs.enable_coverage
