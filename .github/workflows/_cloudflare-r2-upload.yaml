@@ -89,7 +89,14 @@ on:
         required: false
         type: boolean
         default: true
-      
+
+      # Hold period (release gating)
+      hold_period:
+        description: 'Minimum age (in minutes) of the GitHub Release before upload is allowed. Only applies when source_type is release. 0 = no hold (default)'
+        required: false
+        type: number
+        default: 0
+
       # Environment
       environment:
         description: 'GitHub environment for secrets'
@@ -201,7 +208,51 @@ jobs:
           
           echo "📋 Downloaded files:"
           ls -la download/
-      
+
+      # RELEASE MODE: Check hold period before proceeding
+      - name: Check release hold period
+        if: inputs.source_type == 'release' && inputs.hold_period > 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOLD_PERIOD: ${{ inputs.hold_period }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          RELEASE_TAG="$RELEASE_TAG_INPUT"
+          if [ -z "$RELEASE_TAG" ]; then
+            if [[ "$REF_TYPE" == "tag" ]]; then
+              RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+            else
+              echo "❌ Error: release_tag is required when not running on a tag"
+              exit 1
+            fi
+          fi
+
+          # Get release creation timestamp
+          CREATED_AT=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json createdAt --jq '.createdAt')
+          CREATED_EPOCH=$(date -d "$CREATED_AT" +%s)
+          NOW_EPOCH=$(date +%s)
+
+          AGE_MINUTES=$(( (NOW_EPOCH - CREATED_EPOCH) / 60 ))
+
+          echo "⏱️ Release '$RELEASE_TAG' created at: $CREATED_AT"
+          echo "⏱️ Release age: ${AGE_MINUTES} minutes"
+          echo "⏱️ Required hold period: ${HOLD_PERIOD} minutes"
+
+          if [ "$AGE_MINUTES" -lt "$HOLD_PERIOD" ]; then
+            REMAINING=$(( HOLD_PERIOD - AGE_MINUTES ))
+            echo ""
+            echo "🛑 HOLD PERIOD NOT MET"
+            echo "   Release is ${AGE_MINUTES}m old, but ${HOLD_PERIOD}m required."
+            echo "   Please wait ~${REMAINING} more minutes, then re-run this job."
+            echo ""
+            echo "   This is intentional — download the binaries from the GitHub Release,"
+            echo "   test them locally, and re-run when ready."
+            exit 1
+          fi
+
+          echo "✅ Hold period satisfied (${AGE_MINUTES}m >= ${HOLD_PERIOD}m). Proceeding with upload."
+
       # Prepare upload directory (same for both modes)
       - name: Prepare upload directory
         run: |
