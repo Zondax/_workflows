@@ -212,53 +212,13 @@ jobs:
       # RELEASE MODE: Check hold period before proceeding
       - name: Check release hold period
         if: inputs.source_type == 'release' && inputs.hold_period > 0
+        uses: zondax/actions/release-hold@v1
         env:
           GH_TOKEN: ${{ github.token }}
-          HOLD_PERIOD: ${{ inputs.hold_period }}
-          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
-          REF_TYPE: ${{ github.ref_type }}
-          REPO: ${{ github.repository }}
-        run: |
-          RELEASE_TAG="$RELEASE_TAG_INPUT"
-          if [ -z "$RELEASE_TAG" ]; then
-            if [[ "$REF_TYPE" == "tag" ]]; then
-              RELEASE_TAG="${GITHUB_REF#refs/tags/}"
-            else
-              echo "❌ Error: release_tag is required when not running on a tag"
-              exit 1
-            fi
-          fi
-
-          # Get the most recent release asset upload time (= when last build finished)
-          LATEST_ASSET_AT=$(gh release view "$RELEASE_TAG" --repo "$REPO" --json assets --jq '[.assets[].updatedAt] | sort | last')
-
-          if [ -z "$LATEST_ASSET_AT" ] || [ "$LATEST_ASSET_AT" = "null" ]; then
-            echo "⚠️ No assets found on release '$RELEASE_TAG'. Skipping hold check."
-            exit 0
-          fi
-
-          ASSET_EPOCH=$(date -d "$LATEST_ASSET_AT" +%s)
-          NOW_EPOCH=$(date +%s)
-
-          AGE_MINUTES=$(( (NOW_EPOCH - ASSET_EPOCH) / 60 ))
-
-          echo "⏱️ Release '$RELEASE_TAG' latest asset uploaded at: $LATEST_ASSET_AT"
-          echo "⏱️ Time since last asset: ${AGE_MINUTES} minutes"
-          echo "⏱️ Required hold period: ${HOLD_PERIOD} minutes"
-
-          if [ "$AGE_MINUTES" -lt "$HOLD_PERIOD" ]; then
-            REMAINING=$(( HOLD_PERIOD - AGE_MINUTES ))
-            echo ""
-            echo "🛑 HOLD PERIOD NOT MET"
-            echo "   Last asset was uploaded ${AGE_MINUTES}m ago, but ${HOLD_PERIOD}m required."
-            echo "   Please wait ~${REMAINING} more minutes, then re-run this job."
-            echo ""
-            echo "   This is intentional — download the binaries from the GitHub Release,"
-            echo "   test them locally, and re-run when ready."
-            exit 1
-          fi
-
-          echo "✅ Hold period satisfied (${AGE_MINUTES}m >= ${HOLD_PERIOD}m). Proceeding with upload."
+        with:
+          hold_period: '${{ inputs.hold_period }}'
+          anchor: release-asset
+          release_tag: '${{ inputs.release_tag }}'
 
       # Prepare upload directory (same for both modes)
       - name: Prepare upload directory
