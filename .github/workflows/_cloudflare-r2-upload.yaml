@@ -217,6 +217,7 @@ jobs:
           HOLD_PERIOD: ${{ inputs.hold_period }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
           REF_TYPE: ${{ github.ref_type }}
+          REPO: ${{ github.repository }}
         run: |
           RELEASE_TAG="$RELEASE_TAG_INPUT"
           if [ -z "$RELEASE_TAG" ]; then
@@ -228,22 +229,28 @@ jobs:
             fi
           fi
 
-          # Get release creation timestamp
-          CREATED_AT=$(gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" --json createdAt --jq '.createdAt')
-          CREATED_EPOCH=$(date -d "$CREATED_AT" +%s)
+          # Get the most recent release asset upload time (= when last build finished)
+          LATEST_ASSET_AT=$(gh release view "$RELEASE_TAG" --repo "$REPO" --json assets --jq '[.assets[].updatedAt] | sort | last')
+
+          if [ -z "$LATEST_ASSET_AT" ] || [ "$LATEST_ASSET_AT" = "null" ]; then
+            echo "⚠️ No assets found on release '$RELEASE_TAG'. Skipping hold check."
+            exit 0
+          fi
+
+          ASSET_EPOCH=$(date -d "$LATEST_ASSET_AT" +%s)
           NOW_EPOCH=$(date +%s)
 
-          AGE_MINUTES=$(( (NOW_EPOCH - CREATED_EPOCH) / 60 ))
+          AGE_MINUTES=$(( (NOW_EPOCH - ASSET_EPOCH) / 60 ))
 
-          echo "⏱️ Release '$RELEASE_TAG' created at: $CREATED_AT"
-          echo "⏱️ Release age: ${AGE_MINUTES} minutes"
+          echo "⏱️ Release '$RELEASE_TAG' latest asset uploaded at: $LATEST_ASSET_AT"
+          echo "⏱️ Time since last asset: ${AGE_MINUTES} minutes"
           echo "⏱️ Required hold period: ${HOLD_PERIOD} minutes"
 
           if [ "$AGE_MINUTES" -lt "$HOLD_PERIOD" ]; then
             REMAINING=$(( HOLD_PERIOD - AGE_MINUTES ))
             echo ""
             echo "🛑 HOLD PERIOD NOT MET"
-            echo "   Release is ${AGE_MINUTES}m old, but ${HOLD_PERIOD}m required."
+            echo "   Last asset was uploaded ${AGE_MINUTES}m ago, but ${HOLD_PERIOD}m required."
             echo "   Please wait ~${REMAINING} more minutes, then re-run this job."
             echo ""
             echo "   This is intentional — download the binaries from the GitHub Release,"
