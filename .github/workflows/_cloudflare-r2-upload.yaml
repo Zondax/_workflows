@@ -89,7 +89,20 @@ on:
         required: false
         type: boolean
         default: true
-      
+
+      # Hold period (release gating)
+      hold_period:
+        description: 'Minimum age (in minutes) before upload is allowed. Works with both release and artifacts source types. 0 = no hold (default)'
+        required: false
+        type: number
+        default: 0
+
+      hold_artifact_name:
+        description: 'Artifact name to check creation time for hold period (artifacts mode only). If empty, falls back to run-start anchor.'
+        required: false
+        type: string
+        default: ''
+
       # Environment
       environment:
         description: 'GitHub environment for secrets'
@@ -201,7 +214,29 @@ jobs:
           
           echo "📋 Downloaded files:"
           ls -la download/
-      
+
+      # RELEASE MODE: Check hold period before proceeding
+      - name: Check release hold period
+        if: inputs.source_type == 'release' && inputs.hold_period > 0
+        uses: zondax/actions/release-hold@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          hold_period: '${{ inputs.hold_period }}'
+          anchor: release-asset
+          release_tag: '${{ inputs.release_tag }}'
+
+      # ARTIFACTS MODE: Check hold period before proceeding
+      - name: Check artifacts hold period
+        if: inputs.source_type == 'artifacts' && inputs.hold_period > 0
+        uses: zondax/actions/release-hold@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          hold_period: '${{ inputs.hold_period }}'
+          anchor: ${{ inputs.hold_artifact_name != '' && 'artifact' || 'run-start' }}
+          artifact_name: '${{ inputs.hold_artifact_name }}'
+
       # Prepare upload directory (same for both modes)
       - name: Prepare upload directory
         run: |
