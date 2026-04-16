@@ -243,6 +243,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # VERSION and IMAGE_TAG are exposed only so the consumer repo's
+          # docker-bake.hcl can resolve its own tag expressions. This workflow
+          # does not inject repo-specific OCI labels or build args such as
+          # BUILD_VERSION / BUILD_COMMIT / BUILD_DATE.
+
           declare -a requested_targets=()
           if [ -n "${{ inputs.bake_targets }}" ]; then
             while IFS= read -r target; do

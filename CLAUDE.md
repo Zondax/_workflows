@@ -100,26 +100,35 @@ Base images are automatically published:
 
 ## Docker Bake Publishing
 
-The `_publish-docker-bake.yaml` workflow provides modern Docker publishing using Docker Bake and Metadata Action.
+The `_publish-docker-bake.yaml` workflow provides Docker publishing using `docker buildx bake`.
 
 ### Features
 
-- **No Makefile required** - uses `docker/bake-action` directly
-- **Automatic tagging** - via `docker/metadata-action` (sha, branch, semver)
+- **No Makefile required** - uses `docker buildx bake` directly
+- **Repo-defined tagging** - consumer repos define tags in `docker-bake.hcl`
 - **Multi-registry** - Docker Hub and/or GCP Artifact Registry
 - **Security** - Cosign signing, SLSA provenance, optional SBOM
-- **Caching** - GitHub Actions cache for faster builds
+- **Caching** - Registry-backed cache when configured by the bake file
 - **Multi-arch** - Optional QEMU-based arm64 builds
+
+### Contract Boundary
+
+`_publish-docker-bake.yaml` is an orchestration workflow, not an image-definition workflow.
+
+Consumer repositories are expected to define explicitly in their own `docker-bake.hcl` and Dockerfiles:
+
+- image tag strategy
+- OCI labels
+- build args used by the image or application
+
+In particular, repo-specific metadata conventions such as `VERSION`, `BUILD_VERSION`, `BUILD_COMMIT`, and `BUILD_DATE` should remain repo-defined rather than being auto-injected by the shared workflow.
 
 ### Usage in Consuming Repos
 
 1. Create a `docker-bake.hcl` in your repo:
 
 ```hcl
-target "docker-metadata-action" {}
-
 target "default" {
-  inherits   = ["docker-metadata-action"]
   dockerfile = "Dockerfile"
   context    = "."
 }
@@ -132,7 +141,7 @@ jobs:
   publish:
     uses: zondax/_workflows/.github/workflows/_publish-docker-bake.yaml@main
     with:
-      image_name: zondax/myapp
+      bake_file: docker-bake.hcl
     secrets:
       DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -143,23 +152,20 @@ jobs:
 Define multiple targets in your `docker-bake.hcl`:
 
 ```hcl
-target "docker-metadata-action" {}
-
 group "default" {
   targets = ["alpine", "debian"]
 }
 
 target "alpine" {
-  inherits   = ["docker-metadata-action"]
   dockerfile = "Dockerfile"
   args       = { BASE_IMAGE = "alpine:3.20" }
-  tags       = [for tag in target.docker-metadata-action.tags : "${tag}-alpine"]
+  tags       = ["zondax/myapp:alpine"]
 }
 
 target "debian" {
-  inherits   = ["docker-metadata-action"]
   dockerfile = "Dockerfile"
   args       = { BASE_IMAGE = "debian:bookworm-slim" }
+  tags       = ["zondax/myapp:latest"]
 }
 ```
 
@@ -178,7 +184,6 @@ jobs:
   publish:
     uses: zondax/_workflows/.github/workflows/_publish-docker-bake.yaml@main
     with:
-      image_name: myapp
       registry: gcp-ar
       environment: production
 ```
