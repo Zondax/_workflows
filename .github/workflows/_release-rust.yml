@@ -109,6 +109,10 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: setup
     runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_HOME: ${{ runner.temp }}/cargo
+      RUSTUP_HOME: ${{ runner.temp }}/rustup
+      RUSTUP_INIT_SKIP_PATH_CHECK: "yes"
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
