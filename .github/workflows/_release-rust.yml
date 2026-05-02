@@ -116,11 +116,26 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Configure isolated Rust homes
+      - name: Configure isolated Rust + git homes
         run: |
           echo "CARGO_HOME=$RUNNER_TEMP/cargo" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
           echo "RUSTUP_INIT_SKIP_PATH_CHECK=yes" >> "$GITHUB_ENV"
+          # Per-job global git config to avoid concurrent-job lock
+          # contention on shared self-hosted runners. On macOS
+          # specifically, two matrix entries (e.g. x86_64 and
+          # aarch64 darwin builds) land on the same physical runner
+          # and both call `git config --global --add safe.directory`
+          # via actions/checkout. They race on `~/.gitconfig.lock`,
+          # both fail through the action's 3-attempt retry loop
+          # (~6-9s window), and the whole job exits with code 1
+          # before either build runs. Setting GIT_CONFIG_GLOBAL to
+          # a per-job temp file gives each matrix entry its own
+          # global-config namespace — no shared file, no lock race.
+          # Honored since git 2.32 (released 2021-06).
+          mkdir -p "$RUNNER_TEMP"
+          : > "$RUNNER_TEMP/gitconfig"
+          echo "GIT_CONFIG_GLOBAL=$RUNNER_TEMP/gitconfig" >> "$GITHUB_ENV"
 
       - name: Checkout with GitHub App
         uses: zondax/actions/checkout-with-app@v1
