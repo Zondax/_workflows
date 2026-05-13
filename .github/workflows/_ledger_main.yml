@@ -215,10 +215,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-      - name: Install yarn
-        run: npm install -g yarn
-      - name: Clean yarn cache
-        run: yarn cache clean
+      - name: Enable corepack (pnpm version is pinned in zxlib's dockerized_build.mk)
+        run: corepack enable
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
         with:
