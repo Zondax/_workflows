@@ -275,7 +275,17 @@ jobs:
             if [ "${{ inputs.release_draft }}" = "true" ]; then
               DRAFT_FLAG="--draft"
             fi
-            gh release create "$TAG_NAME" $DRAFT_FLAG --generate-notes
+            # Tags carrying a known pre-release identifier (rc, alpha,
+            # beta, pre/preview, dev) are published as pre-releases,
+            # with "Latest" left pinned to the most recent stable tag
+            # — otherwise an RC silently becomes the release that
+            # `@latest` installers and the release badge resolve to.
+            PRERELEASE_FLAG=""
+            case "$TAG_NAME" in
+              *-rc*|*-alpha*|*-beta*|*-pre*|*-dev*)
+                PRERELEASE_FLAG="--prerelease --latest=false" ;;
+            esac
+            gh release create "$TAG_NAME" $DRAFT_FLAG $PRERELEASE_FLAG --generate-notes
           fi
           # Upload assets (--clobber overwrites existing)
           gh release upload "$TAG_NAME" artifacts/* --clobber
