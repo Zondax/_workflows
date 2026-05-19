@@ -275,7 +275,17 @@ jobs:
             if [ "${{ inputs.release_draft }}" = "true" ]; then
               DRAFT_FLAG="--draft"
             fi
-            gh release create "$TAG_NAME" $DRAFT_FLAG --generate-notes
+            # A semver pre-release tag carries a hyphen in the version
+            # (e.g. v1.2.0-rc1, v1.2.0-beta.3). Mark those as
+            # pre-releases and keep "Latest" pinned to the most recent
+            # stable tag — otherwise an RC silently becomes the latest
+            # release that `@latest` installers and the release badge
+            # resolve to.
+            PRERELEASE_FLAG=""
+            case "$TAG_NAME" in
+              *-*) PRERELEASE_FLAG="--prerelease --latest=false" ;;
+            esac
+            gh release create "$TAG_NAME" $DRAFT_FLAG $PRERELEASE_FLAG --generate-notes
           fi
           # Upload assets (--clobber overwrites existing)
           gh release upload "$TAG_NAME" artifacts/* --clobber
