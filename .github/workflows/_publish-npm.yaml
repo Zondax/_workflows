@@ -106,9 +106,14 @@ jobs:
           scope: ${{ inputs.npm_scope }}
 
       - name: Upgrade npm for OIDC support
+        # `npm install -g npm@latest` hits a self-upgrade regression where
+        # arborist unlinks its own node_modules mid-install
+        # (`Cannot find module 'promise-retry'`). Corepack installs npm as a
+        # tarball and atomically swaps the active version, sidestepping the
+        # in-place mutation that breaks the self-upgrade path.
         run: |
           echo "Current npm version: $(npm --version)"
-          npm install -g npm@latest
+          corepack prepare npm@latest --activate
           echo "Updated npm version: $(npm --version)"
 
       - name: Build package
