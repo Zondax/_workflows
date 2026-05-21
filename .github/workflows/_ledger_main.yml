@@ -279,6 +279,17 @@ jobs:
       - name: Set tag
         id: nanos
         run: echo "tag_name=$(./app/pkg/installer_nanos.sh version)" >> $GITHUB_OUTPUT
+      - name: Install GitHub CLI
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          type -p gh >/dev/null && exit 0
+          (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) \
+            && mkdir -p -m 755 /etc/apt/keyrings \
+            && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+            && apt-get update \
+            && apt-get install -y gh
       - name: Create or Update Release (1)
         if: ${{ github.ref == 'refs/heads/main' }}
         id: create_release_0
@@ -342,6 +353,17 @@ jobs:
       - name: Set tag
         id: nanosp
         run: echo "tag_name=$(./app/pkg/installer_nanos_plus.sh version)" >> $GITHUB_OUTPUT
+      - name: Install GitHub CLI
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          type -p gh >/dev/null && exit 0
+          (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) \
+            && mkdir -p -m 755 /etc/apt/keyrings \
+            && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+            && apt-get update \
+            && apt-get install -y gh
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_nanosp
@@ -404,6 +426,17 @@ jobs:
       - name: Set tag
         id: stax
         run: echo "tag_name=$(./app/pkg/installer_stax.sh version)" >> $GITHUB_OUTPUT
+      - name: Install GitHub CLI
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          type -p gh >/dev/null && exit 0
+          (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) \
+            && mkdir -p -m 755 /etc/apt/keyrings \
+            && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+            && apt-get update \
+            && apt-get install -y gh
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_stax
@@ -466,6 +499,17 @@ jobs:
       - name: Set tag
         id: flex
         run: echo "tag_name=$(./app/pkg/installer_flex.sh version)" >> $GITHUB_OUTPUT
+      - name: Install GitHub CLI
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          type -p gh >/dev/null && exit 0
+          (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) \
+            && mkdir -p -m 755 /etc/apt/keyrings \
+            && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+            && apt-get update \
+            && apt-get install -y gh
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_flex
@@ -528,6 +572,17 @@ jobs:
       - name: Set tag
         id: apex_p
         run: echo "tag_name=$(./app/pkg/installer_apex_p.sh version)" >> $GITHUB_OUTPUT
+      - name: Install GitHub CLI
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          type -p gh >/dev/null && exit 0
+          (type -p wget >/dev/null || (apt-get update && apt-get install -y wget)) \
+            && mkdir -p -m 755 /etc/apt/keyrings \
+            && wget -nv -O/etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+            && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+            && apt-get update \
+            && apt-get install -y gh
       - name: Update Release
         if: ${{ github.ref == 'refs/heads/main' }}
         id: update_release_apex_p
