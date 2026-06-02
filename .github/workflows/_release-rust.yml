@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: '["self-hosted", "macOS", "ARM64"]'
+      runner_windows:
+        description: 'Optional runner for NATIVE Windows builds (JSON array or label). When set, `*-windows-*` targets build natively on it (e.g. for `-pc-windows-msvc`, which `cross` cannot produce); when empty (default) Windows targets cross-compile on the Linux runner as before.'
+        required: false
+        type: string
+        default: ""
       rust_toolchain:
         description: "Rust toolchain to use"
         required: false
@@ -88,19 +93,29 @@ jobs:
           TARGETS: ${{ inputs.targets }}
           RUNNER_LINUX: ${{ inputs.runner_linux }}
           RUNNER_MACOS: ${{ inputs.runner_macos }}
+          RUNNER_WINDOWS: ${{ inputs.runner_windows }}
         run: |
-          # Parse runner inputs: runner_macos may be a JSON array, runner_linux a plain string
+          # Parse runner inputs: macos/windows may be a JSON array, linux a plain string.
           MACOS_RUNNER=$(echo "$RUNNER_MACOS" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_MACOS\"")
           LINUX_RUNNER=$(echo "$RUNNER_LINUX" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_LINUX\"")
+          # `runner_windows` is empty by default (→ cross-compile Windows on Linux).
+          # When set, Windows targets build NATIVELY on it (the only way to produce
+          # `-pc-windows-msvc`, which `cross` can't). Empty string → JSON "".
+          WINDOWS_RUNNER=$(echo "${RUNNER_WINDOWS:-}" | jq -c '.' 2>/dev/null || echo "\"${RUNNER_WINDOWS:-}\"")
+          [ -n "$WINDOWS_RUNNER" ] || WINDOWS_RUNNER='""'
 
-          # For each target, compute: runner, use_cross, archive_ext, binary_ext
-          MATRIX=$(echo "$TARGETS" | jq -c --argjson rl "$LINUX_RUNNER" --argjson rm "$MACOS_RUNNER" '[.[] | {
-            target: .,
-            runner: (if test("apple-darwin") then $rm else $rl end),
-            use_cross: (test("linux|windows")),
-            archive_ext: (if test("windows") then "zip" else "tar.gz" end),
-            binary_ext: (if test("windows") then ".exe" else "" end)
-          }]')
+          # For each target, compute: runner, use_cross, archive_ext, binary_ext.
+          # A Windows target builds natively (use_cross=false) iff runner_windows
+          # is set; otherwise it cross-compiles on the Linux runner.
+          MATRIX=$(echo "$TARGETS" | jq -c \
+            --argjson rl "$LINUX_RUNNER" --argjson rm "$MACOS_RUNNER" --argjson rw "$WINDOWS_RUNNER" '
+            [.[] | (test("windows")) as $win | ($win and ($rw != "")) as $win_native | {
+              target: .,
+              runner: (if test("apple-darwin") then $rm elif $win_native then $rw else $rl end),
+              use_cross: ((test("linux") or $win) and ($win_native | not)),
+              archive_ext: (if $win then "zip" else "tar.gz" end),
+              binary_ext: (if $win then ".exe" else "" end)
+            }]')
           echo "matrix={\"include\":$MATRIX}" >> $GITHUB_OUTPUT
           echo "Matrix: $MATRIX"
 
@@ -211,9 +226,15 @@ jobs:
         run: |
           ARCHIVE="${BINARY_NAME}-${TARGET}.${ARCHIVE_EXT}"
           if [[ "$ARCHIVE_EXT" == "zip" ]]; then
-            cd "target/$TARGET/release"
-            zip "../../../$ARCHIVE" "${BINARY_NAME}${BINARY_EXT}"
-            cd ../../..
+            BIN_PATH="target/$TARGET/release/${BINARY_NAME}${BINARY_EXT}"
+            if [ "${RUNNER_OS:-}" = "Windows" ]; then
+              # Native Windows runner: Git-bash has no `zip`; use PowerShell.
+              powershell -NoProfile -Command \
+                "Compress-Archive -Path '$BIN_PATH' -DestinationPath '$ARCHIVE' -Force"
+            else
+              # Linux (cross-compiled Windows or otherwise): `zip` is present.
+              (cd "target/$TARGET/release" && zip "$OLDPWD/$ARCHIVE" "${BINARY_NAME}${BINARY_EXT}")
+            fi
           else
             tar czf "$ARCHIVE" -C "target/$TARGET/release" "${BINARY_NAME}${BINARY_EXT}"
           fi
@@ -227,8 +248,13 @@ jobs:
           ARCHIVE="${BINARY_NAME}-${TARGET}.${ARCHIVE_EXT}"
           if command -v sha256sum &>/dev/null; then
             sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
-          else
+          elif command -v shasum &>/dev/null; then
             shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          else
+            # Native Windows fallback if neither coreutils tool is on PATH.
+            powershell -NoProfile -Command \
+              "\$h=(Get-FileHash -Algorithm SHA256 '$ARCHIVE').Hash.ToLower(); Write-Output \"\$h  $ARCHIVE\"" \
+              > "${ARCHIVE}.sha256"
           fi
 
       - name: Upload artifact
