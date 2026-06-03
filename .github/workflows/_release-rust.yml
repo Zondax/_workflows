@@ -23,7 +23,7 @@ on:
         type: string
         default: '["self-hosted", "macOS", "ARM64"]'
       runner_windows:
-        description: 'Optional runner for NATIVE Windows builds (JSON array or label). When set, `*-windows-*` targets build natively on it (e.g. for `-pc-windows-msvc`, which `cross` cannot produce); when empty (default) Windows targets cross-compile on the Linux runner as before.'
+        description: 'Optional runner for NATIVE Windows builds (JSON array or label). When set, `*-windows-*` targets build natively on it. When empty (default) Windows targets cross-compile on the Linux runner: `-pc-windows-msvc` via cargo-xwin (real MSVC ABI), `-pc-windows-gnu` via `cross`. Leaving it empty is usually preferred — no self-hosted Windows runner needed.'
         required: false
         type: string
         default: ""
@@ -98,21 +98,32 @@ jobs:
           # Parse runner inputs: macos/windows may be a JSON array, linux a plain string.
           MACOS_RUNNER=$(echo "$RUNNER_MACOS" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_MACOS\"")
           LINUX_RUNNER=$(echo "$RUNNER_LINUX" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_LINUX\"")
-          # `runner_windows` is empty by default (→ cross-compile Windows on Linux).
-          # When set, Windows targets build NATIVELY on it (the only way to produce
-          # `-pc-windows-msvc`, which `cross` can't). Empty string → JSON "".
+          # `runner_windows` is empty by default (→ cross-compile Windows on Linux:
+          # msvc via cargo-xwin, gnu via `cross`). When set, Windows targets build
+          # NATIVELY on it instead. Empty string → JSON "".
           WINDOWS_RUNNER=$(echo "${RUNNER_WINDOWS:-}" | jq -c '.' 2>/dev/null || echo "\"${RUNNER_WINDOWS:-}\"")
           [ -n "$WINDOWS_RUNNER" ] || WINDOWS_RUNNER='""'
 
-          # For each target, compute: runner, use_cross, archive_ext, binary_ext.
-          # A Windows target builds natively (use_cross=false) iff runner_windows
-          # is set; otherwise it cross-compiles on the Linux runner.
+          # For each target, compute: runner, build method, archive_ext, binary_ext.
+          # A Windows target builds natively iff runner_windows is set; otherwise
+          # it cross-compiles on the Linux runner. Two cross methods on Linux:
+          #   - `-pc-windows-msvc` → cargo-xwin (real MSVC ABI; clang + the MS CRT
+          #     and Windows SDK downloaded by `xwin`). use_xwin=true.
+          #   - `-pc-windows-gnu`  → `cross` (Docker / MinGW). use_cross=true.
+          # Native (runner_windows set) uses plain `cargo` on the Windows host.
           MATRIX=$(echo "$TARGETS" | jq -c \
             --argjson rl "$LINUX_RUNNER" --argjson rm "$MACOS_RUNNER" --argjson rw "$WINDOWS_RUNNER" '
-            [.[] | (test("windows")) as $win | ($win and ($rw != "")) as $win_native | {
+            [.[]
+              | (test("windows")) as $win
+              | (test("windows-msvc")) as $msvc
+              | ($win and ($rw != "")) as $win_native
+              | {
               target: .,
               runner: (if test("apple-darwin") then $rm elif $win_native then $rw else $rl end),
-              use_cross: ((test("linux") or $win) and ($win_native | not)),
+              # msvc Windows that is NOT building natively → cargo-xwin on Linux.
+              use_xwin: ($msvc and ($win_native | not)),
+              # Linux targets, and gnu-Windows that is not native → `cross`.
+              use_cross: ((test("linux") or ($win and ($msvc | not))) and ($win_native | not)),
               archive_ext: (if $win then "zip" else "tar.gz" end),
               binary_ext: (if $win then ".exe" else "" end)
             }]')
@@ -177,6 +188,23 @@ jobs:
         with:
           tool: cross
 
+      # cargo-xwin cross-compiles `-pc-windows-msvc` from Linux: it links with
+      # lld-link against the MSVC CRT + Windows SDK that `xwin` downloads, using
+      # clang/clang-cl as the C/C++ compiler. nasm + cmake are needed by native
+      # deps (aws-lc-sys, ring) whose build scripts assemble/cmake C for the
+      # target. Runs on the Linux build host (only reached when use_xwin=true).
+      - name: Install xwin toolchain (Windows-msvc cross)
+        if: matrix.use_xwin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang lld llvm nasm cmake
+      - name: Install cargo-xwin
+        if: matrix.use_xwin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-xwin
+
       - name: Set extra environment
         if: inputs.extra_build_env != ''
         env:
@@ -194,11 +222,13 @@ jobs:
           BUILD_ARGS: ${{ inputs.build_args }}
           CROSS_REMOTE: ${{ matrix.use_cross && '1' || '' }}
         run: |
-          BUILD_CMD="cargo"
+          BUILD_CMD="cargo build"
           if [ "${{ matrix.use_cross }}" = "true" ]; then
-            BUILD_CMD="cross"
+            BUILD_CMD="cross build"
+          elif [ "${{ matrix.use_xwin }}" = "true" ]; then
+            BUILD_CMD="cargo xwin build"
           fi
-          $BUILD_CMD build --release --target "$TARGET" $BUILD_ARGS
+          $BUILD_CMD --release --target "$TARGET" $BUILD_ARGS
 
       - name: Strip binary
         if: inputs.strip_binaries
