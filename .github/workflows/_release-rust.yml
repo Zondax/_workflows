@@ -135,6 +135,9 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: setup
     runs-on: ${{ matrix.runner }}
+    # Cap a single target's build so a hang (e.g. a stalled cargo-xwin CRT/SDK
+    # download) fails fast instead of running to GitHub's 6h default.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
@@ -192,13 +195,15 @@ jobs:
       # lld-link against the MSVC CRT + Windows SDK that `xwin` downloads, using
       # clang/clang-cl as the C/C++ compiler. nasm + cmake are needed by native
       # deps (aws-lc-sys, ring) whose build scripts assemble/cmake C for the
-      # target. Runs on the Linux build host (only reached when use_xwin=true).
+      # target. `zip` is needed by the Package step (Windows artifacts are .zip,
+      # and the Linux host has no `zip` by default). Runs on the Linux build host
+      # (only reached when use_xwin=true).
       - name: Install xwin toolchain (Windows-msvc cross)
         if: matrix.use_xwin
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang lld llvm nasm cmake
+            clang lld llvm nasm cmake zip
       - name: Install cargo-xwin
         if: matrix.use_xwin
         uses: taiki-e/install-action@v2
