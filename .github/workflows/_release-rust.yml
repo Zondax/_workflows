@@ -27,16 +27,6 @@ on:
         required: false
         type: string
         default: ""
-      runner_xwin:
-        description: 'Optional runner (JSON array or label) for the cargo-xwin `-pc-windows-msvc` cross jobs. Defaults to runner_linux when empty. Point it at a pool with fast egress to Microsoft''s CDN (e.g. `zondax-runners`) to avoid slow CRT/SDK downloads (~16min observed on some runners).'
-        required: false
-        type: string
-        default: ""
-      container_xwin:
-        description: 'Optional container image for the cargo-xwin `-pc-windows-msvc` cross jobs (e.g. a builder image with cargo-xwin + clang/lld/cmake preinstalled). Runs as root, so the toolchain install step skips sudo. nasm/zip are installed at runtime if missing. Empty (default) → run on the bare runner.'
-        required: false
-        type: string
-        default: ""
       rust_toolchain:
         description: "Rust toolchain to use"
         required: false
@@ -104,10 +94,8 @@ jobs:
           RUNNER_LINUX: ${{ inputs.runner_linux }}
           RUNNER_MACOS: ${{ inputs.runner_macos }}
           RUNNER_WINDOWS: ${{ inputs.runner_windows }}
-          RUNNER_XWIN: ${{ inputs.runner_xwin }}
-          CONTAINER_XWIN: ${{ inputs.container_xwin }}
         run: |
-          # Parse runner inputs: macos/windows/xwin may be a JSON array, linux a plain string.
+          # Parse runner inputs: macos/windows may be a JSON array, linux a plain string.
           MACOS_RUNNER=$(echo "$RUNNER_MACOS" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_MACOS\"")
           LINUX_RUNNER=$(echo "$RUNNER_LINUX" | jq -c '.' 2>/dev/null || echo "\"$RUNNER_LINUX\"")
           # `runner_windows` is empty by default (→ cross-compile Windows on Linux:
@@ -115,36 +103,25 @@ jobs:
           # NATIVELY on it instead. Empty string → JSON "".
           WINDOWS_RUNNER=$(echo "${RUNNER_WINDOWS:-}" | jq -c '.' 2>/dev/null || echo "\"${RUNNER_WINDOWS:-}\"")
           [ -n "$WINDOWS_RUNNER" ] || WINDOWS_RUNNER='""'
-          # `runner_xwin` overrides the runner for cargo-xwin jobs (empty → runner_linux).
-          XWIN_RUNNER=$(echo "${RUNNER_XWIN:-}" | jq -c '.' 2>/dev/null || echo "\"${RUNNER_XWIN:-}\"")
-          [ -n "$XWIN_RUNNER" ] || XWIN_RUNNER='""'
 
-          # For each target, compute: runner, build method, container, archive_ext,
-          # binary_ext. A Windows target builds natively iff runner_windows is set;
-          # otherwise it cross-compiles on Linux. Two cross methods on Linux:
+          # For each target, compute: runner, build method, archive_ext, binary_ext.
+          # A Windows target builds natively iff runner_windows is set; otherwise
+          # it cross-compiles on the Linux runner. Two cross methods on Linux:
           #   - `-pc-windows-msvc` → cargo-xwin (real MSVC ABI; clang + the MS CRT
-          #     and Windows SDK downloaded by `xwin`). use_xwin=true. Runs on
-          #     runner_xwin (if set, else runner_linux), optionally in container_xwin.
+          #     and Windows SDK downloaded by `xwin`). use_xwin=true.
           #   - `-pc-windows-gnu`  → `cross` (Docker / MinGW). use_cross=true.
           # Native (runner_windows set) uses plain `cargo` on the Windows host.
           MATRIX=$(echo "$TARGETS" | jq -c \
-            --argjson rl "$LINUX_RUNNER" --argjson rm "$MACOS_RUNNER" --argjson rw "$WINDOWS_RUNNER" \
-            --argjson rx "$XWIN_RUNNER" --arg cx "$CONTAINER_XWIN" '
+            --argjson rl "$LINUX_RUNNER" --argjson rm "$MACOS_RUNNER" --argjson rw "$WINDOWS_RUNNER" '
             [.[]
               | (test("windows")) as $win
               | (test("windows-msvc")) as $msvc
               | ($win and ($rw != "")) as $win_native
-              | ($msvc and ($win_native | not)) as $xwin
               | {
               target: .,
-              runner: (if test("apple-darwin") then $rm
-                       elif $win_native then $rw
-                       elif ($xwin and ($rx != "")) then $rx
-                       else $rl end),
+              runner: (if test("apple-darwin") then $rm elif $win_native then $rw else $rl end),
               # msvc Windows that is NOT building natively → cargo-xwin on Linux.
-              use_xwin: $xwin,
-              # Optional container for the cargo-xwin jobs ("" → run on bare runner).
-              container: (if $xwin then $cx else "" end),
+              use_xwin: ($msvc and ($win_native | not)),
               # Linux targets, and gnu-Windows that is not native → `cross`.
               use_cross: ((test("linux") or ($win and ($msvc | not))) and ($win_native | not)),
               archive_ext: (if $win then "zip" else "tar.gz" end),
@@ -158,9 +135,6 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: setup
     runs-on: ${{ matrix.runner }}
-    # Optional container for cargo-xwin jobs (matrix.container; "" → bare runner).
-    # Lets the msvc cross run inside a builder image on a fast-egress pool.
-    container: ${{ matrix.container }}
     # Cap a single target's build so a hang (e.g. a stalled cargo-xwin CRT/SDK
     # download) fails fast instead of running to GitHub's 6h default.
     timeout-minutes: 45
@@ -222,16 +196,13 @@ jobs:
       # clang/clang-cl as the C/C++ compiler. nasm + cmake are needed by native
       # deps (aws-lc-sys, ring) whose build scripts assemble/cmake C for the
       # target. `zip` is needed by the Package step (Windows artifacts are .zip,
-      # and the host has no `zip` by default). apt is idempotent, so this is a
-      # no-op for tools a builder image already ships. `sudo` is used on a bare
-      # runner but skipped inside a container (runs as root, may lack sudo).
+      # and the Linux host has no `zip` by default). Runs on the Linux build host
+      # (only reached when use_xwin=true).
       - name: Install xwin toolchain (Windows-msvc cross)
         if: matrix.use_xwin
         run: |
-          SUDO=""
-          if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
-          $SUDO apt-get update
-          $SUDO apt-get install -y --no-install-recommends \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             clang lld llvm nasm cmake zip
       - name: Install cargo-xwin
         if: matrix.use_xwin
