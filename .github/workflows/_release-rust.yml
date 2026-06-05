@@ -210,6 +210,46 @@ jobs:
         with:
           tool: cargo-xwin
 
+      # cargo-xwin compiles C/C++ with clang-cl, but cc-rs falls back to the GNU
+      # `clang` driver to assemble crates that ship GNU `.S` files (e.g. ring's
+      # aarch64 asm). That fallback inherits clang-cl's `/imsvc` MSVC-include
+      # flags, which the GNU driver rejects ("unknown argument" / treats `/imsvc`
+      # as a missing file) — so the build dies, or 44min-hangs were really
+      # masking it. Shim `clang` (the bare name cc-rs invokes via PATH) to
+      # rewrite each `/imsvc` token to `-isystem` (the GNU spelling) and exec the
+      # real clang. Transparent otherwise; clang-cl (used for C) is NOT shadowed,
+      # so NEON codegen for zstd/blake3 etc. stays correct. Needed for
+      # aarch64-pc-windows-msvc; harmless for x86_64 (no clang `.S` step there).
+      - name: Shim clang for ring .S asm under cargo-xwin
+        if: matrix.use_xwin
+        run: |
+          SHIM_DIR="$RUNNER_TEMP/xwin-clang-shim"
+          mkdir -p "$SHIM_DIR"
+          cat > "$SHIM_DIR/clang" <<'SHIM'
+          #!/bin/sh
+          # Resolve the real clang: first `clang` on PATH that isn't this shim.
+          self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          real=""
+          IFS=:
+          for d in $PATH; do
+            [ "$d" = "$self_dir" ] && continue
+            if [ -x "$d/clang" ]; then real="$d/clang"; break; fi
+          done
+          unset IFS
+          [ -n "$real" ] || { echo "xwin-clang-shim: real clang not found on PATH" >&2; exit 127; }
+          # Rebuild argv, translating clang-cl's `/imsvc` -> GNU `-isystem`.
+          n=0
+          for a in "$@"; do
+            [ "$a" = "/imsvc" ] && a="-isystem"
+            eval "arg_$n=\$a"; n=$((n+1))
+          done
+          i=0; set --
+          while [ "$i" -lt "$n" ]; do eval "v=\$arg_$i"; set -- "$@" "$v"; i=$((i+1)); done
+          exec "$real" "$@"
+          SHIM
+          chmod +x "$SHIM_DIR/clang"
+          echo "$SHIM_DIR" >> "$GITHUB_PATH"
+
       - name: Set extra environment
         if: inputs.extra_build_env != ''
         env:
