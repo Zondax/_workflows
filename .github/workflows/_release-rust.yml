@@ -212,7 +212,13 @@ jobs:
           LLVM_VERSION: "21"
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends curl nasm cmake zip
+          # build-essential = the HOST toolchain: build scripts and proc-macros
+          # link with `cc` (gcc) on the Linux runner, independently of the Windows
+          # cross compiler. The distro `clang` install used to drag gcc in
+          # transitively; pulling clang from apt.llvm.org no longer does, and the
+          # self-hosted runner has no gcc preinstalled — so install it explicitly
+          # or host build scripts fail with `linker 'cc' not found`.
+          sudo apt-get install -y --no-install-recommends build-essential curl nasm cmake zip
           # Modern clang/lld from apt.llvm.org (distro clang-18 is too old — see above).
           curl -fsSL https://apt.llvm.org/llvm.sh | sudo bash -s -- "$LLVM_VERSION"
           sudo apt-get install -y --no-install-recommends \
