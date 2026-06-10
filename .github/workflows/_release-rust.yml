@@ -198,12 +198,30 @@ jobs:
       # target. `zip` is needed by the Package step (Windows artifacts are .zip,
       # and the Linux host has no `zip` by default). Runs on the Linux build host
       # (only reached when use_xwin=true).
+      #
+      # clang/lld come from apt.llvm.org, NOT the distro: Ubuntu's default clang-18
+      # mis-compiles two bundled C deps when cross-targeting Windows-msvc — x86_64
+      # leaves zstd-sys's SSE2 intrinsics (`_mm_*`) as undefined symbols at link,
+      # and aarch64 rejects the MSVC `<intrin.h>` ("conflicting types for
+      # '__prefetch'", pulled in by zstd-sys + libsqlite3-sys). A modern clang
+      # fixes both (verified: clang-22 builds both targets cleanly, clang-18 fails
+      # both). Bump LLVM_VERSION here to roll the toolchain forward.
       - name: Install xwin toolchain (Windows-msvc cross)
         if: matrix.use_xwin
+        env:
+          LLVM_VERSION: "21"
         run: |
           sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl nasm cmake zip
+          # Modern clang/lld from apt.llvm.org (distro clang-18 is too old — see above).
+          curl -fsSL https://apt.llvm.org/llvm.sh | sudo bash -s -- "$LLVM_VERSION"
           sudo apt-get install -y --no-install-recommends \
-            clang lld llvm nasm cmake zip
+            "clang-$LLVM_VERSION" "lld-$LLVM_VERSION" "llvm-$LLVM_VERSION"
+          # cargo-xwin and the ring `.S` shim invoke unversioned tool names via PATH;
+          # point them at the freshly installed toolchain.
+          for t in clang clang++ clang-cl lld-link llvm-lib llvm-rc llvm-ar llvm-ranlib llvm-nm llvm-dlltool; do
+            sudo ln -sf "/usr/lib/llvm-$LLVM_VERSION/bin/$t" "/usr/local/bin/$t"
+          done
       - name: Install cargo-xwin
         if: matrix.use_xwin
         uses: taiki-e/install-action@v2
