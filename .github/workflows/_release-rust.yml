@@ -78,33 +78,10 @@ on:
         required: false
         type: boolean
         default: true
-      # CODESIGN_* identity — used for Windows Authenticode (KMS) AND to fetch the
-      # Apple signing creds from GCP Secret Manager (macOS). One identity, both jobs.
-      codesign_wif_provider:
-        description: "WIF provider for code signing (vars.CODESIGN_WIF_PROVIDER)"
-        required: false
-        type: string
-        default: ""
-      codesign_gcp_project:
-        description: "GCP project for code signing + Apple Secret Manager (vars.CODESIGN_GCP_PROJECT)"
-        required: false
-        type: string
-        default: ""
-      codesign_service_account:
-        description: "Service account to impersonate (vars.CODESIGN_SERVICE_ACCOUNT); empty = direct WIF"
-        required: false
-        type: string
-        default: ""
-      codesign_kms_keyring:
-        description: "Authenticode KMS keyring (vars.CODESIGN_KMS_KEYRING)"
-        required: false
-        type: string
-        default: ""
-      codesign_kms_key_alias:
-        description: "Authenticode KMS key alias (vars.CODESIGN_KMS_KEY_ALIAS)"
-        required: false
-        type: string
-        default: ""
+      # NOTE: the CODESIGN_*/PGP_SIGN_* config values are declared under `secrets:`
+      # below (not here). Callers in public repos store them as secrets, and the
+      # `secrets` context cannot be referenced from a reusable-workflow `with:` —
+      # so they must be passed through the `secrets:` block.
       jsign_sha256:
         description: "Pinned sha256 of the jsign jar"
         required: false
@@ -112,27 +89,6 @@ on:
         default: ""
       rcodesign_sha256:
         description: "Pinned sha256 of the rcodesign tarball"
-        required: false
-        type: string
-        default: ""
-      # PGP_SIGN_* identity — Linux detached OpenPGP via GCP KMS
-      pgp_sign_wif_provider:
-        description: "WIF provider for OpenPGP KMS (vars.PGP_SIGN_WIF_PROVIDER)"
-        required: false
-        type: string
-        default: ""
-      pgp_sign_gcp_project_id:
-        description: "GCP project for OpenPGP KMS (vars.PGP_SIGN_GCP_PROJECT_ID)"
-        required: false
-        type: string
-        default: ""
-      pgp_sign_service_account:
-        description: "Service account for OpenPGP KMS (vars.PGP_SIGN_SERVICE_ACCOUNT)"
-        required: false
-        type: string
-        default: ""
-      pgp_sign_kms_key_version:
-        description: "OpenPGP KMS key version path (vars.PGP_SIGN_KMS_KEY_VERSION)"
         required: false
         type: string
         default: ""
@@ -153,6 +109,35 @@ on:
         required: false
       windows_cert_chain:
         description: "PKCS7 EV certificate chain (Windows Authenticode)"
+        required: false
+      # CODESIGN_*/PGP_SIGN_* config — passed as secrets (callers in public repos
+      # keep these out of Variables; secrets can't ride in a reusable-workflow `with:`).
+      codesign_wif_provider:
+        description: "WIF provider for code signing (Windows Authenticode + Apple Secret Manager)"
+        required: false
+      codesign_gcp_project:
+        description: "GCP project for code signing + Apple Secret Manager"
+        required: false
+      codesign_service_account:
+        description: "Service account to impersonate; empty = direct WIF"
+        required: false
+      codesign_kms_keyring:
+        description: "Authenticode KMS keyring"
+        required: false
+      codesign_kms_key_alias:
+        description: "Authenticode KMS key alias"
+        required: false
+      pgp_sign_wif_provider:
+        description: "WIF provider for OpenPGP KMS (Linux)"
+        required: false
+      pgp_sign_gcp_project_id:
+        description: "GCP project for OpenPGP KMS"
+        required: false
+      pgp_sign_service_account:
+        description: "Service account for OpenPGP KMS"
+        required: false
+      pgp_sign_kms_key_version:
+        description: "OpenPGP KMS key version path"
         required: false
 
 permissions:
@@ -405,9 +390,9 @@ jobs:
         uses: zondax/actions/sign-macos-binary@feat/code-signing
         with:
           binary-path: target/${{ matrix.target }}/release/${{ inputs.binary_name }}
-          workload-identity-provider: ${{ inputs.codesign_wif_provider }}
-          gcp-project: ${{ inputs.codesign_gcp_project }}
-          service-account: ${{ inputs.codesign_service_account }}
+          workload-identity-provider: ${{ secrets.codesign_wif_provider }}
+          gcp-project: ${{ secrets.codesign_gcp_project }}
+          service-account: ${{ secrets.codesign_service_account }}
           notarize: ${{ inputs.notarize_macos }}
           rcodesign-sha256: ${{ inputs.rcodesign_sha256 }}
 
@@ -416,9 +401,9 @@ jobs:
         if: inputs.enable_signing && contains(matrix.target, 'windows')
         uses: zondax/actions/gcp-wif-auth@feat/code-signing
         with:
-          workload_identity_provider: ${{ inputs.codesign_wif_provider }}
-          project_id: ${{ inputs.codesign_gcp_project }}
-          service_account: ${{ inputs.codesign_service_account }}
+          workload_identity_provider: ${{ secrets.codesign_wif_provider }}
+          project_id: ${{ secrets.codesign_gcp_project }}
+          service_account: ${{ secrets.codesign_service_account }}
           token_format: access_token
           create_credentials_file: 'false'
           setup_gcloud: 'false'
@@ -430,8 +415,8 @@ jobs:
         with:
           binary-path: target/${{ matrix.target }}/release/${{ inputs.binary_name }}.exe
           gcp-access-token: ${{ steps.auth-codesign.outputs.access_token }}
-          kms-keyring: ${{ inputs.codesign_kms_keyring }}
-          kms-key-alias: ${{ inputs.codesign_kms_key_alias }}
+          kms-keyring: ${{ secrets.codesign_kms_keyring }}
+          kms-key-alias: ${{ secrets.codesign_kms_key_alias }}
           cert-chain: ${{ secrets.windows_cert_chain }}
           jsign-sha256: ${{ inputs.jsign_sha256 }}
 
@@ -440,11 +425,11 @@ jobs:
         uses: zondax/actions/sign-linux-binary@feat/code-signing
         with:
           target-path: target/${{ matrix.target }}/release/${{ inputs.binary_name }}
-          workload-identity-provider: ${{ inputs.pgp_sign_wif_provider }}
-          gcp-project-id: ${{ inputs.pgp_sign_gcp_project_id }}
-          service-account: ${{ inputs.pgp_sign_service_account }}
+          workload-identity-provider: ${{ secrets.pgp_sign_wif_provider }}
+          gcp-project-id: ${{ secrets.pgp_sign_gcp_project_id }}
+          service-account: ${{ secrets.pgp_sign_service_account }}
           signer-token: ${{ secrets.pgp_signer_token }}
-          kms-key: ${{ inputs.pgp_sign_kms_key_version }}
+          kms-key: ${{ secrets.pgp_sign_kms_key_version }}
           cert-base64: ${{ secrets.pgp_cert_base64 }}
 
       - name: Package
@@ -484,11 +469,11 @@ jobs:
         uses: zondax/actions/sign-linux-binary@feat/code-signing
         with:
           target-path: ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
-          workload-identity-provider: ${{ inputs.pgp_sign_wif_provider }}
-          gcp-project-id: ${{ inputs.pgp_sign_gcp_project_id }}
-          service-account: ${{ inputs.pgp_sign_service_account }}
+          workload-identity-provider: ${{ secrets.pgp_sign_wif_provider }}
+          gcp-project-id: ${{ secrets.pgp_sign_gcp_project_id }}
+          service-account: ${{ secrets.pgp_sign_service_account }}
           signer-token: ${{ secrets.pgp_signer_token }}
-          kms-key: ${{ inputs.pgp_sign_kms_key_version }}
+          kms-key: ${{ secrets.pgp_sign_kms_key_version }}
           cert-base64: ${{ secrets.pgp_cert_base64 }}
 
       - name: Checksum
