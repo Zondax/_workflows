@@ -387,7 +387,7 @@ jobs:
       #     detached .asc that gets bundled into the archive next to the binary. ---
       - name: Sign macOS binary
         if: inputs.enable_signing && contains(matrix.target, 'apple-darwin')
-        uses: zondax/actions/sign-macos-binary@feat/code-signing
+        uses: zondax/actions/sign-macos-binary@v1
         with:
           binary-path: target/${{ matrix.target }}/release/${{ inputs.binary_name }}
           workload-identity-provider: ${{ secrets.codesign_wif_provider }}
@@ -399,7 +399,7 @@ jobs:
       - name: Authenticate with GCP (Authenticode)
         id: auth-codesign
         if: inputs.enable_signing && contains(matrix.target, 'windows')
-        uses: zondax/actions/gcp-wif-auth@feat/code-signing
+        uses: zondax/actions/gcp-wif-auth@v1
         with:
           workload_identity_provider: ${{ secrets.codesign_wif_provider }}
           project_id: ${{ secrets.codesign_gcp_project }}
@@ -411,7 +411,7 @@ jobs:
 
       - name: Sign Windows binary
         if: inputs.enable_signing && contains(matrix.target, 'windows')
-        uses: zondax/actions/sign-windows-binary@feat/code-signing
+        uses: zondax/actions/sign-windows-binary@v1
         with:
           binary-path: target/${{ matrix.target }}/release/${{ inputs.binary_name }}.exe
           gcp-access-token: ${{ steps.auth-codesign.outputs.access_token }}
@@ -422,7 +422,7 @@ jobs:
 
       - name: Sign Linux binary
         if: inputs.enable_signing && contains(matrix.target, 'linux')
-        uses: zondax/actions/sign-linux-binary@feat/code-signing
+        uses: zondax/actions/sign-linux-binary@v1
         with:
           target-path: target/${{ matrix.target }}/release/${{ inputs.binary_name }}
           workload-identity-provider: ${{ secrets.pgp_sign_wif_provider }}
@@ -466,7 +466,7 @@ jobs:
       # one over the ELF (inside the tarball), one over the .tar.gz (download).
       - name: Sign Linux archive
         if: inputs.enable_signing && contains(matrix.target, 'linux')
-        uses: zondax/actions/sign-linux-binary@feat/code-signing
+        uses: zondax/actions/sign-linux-binary@v1
         with:
           target-path: ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
           workload-identity-provider: ${{ secrets.pgp_sign_wif_provider }}
