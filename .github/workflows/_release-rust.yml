@@ -73,6 +73,11 @@ on:
         required: false
         type: boolean
         default: false
+      upload_windows_exe:
+        description: "Also publish the bare signed .exe per Windows target as a first-class release asset (binary_name-<triple>.exe + .sha256), in addition to the .zip. Opt-in; default off. Lets winget install it as InstallerType: portable."
+        required: false
+        type: boolean
+        default: false
       # --- Code signing (opt-in; default off → no change for existing callers) ---
       enable_signing:
         description: "Enable OS code signing of built binaries"
@@ -500,6 +505,31 @@ jobs:
               > "${ARCHIVE}.sha256"
           fi
 
+      # --- Bare Windows .exe (opt-in; Windows targets only). Publishes the
+      #     Authenticode-signed .exe as its own first-class release asset named
+      #     <binary_name>-<triple>.exe (+ .sha256), so winget can install it as
+      #     InstallerType: portable (no zip-nesting, sidesteps the nested-portable
+      #     upgrade/uninstall hang). The .zip is still produced above
+      #     (cargo-binstall consumes it); this is the SAME signed binary.
+      - name: Publish bare Windows .exe
+        if: inputs.upload_windows_exe && contains(matrix.target, 'windows')
+        env:
+          TARGET: ${{ matrix.target }}
+          BINARY_NAME: ${{ inputs.binary_name }}
+        run: |
+          SRC="target/$TARGET/release/${BINARY_NAME}.exe"
+          OUT="${BINARY_NAME}-${TARGET}.exe"
+          cp "$SRC" "$OUT"
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "$OUT" > "${OUT}.sha256"
+          elif command -v shasum &>/dev/null; then
+            shasum -a 256 "$OUT" > "${OUT}.sha256"
+          else
+            powershell -NoProfile -Command \
+              "\$h=(Get-FileHash -Algorithm SHA256 '$OUT').Hash.ToLower(); Write-Output \"\$h  $OUT\"" \
+              > "${OUT}.sha256"
+          fi
+
       # --- Debian package (opt-in; Linux targets only). Builds a .deb from the
       #     ALREADY-built binary (--no-build → no recompile), packaged AFTER the
       #     strip + binary-signing steps above so the .deb carries the stripped,
@@ -566,12 +596,14 @@ jobs:
         with:
           name: ${{ inputs.binary_name }}-${{ matrix.target }}
           retention-days: 1
-          # The .deb globs are no-ops on non-Linux / when build_deb is off
-          # (upload-artifact tolerates missing globbed paths).
+          # The .deb / bare-.exe paths are no-ops on non-matching targets or when
+          # their opt-in is off (upload-artifact tolerates missing paths).
           path: |
             ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
             ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
             ${{ inputs.binary_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}.asc
+            ${{ inputs.binary_name }}-${{ matrix.target }}.exe
+            ${{ inputs.binary_name }}-${{ matrix.target }}.exe.sha256
             *.deb
             *.deb.sha256
             *.deb.asc
