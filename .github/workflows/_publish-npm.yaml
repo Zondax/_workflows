@@ -1,16 +1,19 @@
 name: Reusable Publish NPM
 
-# ⚠️ npm OIDC Trusted Publishing does NOT work through this reusable workflow.
-# npm validates the OIDC `job_workflow_ref` claim, which for a reusable workflow
-# is THIS file (zondax/_workflows/.github/workflows/_publish-npm.yaml) — not the
-# caller's workflow. A package's Trusted Publisher can only name one repo +
-# workflow (e.g. Zondax/cli + publish-npm.yaml), so a publish performed here can
-# never match it and npm returns `E404 ... is not in this registry`.
-# (Verified: @zondax/cli only published once its publish ran in its OWN workflow.)
+# npm OIDC Trusted Publishing works through this reusable workflow (e.g.
+# @zondax/ledger-casper-js publishes via @v7 with OIDC, no token).
 #
-# To publish to npm with OIDC, run `npm publish` in the package repo's own
-# workflow (see Zondax/cli/.github/workflows/publish-npm.yaml). This workflow is
-# still usable for token-based publishing if a token is wired in.
+# SETUP (one-time per package, on npmjs.com -> package -> Settings -> Trusted Publisher):
+#   Organization / Repository: <your package repo, e.g. Zondax/ledger-foo-js>
+#   Workflow filename:         <your CALLER workflow, e.g. publish.yml>
+# Grant `id-token: write` on BOTH the caller job and (already set here) this job.
+#
+# ⚠️ npm documents reusable / workflow_call publishing as finicky: "validation
+# checks the CALLING workflow's name instead of the workflow that actually
+# contains the publish command, which can cause configuration mismatches."
+# If you hit `E404 ... is not in this registry` despite the above, the reliable
+# fix is to run `npm publish` in your package's OWN workflow instead — see
+# Zondax/cli/.github/workflows/publish-npm.yaml.
 # See: https://docs.npmjs.com/trusted-publishers/
 
 on:
