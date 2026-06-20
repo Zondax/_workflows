@@ -1,7 +1,16 @@
 name: Reusable Publish NPM
 
-# Uses OIDC Trusted Publishing - no tokens needed
-# Configure trusted publisher on npmjs.com for your package
+# ⚠️ npm OIDC Trusted Publishing does NOT work through this reusable workflow.
+# npm validates the OIDC `job_workflow_ref` claim, which for a reusable workflow
+# is THIS file (zondax/_workflows/.github/workflows/_publish-npm.yaml) — not the
+# caller's workflow. A package's Trusted Publisher can only name one repo +
+# workflow (e.g. Zondax/cli + publish-npm.yaml), so a publish performed here can
+# never match it and npm returns `E404 ... is not in this registry`.
+# (Verified: @zondax/cli only published once its publish ran in its OWN workflow.)
+#
+# To publish to npm with OIDC, run `npm publish` in the package repo's own
+# workflow (see Zondax/cli/.github/workflows/publish-npm.yaml). This workflow is
+# still usable for token-based publishing if a token is wired in.
 # See: https://docs.npmjs.com/trusted-publishers/
 
 on:
@@ -154,14 +163,21 @@ jobs:
           node --version
           echo ""
           echo "=== OIDC Token Info ==="
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL is set: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL != '' }}"
-          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN is set: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN != '' }}"
+          # NOTE: read these from the shell, NOT `${{ env.* }}`. The `env`
+          # context only exposes variables declared via `env:` blocks; the
+          # runner-injected OIDC vars are not in it, so `${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}`
+          # always evaluates to empty and prints a misleading "false".
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL is set: $([ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && echo true || echo false)"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN is set: $([ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] && echo true || echo false)"
           echo ""
           echo "=== GitHub Context ==="
           echo "Repository: ${{ github.repository }}"
           echo "Workflow: ${{ github.workflow }}"
+          # workflow_ref = entry-point (caller) workflow; job_workflow_ref = the
+          # workflow that actually contains this job (THIS reusable file). npm
+          # trusted publishing matches on job_workflow_ref — see the header note.
           echo "Workflow ref: ${{ github.workflow_ref }}"
-          echo "Job workflow ref: ${{ github.job_workflow_sha }}"
+          echo "Job workflow ref: ${{ github.job_workflow_ref }}"
           echo "Run ID: ${{ github.run_id }}"
 
       - name: Publish package
