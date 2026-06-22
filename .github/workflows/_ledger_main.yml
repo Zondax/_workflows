@@ -158,6 +158,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ runner.arch }}-
             ${{ runner.os }}-cargo-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: clippy
         run: |
           cd ./app/rust
@@ -182,6 +189,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ runner.arch }}-
             ${{ runner.os }}-cargo-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: run rust tests
         run: |
           cd ./app/rust
