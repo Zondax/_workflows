@@ -121,6 +121,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-${{ runner.arch }}-
             ${{ runner.os }}-rust-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        if: ${{ inputs.has-rust }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
         run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
@@ -268,6 +276,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-${{ runner.arch }}-
             ${{ runner.os }}-rust-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        if: ${{ inputs.has-rust }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
         run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
@@ -342,6 +358,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-${{ runner.arch }}-
             ${{ runner.os }}-rust-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        if: ${{ inputs.has-rust }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
         run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
@@ -416,6 +440,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-${{ runner.arch }}-
             ${{ runner.os }}-rust-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        if: ${{ inputs.has-rust }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
         run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
@@ -489,6 +521,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-${{ runner.arch }}-
             ${{ runner.os }}-rust-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        if: ${{ inputs.has-rust }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
         run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
@@ -562,6 +602,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-${{ runner.arch }}-
             ${{ runner.os }}-rust-
+      - name: Restore tracked cargo config (cache may carry a pre-migration copy)
+        if: ${{ inputs.has-rust }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if git -C "$GITHUB_WORKSPACE" ls-files --error-unmatch app/rust/.cargo/config.toml >/dev/null 2>&1; then
+            git -C "$GITHUB_WORKSPACE" checkout -- app/rust/.cargo/config.toml
+            echo "Restored app/rust/.cargo/config.toml from checkout (a stale Rust cache can overwrite it with a pre-migration copy)."
+          fi
       - name: Install rust-src component
         if: ${{ inputs.has-rust }}
         run: rustup component add rust-src --toolchain ${{ inputs.rust-version }}-x86_64-unknown-linux-gnu
