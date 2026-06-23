@@ -152,6 +152,11 @@ on:
         description: "Cache pnpm store to S3 (disable for dedicated/persistent runners)"
         type: boolean
         default: true
+      mise_version:
+        description: "mise version for jdx/mise-action to install. Pinned to a known-good release because mise 2026.6.x mis-verifies pulumi's linux-x64 aqua checksum (CI: 'verified checksum file digest does not match existing checksum'). Override per-repo if needed."
+        required: false
+        type: string
+        default: "2026.5.18"
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -233,6 +238,7 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v4
         with:
+          version: ${{ inputs.mise_version }}
           install: true
           cache: false
           cache_save: false
