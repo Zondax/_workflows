@@ -4,8 +4,12 @@ on:
   workflow_call:
     inputs:
       binary_name:
-        description: "Name of the binary to build (used for archive naming: {name}-{target}.tar.gz)"
-        required: true
+        # Defaults to "kache" so this workflow stays a strict no-op for the
+        # original (kache) behavior when a caller omits it — archive/.exe/.deb
+        # naming all fall back to kache. New consumers (e.g. kobe) set it.
+        description: "Name of the binary to build (archive/.deb naming: {name}-{target}). Defaults to kache for backward-compatibility."
+        required: false
+        default: kache
         type: string
       targets:
         description: "JSON array of Rust target triples to build"
@@ -73,6 +77,11 @@ on:
         required: false
         type: boolean
         default: false
+      deb_package:
+        description: "Cargo package selector (`-p`) for the .deb build. Set this for workspace consumers whose packaged crate is a workspace member (e.g. \"kobe-ctl\"). Empty (default) → no `-p`, packaging the root package as before (e.g. kache)."
+        required: false
+        type: string
+        default: ""
       upload_windows_exe:
         description: "Also publish the bare signed .exe per Windows target as a first-class release asset (binary_name-<triple>.exe + .sha256), in addition to the .zip. Opt-in; default off. Lets winget install it as InstallerType: portable."
         required: false
@@ -535,7 +544,7 @@ jobs:
       #     strip + binary-signing steps above so the .deb carries the stripped,
       #     signed ELF. The .deb is then PGP-signed (detached .asc) and checksummed
       #     exactly like the tar.gz assets, and uploaded as a top-level release
-      #     asset named kache_<version>_<arch>.deb.
+      #     asset named <binary_name>_<version>_<arch>.deb (e.g. kache_… or kobe_…).
       #
       # NOTE: the CONSUMING repo must define `[package.metadata.deb]` in its
       # Cargo.toml with `depends = ""` (the static-musl binary has no shared-lib
@@ -551,6 +560,10 @@ jobs:
         id: deb
         if: inputs.build_deb && contains(matrix.target, 'linux')
         env:
+          # Falls back to kache (also the input default) so an unset/empty
+          # binary_name reproduces the original hardcoded `kache_…deb` name.
+          BINARY_NAME: ${{ inputs.binary_name || 'kache' }}
+          DEB_PACKAGE: ${{ inputs.deb_package }}
           TARGET: ${{ matrix.target }}
           # Derive <version> from the release tag the same git ref the release job
           # uploads under (github.ref_name), dropping a leading "v": v1.2.3 → 1.2.3.
@@ -563,9 +576,10 @@ jobs:
             aarch64-unknown-linux-musl) ARCH="arm64" ;;
             *) echo "Unsupported Linux target for .deb: $TARGET" >&2; exit 1 ;;
           esac
-          DEB="kache_${VERSION}_${ARCH}.deb"
+          DEB="${BINARY_NAME}_${VERSION}_${ARCH}.deb"
           # --no-build → package the binary already built/stripped/signed above.
-          cargo deb --no-build --target "$TARGET" --output "$DEB"
+          # `-p $DEB_PACKAGE` only when set (workspace member); empty → root package.
+          cargo deb --no-build ${DEB_PACKAGE:+-p "$DEB_PACKAGE"} --target "$TARGET" --output "$DEB"
           echo "deb=$DEB" >> "$GITHUB_OUTPUT"
 
       - name: Sign Debian package
