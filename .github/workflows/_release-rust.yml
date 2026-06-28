@@ -4,8 +4,12 @@ on:
   workflow_call:
     inputs:
       binary_name:
-        description: "Name of the binary to build (used for archive naming: {name}-{target}.tar.gz)"
-        required: true
+        # Defaults to "kache" so this workflow stays a strict no-op for the
+        # original (kache) behavior when a caller omits it — archive/.exe/.deb
+        # naming all fall back to kache. New consumers (e.g. kobe) set it.
+        description: "Name of the binary to build (archive/.deb naming: {name}-{target}). Defaults to kache for backward-compatibility."
+        required: false
+        default: kache
         type: string
       targets:
         description: "JSON array of Rust target triples to build"
@@ -556,9 +560,11 @@ jobs:
         id: deb
         if: inputs.build_deb && contains(matrix.target, 'linux')
         env:
-          TARGET: ${{ matrix.target }}
-          BINARY_NAME: ${{ inputs.binary_name }}
+          # Falls back to kache (also the input default) so an unset/empty
+          # binary_name reproduces the original hardcoded `kache_…deb` name.
+          BINARY_NAME: ${{ inputs.binary_name || 'kache' }}
           DEB_PACKAGE: ${{ inputs.deb_package }}
+          TARGET: ${{ matrix.target }}
           # Derive <version> from the release tag the same git ref the release job
           # uploads under (github.ref_name), dropping a leading "v": v1.2.3 → 1.2.3.
           VERSION: ${{ github.ref_name }}
