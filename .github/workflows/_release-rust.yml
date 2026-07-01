@@ -47,7 +47,10 @@ on:
         type: boolean
         default: true
       release_draft:
-        description: "Create the GitHub Release as a draft"
+        # Assets are always uploaded to a draft first (required for immutable
+        # releases); this flag controls whether the draft is left unpublished
+        # for manual review (true) or automatically published (false).
+        description: "Leave the GitHub Release as an unpublished draft (skip the auto-publish step)"
         required: false
         type: boolean
         default: false
@@ -651,23 +654,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # Create release if it doesn't exist
+          # Always create the release as a DRAFT first, attach every asset, and
+          # only THEN publish it. This ordering is mandatory for GitHub's
+          # immutable releases: once a release is published its assets can't be
+          # added, modified, or deleted, so all assets must be in place before
+          # the publish transition. It is also strictly backward-compatible for
+          # repos without immutability enabled — the final state is an identical
+          # published release with all assets attached.
           if ! gh release view "$TAG_NAME" &>/dev/null; then
-            DRAFT_FLAG=""
-            if [ "${{ inputs.release_draft }}" = "true" ]; then
-              DRAFT_FLAG="--draft"
-            fi
             # Tags carrying a known pre-release identifier (rc, alpha,
             # beta, pre/preview, dev) are published as pre-releases,
             # with "Latest" left pinned to the most recent stable tag
             # — otherwise an RC silently becomes the release that
             # `@latest` installers and the release badge resolve to.
+            # Set the pre-release/latest attributes at create time; they persist
+            # through the publish transition below.
             PRERELEASE_FLAG=""
             case "$TAG_NAME" in
               *-rc*|*-alpha*|*-beta*|*-pre*|*-dev*)
                 PRERELEASE_FLAG="--prerelease --latest=false" ;;
             esac
-            gh release create "$TAG_NAME" $DRAFT_FLAG $PRERELEASE_FLAG --generate-notes
+            gh release create "$TAG_NAME" --draft $PRERELEASE_FLAG --generate-notes
           fi
-          # Upload assets (--clobber overwrites existing)
+          # Attach all assets to the (still draft) release (--clobber overwrites
+          # existing on re-runs).
           gh release upload "$TAG_NAME" artifacts/* --clobber
+          # Publish the draft — this transition fires the `release: published`
+          # event and, when immutable releases are enabled, locks the tag and
+          # assets. Skip it when the caller opted into a draft for manual review.
+          if [ "${{ inputs.release_draft }}" != "true" ]; then
+            gh release edit "$TAG_NAME" --draft=false
+          fi
