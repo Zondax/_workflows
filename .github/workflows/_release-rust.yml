@@ -651,7 +651,16 @@ jobs:
 
       - name: Create or upload to release
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Publish with the caller's release PAT when provided, falling back to
+          # GITHUB_TOKEN. This is REQUIRED for the draft→publish flow to fire a
+          # *cascading* `release: published` event: GitHub suppresses workflow
+          # triggers for events produced by GITHUB_TOKEN, so a draft published by
+          # the bot is "sterile" — downstream release-triggered workflows (crates
+          # publish, package publish, etc.) never run. A PAT (or App token) makes
+          # the publish transition cascade. Direct create-publish happened to
+          # cascade before the draft→publish change; the draft-edit transition
+          # does not, so this token is now load-bearing.
+          GH_TOKEN: ${{ secrets.pgp_signer_token || github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           # Always create the release as a DRAFT first, attach every asset, and
