@@ -163,6 +163,10 @@ on:
         description: "Enable Rust compilation caching via kache"
         type: boolean
         default: false
+      rust_debuginfo:
+        description: "CARGO_PROFILE_DEV_DEBUG for check/test builds (coverage builds are exempt). Full debuginfo dominates target size; the default keeps file:line backtraces at a fraction of the disk. Set 'full' to restore cargo's default. Must be a valid cargo `profile.debug` value."
+        type: string
+        default: "line-tables-only"
       cache_bucket:
         description: "S3-compatible bucket name for caching (e.g., Cloudflare R2)"
         type: string
@@ -383,6 +387,7 @@ jobs:
         if: inputs.enable_linting
         env:
           CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
+          CARGO_PROFILE_DEV_DEBUG: ${{ inputs.rust_debuginfo }}
           RUSTFLAGS: "-D warnings"
         run: ${{ inputs.lint_command }}
 
@@ -390,6 +395,7 @@ jobs:
         if: inputs.enable_tests && !inputs.enable_coverage
         env:
           CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
+          CARGO_PROFILE_DEV_DEBUG: ${{ inputs.rust_debuginfo }}
         run: ${{ inputs.test_command }} ${{ inputs.test_args }}
 
       - name: Run tests with coverage
@@ -402,6 +408,7 @@ jobs:
         if: inputs.enable_integration_tests && inputs.integration_build_command != ''
         env:
           CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
+          CARGO_PROFILE_DEV_DEBUG: ${{ inputs.rust_debuginfo }}
         run: ${{ inputs.integration_build_command }}
 
       - name: Run integration tests
@@ -412,6 +419,7 @@ jobs:
         if: inputs.enable_build
         env:
           CARGO_INCREMENTAL: ${{ inputs.use_rust_cache && '0' || '' }}
+          CARGO_PROFILE_DEV_DEBUG: ${{ inputs.rust_debuginfo }}
         run: ${{ inputs.build_command }}
 
       - name: Security audit with cargo-audit
