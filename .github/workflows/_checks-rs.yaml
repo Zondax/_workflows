@@ -163,6 +163,10 @@ on:
         description: "Enable Rust compilation caching via kache"
         type: boolean
         default: false
+      kache_github_cache:
+        description: "Persist the kache store via GitHub Actions cache when no S3 remote is configured. Set false on persistent self-hosted runners: their on-disk store survives between runs, so the multi-GB save/restore round-trips to the GH cache backend are pure overhead."
+        type: boolean
+        default: true
       rust_debuginfo:
         description: "CARGO_PROFILE_DEV_DEBUG for check/test builds (coverage builds are exempt). Full debuginfo dominates target size; the default keeps file:line backtraces at a fraction of the disk. Set 'full' to restore cargo's default. Must be a valid cargo `profile.debug` value."
         type: string
@@ -351,10 +355,13 @@ jobs:
           s3-region: ${{ inputs.cache_region }}
           s3-access-key-id: ${{ secrets.cache_access_key_id }}
           s3-secret-access-key: ${{ secrets.cache_secret_access_key }}
+          github-cache: ${{ inputs.kache_github_cache }}
 
       - name: Setup Rust cache
         if: inputs.cache_cargo && !inputs.use_rust_cache && steps.cache-control.outputs.enabled != 'false'
         uses: kunobi-ninja/kache-action@v1
+        with:
+          github-cache: ${{ inputs.kache_github_cache }}
 
       - name: Install cargo-tarpaulin for coverage
         if: inputs.enable_coverage
