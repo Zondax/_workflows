@@ -218,63 +218,58 @@ jobs:
             echo ""
             echo "🐳 New image to deploy: $NEW_IMAGE"
             
-            # Update service with new image but no traffic initially
+            # STEP 1: Deploy the new revision (image + config together) via replace.
+            #
+            # We intentionally do NOT run a separate `gcloud run services update
+            # --image` first. That path creates a revision that KEEPS the currently
+            # live config env and has to become Ready before the replace below runs.
+            # If the live config is broken (e.g. it references a secret that no longer
+            # exists), that image-only revision crash-loops on startup, this step
+            # fails with `exit 1`, and the corrected config in service.deploy.yaml is
+            # never applied — so a broken live config permanently blocks every future
+            # deploy. `services replace` applies the new image AND the new config from
+            # the YAML atomically, so a bad live config can always be recovered by a
+            # normal deploy.
             echo ""
-            echo "📦 STEP 1: Deploying new revision with 0% traffic..."
-            gcloud run services update "$SERVICE_NAME" \
-              --image="$NEW_IMAGE" \
-              --no-traffic \
+            echo "📦 STEP 1: Deploying new revision (image + config) via replace..."
+            gcloud run services replace service.deploy.yaml \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
-            
+
             if [ $? -eq 0 ]; then
-              echo "✅ Step 1 completed: New revision deployed with 0% traffic"
+              echo "✅ Step 1 completed: New revision deployed with image + config"
             else
               echo "❌ Step 1 failed: Could not deploy new revision"
               exit 1
             fi
             
-            # Apply any configuration updates by replacing the service template
-            echo ""
-            echo "⚙️  STEP 2: Applying configuration updates..."
-            gcloud run services replace service.deploy.yaml \
-              --region=${{ vars.PULUMI_GAR_LOCATION }} \
-              --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
-            
-            if [ $? -eq 0 ]; then
-              echo "✅ Step 2 completed: Configuration updates applied"
-            else
-              echo "❌ Step 2 failed: Could not apply configuration updates"
-              exit 1
-            fi
-            
             # Give all traffic to the latest revision (but keep old ones)
             echo ""
-            echo "🔄 STEP 3: Directing 100% traffic to new revision..."
+            echo "🔄 STEP 2: Directing 100% traffic to new revision..."
             gcloud run services update-traffic "$SERVICE_NAME" \
               --to-latest \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
             if [ $? -eq 0 ]; then
-              echo "✅ Step 3 completed: 100% traffic directed to new revision"
+              echo "✅ Step 2 completed: 100% traffic directed to new revision"
             else
-              echo "❌ Step 3 failed: Could not update traffic allocation"
+              echo "❌ Step 2 failed: Could not update traffic allocation"
               exit 1
             fi
             
             # Tag the new revision as stable for future canary deployments
             echo ""
-            echo "🏷️  STEP 4: Tagging new revision as 'stable'..."
+            echo "🏷️  STEP 3: Tagging new revision as 'stable'..."
             gcloud run services update-traffic "$SERVICE_NAME" \
               --set-tags=stable=LATEST \
               --region=${{ vars.PULUMI_GAR_LOCATION }} \
               --project=${{ vars.PULUMI_GCP_PROJECT_ID }}
             
             if [ $? -eq 0 ]; then
-              echo "✅ Step 4 completed: New revision tagged as 'stable'"
+              echo "✅ Step 3 completed: New revision tagged as 'stable'"
             else
-              echo "⚠️  Step 4 warning: Could not tag revision (deployment still successful)"
+              echo "⚠️  Step 3 warning: Could not tag revision (deployment still successful)"
             fi
             
             echo ""
@@ -300,7 +295,7 @@ jobs:
           
           # Clean up old revisions (keep only current + 1 previous)
           echo ""
-          echo "🧹 STEP 5: Cleaning up old revisions (keeping only 2 total)..."
+          echo "🧹 STEP 4: Cleaning up old revisions (keeping only 2 total)..."
           
           # Get current revision by looking for the one with 100% traffic
           echo "🔍 Finding current active revision..."
@@ -381,7 +376,7 @@ jobs:
           fi
           
           echo ""
-          echo "✅ Step 5 completed: Revision cleanup finished"
+          echo "✅ Step 4 completed: Revision cleanup finished"
 
       - name: Get service URL and Final Status
         id: get-url
