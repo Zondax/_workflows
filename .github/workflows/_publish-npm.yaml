@@ -123,10 +123,28 @@ jobs:
         # (`Cannot find module 'promise-retry'`). Corepack installs npm as a
         # tarball and atomically swaps the active version, sidestepping the
         # in-place mutation that breaks the self-upgrade path.
+        #
+        # `corepack prepare --activate` on its own only records the version in
+        # COREPACK_HOME - it does NOT put that npm on PATH, so `npm` keeps
+        # resolving to the runner's bundled copy and the upgrade silently
+        # no-ops. `corepack enable npm` installs the shim that actually routes
+        # `npm` through corepack, so it has to come first.
         run: |
           echo "Current npm version: $(npm --version)"
+          corepack enable npm
           corepack prepare npm@latest --activate
           echo "Updated npm version: $(npm --version)"
+
+          # Fail loudly if the upgrade did not take. Without this, an old npm
+          # falls through to the placeholder _authToken that setup-node writes
+          # into .npmrc, and the registry reports an unauthorized publish as a
+          # misleading `E404 ... is not in this registry`.
+          NPM_VERSION="$(npm --version)"
+          REQUIRED_NPM="11.5.1"
+          if [ "$(printf '%s\n%s\n' "$REQUIRED_NPM" "$NPM_VERSION" | sort -V | head -n1)" != "$REQUIRED_NPM" ]; then
+            echo "::error::npm $NPM_VERSION is too old for OIDC trusted publishing (need >= $REQUIRED_NPM). The corepack upgrade above did not take effect."
+            exit 1
+          fi
 
       - name: Build package
         run: if grep -q '"build"' package.json; then ${{ steps.pm.outputs.pm }} build; else echo "No build script found, skipping"; fi
