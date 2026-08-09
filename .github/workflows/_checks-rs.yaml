@@ -48,6 +48,16 @@ on:
         required: false
         type: string
         default: "linux-amd64"
+      macos_runs_on:
+        description: |
+          JSON array of labels selecting the macOS runner, used when runner_preset
+          is macos-arm64. The default matches any self-hosted Apple Silicon runner,
+          which includes the MacBook Pros; pass e.g.
+          '["self-hosted", "macOS", "ARM64", "mac-mini"]' to restrict to the
+          dedicated Mac minis.
+        required: false
+        type: string
+        default: '["self-hosted", "macOS", "ARM64"]'
       runs_on:
         description: "Runner label (e.g. 'ubuntu-latest', 'zondax-runners'). Overridden by runner_preset for macos-arm64."
         required: false
@@ -215,7 +225,7 @@ permissions:
 
 jobs:
   checks-rust:
-    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && '["self-hosted", "macOS", "ARM64"]' || format('["{0}"]', inputs.runs_on)) }}
+    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && inputs.macos_runs_on || format('["{0}"]', inputs.runs_on)) }}
     container: ${{ inputs.runner_preset != 'macos-arm64' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
