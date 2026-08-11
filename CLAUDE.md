@@ -46,7 +46,7 @@ jobs:
   typescript-checks:
     uses: zondax/_workflows/.github/workflows/_checks-ts.yaml@main
     with:
-      node_version: '18'
+      node_version: '22'
       enable_linting: true
       coverage_threshold: 80
 ```
