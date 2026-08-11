@@ -609,7 +609,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.binary_name }}-${{ matrix.target }}
           retention-days: 1
@@ -641,7 +641,7 @@ jobs:
           app_pem: ${{ secrets.app_pem }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
