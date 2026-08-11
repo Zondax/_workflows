@@ -592,7 +592,7 @@ jobs:
 
       - name: Upload coverage report as artifact
         if: inputs.enable_coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report-rust-${{ github.run_number }}${{ inputs.coverage_artifact_suffix != '' && format('-{0}', inputs.coverage_artifact_suffix) || '' }}
           path: ${{ inputs.package_path }}/tarpaulin-report.json

@@ -430,7 +430,7 @@ jobs:
 
       - name: Download build artifact
         if: inputs.build_artifact_name != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.build_artifact_name }}
           path: ${{ inputs.build_artifact_path != '' && format('{0}/{1}', inputs.working_directory, inputs.build_artifact_path) || inputs.working_directory }}
@@ -532,7 +532,7 @@ jobs:
 
       - name: Upload Playwright Report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-${{ inputs.artifact_suffix && format('{0}-', inputs.artifact_suffix) || '' }}${{ matrix.position }}
           path: ${{ inputs.working_directory }}/playwright-report/

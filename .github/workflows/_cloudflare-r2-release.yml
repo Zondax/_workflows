@@ -410,7 +410,7 @@ jobs:
 
       - name: Upload build artifacts (compressed)
         if: inputs.enable_compression
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
           path: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}.${{ steps.platform.outputs.archive_ext }}
@@ -418,7 +418,7 @@ jobs:
 
       - name: Upload build artifacts (uncompressed)
         if: inputs.enable_compression == false
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
           path: ${{ inputs.artifact_name_prefix }}-${{ steps.platform.outputs.suffix }}
@@ -436,7 +436,7 @@ jobs:
     
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -617,7 +617,7 @@ jobs:
           app_pem: ${{ secrets.app_pem }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-artifacts
 

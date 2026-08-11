@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     container: ${{ inputs.use_latest_builder && 'ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder:latest' || 'ghcr.io/ledgerhq/ledger-app-builder/ledger-app-builder-legacy:latest' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Add missing deps

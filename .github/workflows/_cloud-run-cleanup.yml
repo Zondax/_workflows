@@ -21,7 +21,7 @@ jobs:
       contents: read # Required for actions/checkout and GitHub API access
       pull-requests: write # Required for commenting on PRs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Authenticate with GCP
         uses: zondax/actions/gcp-wif-auth@v1
