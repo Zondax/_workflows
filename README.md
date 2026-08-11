@@ -1,40 +1,49 @@
 # _workflows
 
-This repository contains reusable GitHub Actions workflows for standardizing CI/CD across Zondax projects.
+Reusable GitHub Actions workflows for standardizing CI/CD across Zondax projects.
 
-## Docker Publish Contract
+## Pin policy
 
-The reusable Docker publish workflow, [`.github/workflows/_publish-docker-bake.yaml`](/Users/lenij/.codex/worktrees/57ea/_workflows/.github/workflows/_publish-docker-bake.yaml:1), is intentionally an orchestration layer.
+| Ref | Use when |
+| --- | --- |
+| **`@v11`** (current floating major) | **Preferred** for production consumers (e.g. Kunobi) |
+| **`@vN.M.P`** or commit SHA | Hermetic / delayed upgrades |
+| **`@main`** | Bleeding edge only — can break without a major bump |
 
-Consumer repositories are responsible for defining image metadata explicitly in their own `docker-bake.hcl` files and Dockerfiles, including:
+When we cut a new major (`v12`, …), update consumer pins deliberately; do not assume `@main`.
 
-- image tags and tag strategy
-- OCI labels
-- build arguments consumed by the application or image build
+## Node / package managers
 
-The shared workflow is responsible for:
-
-- checkout and registry authentication
-- Buildx setup and execution
-- push behavior
-- signing, provenance, and SBOM options
-- publishing outputs such as image digests
-
-The shared workflow should not become the source of truth for repo-specific metadata conventions such as `BUILD_VERSION`, `BUILD_COMMIT`, or `BUILD_DATE`.
+| Item | Current house default |
+| --- | --- |
+| Node | **22** (publish-npm default) or **24** via `zondax/ubuntu-ci:24.04` images |
+| Package managers | Detected from lockfile (`pnpm` / `bun` / yarn / npm); image includes pnpm + bun |
+| **Node 18** | **EOL — do not use** |
 
 ## Usage
-
-To use these workflows in your repository, reference them in your GitHub Actions workflow:
 
 ```yaml
 jobs:
   typescript-checks:
-    uses: zondax/_workflows/.github/workflows/_checks-ts.yaml@main
+    uses: zondax/_workflows/.github/workflows/_checks-ts.yaml@v11
     with:
-      node_version: '18'  # optional
-      disable_linting: false  # optional
-      disable_tests: false  # optional
+      # Optional overrides — defaults come from the workflow file
+      # base_image defaults to zondax/ubuntu-ci:24.04 for TS checks
+      disable_linting: false
+      disable_tests: false
 ```
 
-Each workflow accepts specific input parameters for customization. Check individual workflow files for available options.
-Please review the workflow files for more information on the available options.
+Each workflow accepts specific inputs. See the workflow YAML for options.
+
+## Docker Publish Contract
+
+The reusable Docker publish workflow [`.github/workflows/_publish-docker-bake.yaml`](./.github/workflows/_publish-docker-bake.yaml) is an orchestration layer.
+
+**Consumer repos** define image metadata in their own `docker-bake.hcl` / Dockerfiles (tags, OCI labels, build args).
+
+**This workflow** handles checkout, registry auth, Buildx, push, signing/provenance/SBOM options, and digests — not app-specific `BUILD_*` conventions.
+
+## Related
+
+- Composite actions: [Zondax/actions](https://github.com/Zondax/actions) (`@v1`)
+- Consumer migration for actions: [actions/MIGRATION.md](https://github.com/Zondax/actions/blob/main/MIGRATION.md)
