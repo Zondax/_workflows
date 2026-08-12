@@ -142,11 +142,11 @@ on:
         required: false
         type: string
         default: "cargo tarpaulin --all-features --out Json --output-dir ."
-      install_tarpaulin:
-        description: "Install cargo-tarpaulin for the coverage step. Set false when coverage_command uses another engine (e.g. cargo-llvm-cov), so the job does not download a tool it never runs."
+      force_tarpaulin_install:
+        description: "Install cargo-tarpaulin even when coverage_command does not mention it. Only needed when the command reaches tarpaulin indirectly (a make target, a wrapper script); a command that names tarpaulin is detected on its own."
         required: false
         type: boolean
-        default: true
+        default: false
       build_command:
         description: "Build command to run"
         required: false
@@ -378,8 +378,12 @@ jobs:
         with:
           github-cache: ${{ inputs.kache_github_cache }}
 
+      # Only when the coverage command actually reaches tarpaulin. The default
+      # coverage_command names it, so consumers on the default keep working;
+      # anyone on another engine (cargo-llvm-cov, nextest) stops downloading a
+      # tool they never invoke, without having to know to opt out.
       - name: Install cargo-tarpaulin for coverage
-        if: inputs.enable_coverage && inputs.install_tarpaulin
+        if: inputs.enable_coverage && (inputs.force_tarpaulin_install || contains(inputs.coverage_command, 'tarpaulin'))
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-tarpaulin
