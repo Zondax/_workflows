@@ -299,7 +299,7 @@ jobs:
 
       - name: Cache Cargo registry
         if: inputs.cache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
@@ -617,7 +617,7 @@ jobs:
 
       - name: Cache coverage baseline
         if: ${{ github.event_name == 'push' && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           key: coverage-baseline-${{ github.ref_name }}-rs-${{ inputs.coverage_artifact_suffix }}-${{ github.sha }}
           path: coverage-baseline/
@@ -625,7 +625,7 @@ jobs:
       - name: Restore coverage baseline
         if: ${{ github.event_name == 'pull_request' && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
         id: baseline-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           key: coverage-baseline-${{ github.base_ref }}-rs-${{ inputs.coverage_artifact_suffix }}-no-exact-match
           restore-keys: |
@@ -812,7 +812,7 @@ jobs:
   post-coverage-comment:
     needs: checks-rust
     if: inputs.enable_coverage && inputs.post_pr_comment && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && always() && needs.checks-rust.outputs.coverage_status != ''
-    uses: zondax/_workflows/.github/workflows/_post-pr-comment-reusable.yml@v5
+    uses: zondax/_workflows/.github/workflows/_post-pr-comment-reusable.yml@v11
     secrets: inherit
     with:
       issue_number: ${{ github.event.number }}

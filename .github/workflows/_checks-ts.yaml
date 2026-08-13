@@ -288,7 +288,7 @@ jobs:
 
       - name: Cache pnpm store
         if: inputs.cache_pnpm && inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
@@ -306,7 +306,7 @@ jobs:
 
       - name: Cache Bun dependencies
         if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'bun' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
@@ -390,7 +390,7 @@ jobs:
 
       - name: Cache coverage baseline
         if: ${{ github.event_name == 'push' && inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           key: coverage-baseline-${{ github.ref_name }}-ts-${{ github.sha }}
           path: coverage-baseline/
@@ -398,7 +398,7 @@ jobs:
       - name: Restore coverage baseline
         if: ${{ github.event_name == 'pull_request' && inputs.enable_tests && inputs.enable_coverage && (inputs.coverage_regression_tolerance > 0 || inputs.coverage_diff_threshold > 0) }}
         id: baseline-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           key: coverage-baseline-${{ github.base_ref }}-ts-no-exact-match
           restore-keys: |
@@ -711,7 +711,7 @@ jobs:
 
       - name: Upload coverage reports to Codecov
         if: ${{ inputs.enable_tests && inputs.enable_coverage && inputs.upload_coverage }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.codecov_token }}
           flags: ${{ inputs.codecov_flags }}
@@ -725,7 +725,7 @@ jobs:
       (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
       always() &&
       needs.checks-ts.outputs.coverage_lines != ''
-    uses: zondax/_workflows/.github/workflows/_post-pr-comment-reusable.yml@v5
+    uses: zondax/_workflows/.github/workflows/_post-pr-comment-reusable.yml@v11
     secrets: inherit
     with:
       issue_number: ${{ github.event.number }}
