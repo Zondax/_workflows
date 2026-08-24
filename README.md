@@ -36,6 +36,46 @@ jobs:
 
 Each workflow accepts specific inputs. See the workflow YAML for options.
 
+### Trusted node-local Kache rollout
+
+`_checks-rs.yaml` can route an opted-in Linux job to `zondax-kache-linux` with
+`kache_node_cache: true`. The shared store's registered blobs are capped at
+`50GiB` by default; override `kache_node_cache_max_size` only with a matching
+node-capacity review.
+
+Before rollout:
+
+- verify the builder disks were expanded and Kubernetes reports the expected
+  free/allocatable space;
+- pin a Kache release with job-local runtime support and a compatible
+  `kache-action@v1` release;
+- keep `runtime-dir` job-scoped even when `cache-dir` is persistent, so daemon
+  sockets and environment-only remote credentials never cross job boundaries;
+- set a stable, build-specific `kache_manifest_key` in the caller. The action
+  also uses it as the namespace, enabling manifest/shard and packed prefetch;
+  an empty key disables the L2 selector and falls back to object-by-object v3;
+- verify the `zondax-kache-trusted` runner group selects only the intended
+  private repository, disallows public repositories, and that repository does
+  not allow forks; require `restricted_to_workflows=true` and select exactly
+  `Zondax/_workflows/.github/workflows/_checks-rs.yaml@<release SHA>`;
+- pin the caller's `uses:` entry to that same immutable `_checks-rs.yaml` release
+  SHA rather than a floating branch or major tag;
+- deploy the restricted scale set, keeping its one-cache-job-per-node
+  anti-affinity.
+
+Enable the caller flag for one representative job first. Compare a cold run and
+a warm run, and check the Kache report plus `df`/`du`, daemon status, GC output,
+and `kache doctor --verify` before expanding usage. The cold canary must report
+the expected manifest/namespace and non-zero packed-prefetch discovery;
+otherwise it is only exercising the v3 fallback.
+
+Rollback is caller-first: set `kache_node_cache: false` so new jobs return to
+the ordinary runner pool, drain active jobs, then suspend the Kache
+runner-scale-set HelmRelease through GitOps/Flux if needed. The cache can remain
+for diagnosis and a later retry. Only platform operators own purging the exact
+per-node trust-domain directory after the scale set is drained; workflows,
+actions, and callers must not delete the shared store.
+
 ### Migrating from `@v11` → `@v12`
 
 v12 is mainly **action pin hygiene** (checkout v7, artifacts v7/v8, Dependabot) plus docs. Smoke one workflow/PR, then flip remaining call sites.
