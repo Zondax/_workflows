@@ -412,6 +412,7 @@ jobs:
         if: inputs.use_rust_cache
         uses: kunobi-ninja/kache-action@v1
         with:
+          cache-dir: ${{ runner.temp }}/kache
           s3-bucket: ${{ inputs.cache_bucket }}
           s3-endpoint: ${{ inputs.cache_endpoint }}
           s3-region: ${{ inputs.cache_region }}

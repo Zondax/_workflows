@@ -365,6 +365,10 @@ jobs:
         if: inputs.use_rust_cache
         uses: kunobi-ninja/kache-action@v1
         with:
+          # Linux jobs use ephemeral ARC runners; keep the store on the same
+          # filesystem as the workspace. Preserve the native persistent cache
+          # on the self-hosted macOS fleet.
+          cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           s3-bucket: ${{ inputs.cache_bucket }}
           s3-endpoint: ${{ inputs.cache_endpoint }}
           s3-region: ${{ inputs.cache_region }}
@@ -376,6 +380,7 @@ jobs:
         if: inputs.cache_cargo && !inputs.use_rust_cache && steps.cache-control.outputs.enabled != 'false'
         uses: kunobi-ninja/kache-action@v1
         with:
+          cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           github-cache: ${{ inputs.kache_github_cache }}
 
       # Only when the coverage command actually reaches tarpaulin. The default
