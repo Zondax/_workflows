@@ -182,6 +182,10 @@ on:
         description: "Linux only: route the job to the restricted zondax-kache-linux runner scale set and reuse its trusted node-local store. The runner group is the security boundary; unauthorized repositories remain unschedulable."
         type: boolean
         default: false
+      kache_node_cache_max_size:
+        description: "Maximum registered-blob size of the trusted node-local Kache store. Applied only when kache_node_cache is enabled."
+        type: string
+        default: "50GiB"
       kache_version:
         description: "Kache release installed by kache-action. Leave empty for the action default; pin this when enabling a feature that requires a specific Kache release."
         type: string
@@ -261,7 +265,7 @@ jobs:
       regression_message: ${{ steps.regression-check.outputs.message }}
       diff_coverage_pct: ${{ steps.diff-coverage.outputs.percentage }}
       diff_coverage_status: ${{ steps.diff-coverage.outputs.status }}
-      
+
     steps:
       - name: Setup Ubuntu packages
         # Skip when using zondax/ubuntu-ci (packages pre-installed, but sudo available if needed)
@@ -274,7 +278,7 @@ jobs:
             - build-essential
             - pkg-config
             - libssl-dev
-      
+
       - name: Checkout with GitHub App
         uses: zondax/actions/checkout-with-app@v1
         with:
@@ -380,6 +384,7 @@ jobs:
           # Preserve the native persistent cache on the self-hosted macOS fleet.
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           node-cache: ${{ inputs.kache_node_cache }}
+          max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
           s3-bucket: ${{ inputs.cache_bucket }}
           s3-endpoint: ${{ inputs.cache_endpoint }}
           s3-region: ${{ inputs.cache_region }}
@@ -394,6 +399,7 @@ jobs:
           version: ${{ inputs.kache_version }}
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           node-cache: ${{ inputs.kache_node_cache }}
+          max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
           github-cache: ${{ inputs.kache_github_cache }}
 
       # Only when the coverage command actually reaches tarpaulin. The default
@@ -825,7 +831,6 @@ jobs:
           echo "Coverage: ${{ steps.coverage-check.outputs.coverage_percentage }}%"
           echo "Required: ${{ inputs.coverage_threshold }}%"
           exit 1
-
 
   post-coverage-comment:
     needs: checks-rust
