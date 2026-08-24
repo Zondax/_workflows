@@ -178,6 +178,14 @@ on:
         description: "Enable Rust compilation caching via kache"
         type: boolean
         default: false
+      kache_node_cache:
+        description: "Linux only: route the job to the restricted zondax-kache-linux runner scale set and reuse its trusted node-local store. The runner group is the security boundary; unauthorized repositories remain unschedulable."
+        type: boolean
+        default: false
+      kache_version:
+        description: "Kache release installed by kache-action. Leave empty for the action default; pin this when enabling a feature that requires a specific Kache release."
+        type: string
+        default: ""
       kache_github_cache:
         description: "Persist the kache store via GitHub Actions cache when no S3 remote is configured. Set false on persistent self-hosted runners: their on-disk store survives between runs, so the multi-GB save/restore round-trips to the GH cache backend are pure overhead."
         type: boolean
@@ -230,7 +238,7 @@ permissions:
 
 jobs:
   checks-rust:
-    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && inputs.macos_runs_on || format('["{0}"]', inputs.runs_on)) }}
+    runs-on: ${{ fromJSON(inputs.runner_preset == 'macos-arm64' && inputs.macos_runs_on || format('["{0}"]', inputs.kache_node_cache && 'zondax-kache-linux' || inputs.runs_on)) }}
     container: ${{ inputs.runner_preset != 'macos-arm64' && inputs.base_image || '' }}
     timeout-minutes: ${{ inputs.timeout_minutes }}
     environment: ${{ inputs.environment }}
@@ -365,10 +373,13 @@ jobs:
         if: inputs.use_rust_cache
         uses: kunobi-ninja/kache-action@v1
         with:
-          # Linux jobs use ephemeral ARC runners; keep the store on the same
-          # filesystem as the workspace. Preserve the native persistent cache
-          # on the self-hosted macOS fleet.
+          version: ${{ inputs.kache_version }}
+          # On ordinary Linux ARC jobs this is job-local but colocated with the
+          # workspace. On the restricted Kache scale set this exact path is a
+          # trust-domain hostPath; kache-action keeps runtime state job-local.
+          # Preserve the native persistent cache on the self-hosted macOS fleet.
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
+          node-cache: ${{ inputs.kache_node_cache }}
           s3-bucket: ${{ inputs.cache_bucket }}
           s3-endpoint: ${{ inputs.cache_endpoint }}
           s3-region: ${{ inputs.cache_region }}
@@ -380,7 +391,9 @@ jobs:
         if: inputs.cache_cargo && !inputs.use_rust_cache && steps.cache-control.outputs.enabled != 'false'
         uses: kunobi-ninja/kache-action@v1
         with:
+          version: ${{ inputs.kache_version }}
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
+          node-cache: ${{ inputs.kache_node_cache }}
           github-cache: ${{ inputs.kache_github_cache }}
 
       # Only when the coverage command actually reaches tarpaulin. The default
