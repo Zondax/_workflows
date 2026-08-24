@@ -190,6 +190,10 @@ on:
         description: "Kache release installed by kache-action. Leave empty for the action default; pin this when enabling a feature that requires a specific Kache release."
         type: string
         default: ""
+      kache_manifest_key:
+        description: "Stable build-scope key for Kache manifests. kache-action also uses it as the namespace, enabling shard and packed prefetch; keep distinct build variants on distinct keys."
+        type: string
+        default: ""
       kache_github_cache:
         description: "Persist the kache store via GitHub Actions cache when no S3 remote is configured. Set false on persistent self-hosted runners: their on-disk store survives between runs, so the multi-GB save/restore round-trips to the GH cache backend are pure overhead."
         type: boolean
@@ -390,6 +394,7 @@ jobs:
           s3-region: ${{ inputs.cache_region }}
           s3-access-key-id: ${{ secrets.cache_access_key_id }}
           s3-secret-access-key: ${{ secrets.cache_secret_access_key }}
+          manifest-key: ${{ inputs.kache_manifest_key }}
           github-cache: ${{ inputs.kache_github_cache }}
 
       - name: Setup Rust cache
@@ -400,6 +405,7 @@ jobs:
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           node-cache: ${{ inputs.kache_node_cache }}
           max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
+          manifest-key: ${{ inputs.kache_manifest_key }}
           github-cache: ${{ inputs.kache_github_cache }}
 
       # Only when the coverage command actually reaches tarpaulin. The default

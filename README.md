@@ -49,6 +49,9 @@ Before rollout:
   free/allocatable space;
 - pin a Kache release with job-local runtime support and a compatible
   `kache-action@v1` release;
+- set a stable, build-specific `kache_manifest_key` in the caller. The action
+  also uses it as the namespace, enabling manifest/shard and packed prefetch;
+  an empty key disables the L2 selector and falls back to object-by-object v3;
 - verify the `zondax-kache-trusted` runner group selects only the intended
   private repository, disallows public repositories, and that repository does
   not allow forks; require `restricted_to_workflows=true` and select exactly
@@ -60,7 +63,9 @@ Before rollout:
 
 Enable the caller flag for one representative job first. Compare a cold run and
 a warm run, and check the Kache report plus `df`/`du`, daemon status, GC output,
-and `kache doctor --verify` before expanding usage.
+and `kache doctor --verify` before expanding usage. The cold canary must report
+the expected manifest/namespace and non-zero packed-prefetch discovery;
+otherwise it is only exercising the v3 fallback.
 
 Rollback is caller-first: set `kache_node_cache: false` so new jobs return to
 the ordinary runner pool, drain active jobs, then suspend the Kache
