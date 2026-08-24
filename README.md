@@ -49,6 +49,8 @@ Before rollout:
   free/allocatable space;
 - pin a Kache release with job-local runtime support and a compatible
   `kache-action@v1` release;
+- keep `runtime-dir` job-scoped even when `cache-dir` is persistent, so daemon
+  sockets and environment-only remote credentials never cross job boundaries;
 - set a stable, build-specific `kache_manifest_key` in the caller. The action
   also uses it as the namespace, enabling manifest/shard and packed prefetch;
   an empty key disables the L2 selector and falls back to object-by-object v3;

@@ -387,6 +387,7 @@ jobs:
           # trust-domain hostPath; kache-action keeps runtime state job-local.
           # Preserve the native persistent cache on the self-hosted macOS fleet.
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
+          runtime-dir: ${{ format('{0}/kache-runtime-{1}-{2}-{3}', runner.temp, github.run_id, github.run_attempt, github.job) }}
           node-cache: ${{ inputs.kache_node_cache }}
           max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
           s3-bucket: ${{ inputs.cache_bucket }}
@@ -403,6 +404,7 @@ jobs:
         with:
           version: ${{ inputs.kache_version }}
           cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
+          runtime-dir: ${{ format('{0}/kache-runtime-{1}-{2}-{3}', runner.temp, github.run_id, github.run_attempt, github.job) }}
           node-cache: ${{ inputs.kache_node_cache }}
           max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
           manifest-key: ${{ inputs.kache_manifest_key }}
