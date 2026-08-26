@@ -226,6 +226,11 @@ on:
         description: "Command to build test binaries before integration tests"
         type: string
         default: ""
+      post_test_commands:
+        description: "Raw shell commands run as the LAST step, only after format/clippy/tests/coverage gates have all passed. Use for secondary build targets or variant checks that share this job's checkout and kache store instead of paying for a separate CI job."
+        required: false
+        type: string
+        default: ""
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -839,6 +844,12 @@ jobs:
           echo "Coverage: ${{ steps.coverage-check.outputs.coverage_percentage }}%"
           echo "Required: ${{ inputs.coverage_threshold }}%"
           exit 1
+
+      - name: Run post-test commands
+        if: ${{ inputs.post_test_commands != '' }}
+        shell: bash
+        run: |
+          ${{ inputs.post_test_commands }}
 
   post-coverage-comment:
     needs: checks-rust
