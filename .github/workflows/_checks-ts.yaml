@@ -167,6 +167,11 @@ on:
         required: false
         type: string
         default: "2026.5.18"
+      post_test_commands:
+        description: "Raw shell commands run as the LAST step, only after format/lint/typecheck/tests (and coverage gates) have all passed. Use for secondary build targets that share this job's checkout and toolchain instead of paying for a separate CI job."
+        required: false
+        type: string
+        default: ""
     secrets:
       app_id:
         description: "GitHub App ID"
@@ -716,6 +721,12 @@ jobs:
           token: ${{ secrets.codecov_token }}
           flags: ${{ inputs.codecov_flags }}
           fail_ci_if_error: false
+
+      - name: Run post-test commands
+        if: ${{ inputs.post_test_commands != '' }}
+        shell: bash
+        run: |
+          ${{ inputs.post_test_commands }}
 
   post-coverage-comment:
     needs: checks-ts
