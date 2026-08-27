@@ -289,7 +289,7 @@ jobs:
 
       - name: Cache Cargo registry
         if: inputs.use_rust_cache && inputs.cache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
@@ -310,7 +310,7 @@ jobs:
 
       - name: Cache Next.js build
         if: inputs.enable_nextjs_cache && inputs.cache_bucket != '' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
@@ -369,7 +369,7 @@ jobs:
 
       - name: Cache pnpm store
         if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'pnpm' && steps.pnpm-cache.outputs.STORE_PATH != '' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"
@@ -387,7 +387,7 @@ jobs:
 
       - name: Cache Bun dependencies
         if: inputs.cache_bucket != '' && steps.pm.outputs.pm_name == 'bun' && steps.cache-control.outputs.enabled != 'false'
-        uses: runs-on/cache@v4
+        uses: runs-on/cache@v5
         env:
           RUNS_ON_S3_BUCKET_CACHE: ${{ inputs.cache_bucket }}
           RUNS_ON_S3_FORCE_PATH_STYLE: "true"

@@ -112,7 +112,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -151,7 +151,7 @@ jobs:
         with:
           submodules: recursive
       - name: Cache/restore Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./app/rust/.cargo
           key: ${{ runner.os }}-cargo-${{ runner.arch }}-${{ hashFiles('./Cargo.lock') }}
@@ -182,7 +182,7 @@ jobs:
         with:
           submodules: recursive
       - name: Cache/restore Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./app/rust/.cargo
           key: ${{ runner.os }}-cargo-${{ runner.arch }}-${{ hashFiles('./Cargo.lock') }}
@@ -234,13 +234,13 @@ jobs:
         with:
           toolchain: ${{ inputs.rust-version }}
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node-version }}
       - name: Enable corepack (pnpm version is pinned in zxlib's dockerized_build.mk)
         run: corepack enable
       - name: Install Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: Build and run zemu tests
@@ -281,7 +281,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -363,7 +363,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -445,7 +445,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -526,7 +526,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -607,7 +607,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
