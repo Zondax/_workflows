@@ -152,6 +152,14 @@ jobs:
 
       - name: Setup mise
         uses: jdx/mise-action@v4
+        env:
+          # Self-hosted runners carry a global ~/.config/mise/config.toml (uv,
+          # bun, typescript, yarn at @latest). When a repo ships a mise.lock,
+          # mise-action switches to `mise install --locked`, which then demands
+          # those runner-local tools appear in the REPO's lockfile and fails the
+          # job before it starts. A repo's CI should install what the repo
+          # declares, not inherit the machine's ambient state.
+          MISE_IGNORED_CONFIG_PATHS: "~/.config/mise/config.toml"
         with:
           install: true
           cache: false
