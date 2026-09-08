@@ -350,6 +350,8 @@ jobs:
           # declares, not inherit the machine's ambient state.
           MISE_IGNORED_CONFIG_PATHS: "~/.config/mise/config.toml"
         with:
+          # The VERSION endpoint can advertise a release before its assets exist.
+          version: "2026.9.1"
           install: true
           cache: false
           cache_save: false
