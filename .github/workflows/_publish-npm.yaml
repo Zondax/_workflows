@@ -47,6 +47,11 @@ on:
         required: false
         type: string
         default: "@zondax"
+      npm_version:
+        description: "npm version used to publish (must be >= 11.5.1 for OIDC trusted publishing)"
+        required: false
+        type: string
+        default: "11"
 
     secrets:
       app_id:
@@ -125,16 +130,57 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           scope: ${{ inputs.npm_scope }}
 
-      - name: Upgrade npm for OIDC support
-        # `npm install -g npm@latest` hits a self-upgrade regression where
-        # arborist unlinks its own node_modules mid-install
-        # (`Cannot find module 'promise-retry'`). Corepack installs npm as a
-        # tarball and atomically swaps the active version, sidestepping the
-        # in-place mutation that breaks the self-upgrade path.
+      - name: Install npm for OIDC support
+        # OIDC trusted publishing needs npm >= 11.5.1. Older npm skips the OIDC
+        # exchange and sends the placeholder _authToken that setup-node writes
+        # into .npmrc, which the registry rejects as a misleading
+        # `404 Not Found - PUT`.
+        #
+        # npm is installed into its own prefix and put first on PATH rather than
+        # upgraded in place:
+        # - `npm install -g npm@latest` rewrites the running npm and has failed
+        #   mid-install (`Cannot find module 'promise-retry'`).
+        # - `corepack prepare npm@latest --activate` on its own never puts the
+        #   new npm on PATH, so npm stayed at the runner's 10.9.8 and every
+        #   release 404'd (v9 through v12.2.0).
+        # - `corepack enable npm` fixes PATH but its shim refuses to run npm in
+        #   repos whose package.json declares a `packageManager`.
+        # Pinned to a major (input `npm_version`) so a new npm major cannot change
+        # publish behaviour unannounced.
         run: |
-          echo "Current npm version: $(npm --version)"
-          corepack prepare npm@latest --activate
-          echo "Updated npm version: $(npm --version)"
+          echo "Runner npm version: $(npm --version)"
+          NPM_PREFIX="$RUNNER_TEMP/npm-cli"
+          npm install --global --prefix "$NPM_PREFIX" "npm@$NPM_VERSION" --no-audit --no-fund
+          echo "$NPM_PREFIX/bin" >> "$GITHUB_PATH"
+        env:
+          NPM_VERSION: ${{ inputs.npm_version }}
+
+      - name: Verify npm can publish
+        # Runs in dry-run too. PR dry-runs skip the publish step, so without this
+        # a publish-breaking change only shows up when a real release fails.
+        run: |
+          NPM_CURRENT="$(npm --version)"
+          REQUIRED_NPM="11.5.1"
+          echo "npm $NPM_CURRENT at $(command -v npm)"
+          if [ "$(printf '%s\n%s\n' "$REQUIRED_NPM" "$NPM_CURRENT" | sort -V | head -n1)" != "$REQUIRED_NPM" ]; then
+            echo "::error::npm $NPM_CURRENT is too old for OIDC trusted publishing (need >= $REQUIRED_NPM)."
+            exit 1
+          fi
+
+          # `npm publish --provenance` fails with E422 when package.json's
+          # repository does not point at the repository running the workflow.
+          if [[ "$REPO_VISIBILITY" == "public" ]]; then
+            PKG_REPO="$(node -p "const r = require('./package.json').repository; (typeof r === 'string' ? r : (r && r.url) || '')")"
+            NORMALIZED="$(printf '%s' "$PKG_REPO" | tr '[:upper:]' '[:lower:]' | sed -E 's#^(git\+)?(https?|ssh|git)://(git@)?##; s#^git@github\.com:#github.com/#; s#^github:#github.com/#; s#\.git$##; s#/$##')"
+            EXPECTED="github.com/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+            if [ "$NORMALIZED" != "$EXPECTED" ]; then
+              echo "::error::package.json repository is '${PKG_REPO:-<missing>}', expected $EXPECTED. npm publish --provenance would fail with E422."
+              exit 1
+            fi
+            echo "package.json repository matches $EXPECTED"
+          fi
+        env:
+          REPO_VISIBILITY: ${{ github.event.repository.visibility }}
 
       - name: Build package
         run: if grep -q '"build"' package.json; then ${{ steps.pm.outputs.pm }} build; else echo "No build script found, skipping"; fi
