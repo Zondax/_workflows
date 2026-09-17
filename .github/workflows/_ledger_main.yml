@@ -32,6 +32,31 @@ on:
         required: false
         type: string
         default: "stable"
+      r2-upload-branch:
+        description: "Upload every device installer to R2 on pushes to this branch (e.g. dev). Empty disables the upload"
+        required: false
+        type: string
+        default: ""
+      r2-app-id:
+        description: "App id used as the top-level folder in the R2 bucket (e.g. stacks). Required when r2-upload-branch is set"
+        required: false
+        type: string
+        default: ""
+      r2-bucket:
+        description: "R2 bucket that receives the installers"
+        required: false
+        type: string
+        default: "ledger-apps"
+    secrets:
+      R2_ACCOUNT_ID:
+        description: "Cloudflare account ID that owns the R2 bucket"
+        required: false
+      R2_ACCESS_KEY_ID:
+        description: "R2 access key ID with write access to the bucket"
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        description: "R2 secret access key"
+        required: false
 
 jobs:
   setup:
@@ -309,6 +334,63 @@ jobs:
       - name: Set tag
         id: nanos
         run: echo "tag_name=$(./app/pkg/installer_nanos.sh version)" >> $GITHUB_OUTPUT
+      - name: Upload installer to R2
+        if: ${{ inputs.r2-upload-branch != '' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', inputs.r2-upload-branch) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ inputs.r2-bucket }}
+          R2_APP_ID: ${{ inputs.r2-app-id }}
+          R2_BRANCH: ${{ inputs.r2-upload-branch }}
+          INSTALLER: ./app/pkg/installer_nanos.sh
+          VERSION: ${{ steps.nanos.outputs.tag_name }}
+        run: |
+          pip install boto3 --break-system-packages --quiet
+          python3 - <<'PY'
+          import hashlib, os, sys, urllib.request
+          import boto3
+          from botocore.config import Config
+
+          e = os.environ
+          missing = [n for n in ("R2_APP_ID", "R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "VERSION") if not e.get(n)]
+          if missing:
+              sys.exit(f"::error::R2 upload is enabled but {', '.join(missing)} is empty (set r2-app-id and pass the R2_* secrets)")
+
+          # Only the branch head may write, so an older run that finishes late cannot replace a newer build.
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{e['GITHUB_REPOSITORY']}/commits/heads/{e['R2_BRANCH']}",
+              headers={"Accept": "application/vnd.github.sha", "Authorization": f"Bearer {e['GH_TOKEN']}"},
+          )
+          head = urllib.request.urlopen(req, timeout=30).read().decode().strip()
+          if head != e["GITHUB_SHA"]:
+              print(f"::notice::{e['R2_BRANCH']} is now at {head[:7]}, skipping upload of {e['GITHUB_SHA'][:7]}")
+              sys.exit(0)
+
+          data = open(e["INSTALLER"], "rb").read()
+          key = "/".join([e["R2_APP_ID"], e["R2_BRANCH"].replace("/", "-"), e["VERSION"], os.path.basename(e["INSTALLER"])])
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=f"https://{e['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              region_name="auto",
+              config=Config(request_checksum_calculation="when_required", response_checksum_validation="when_required"),
+          )
+          s3.put_object(
+              Bucket=e["R2_BUCKET"],
+              Key=key,
+              Body=data,
+              ContentType="text/x-shellscript",
+              Metadata={
+                  "commit": e["GITHUB_SHA"],
+                  "branch": e["R2_BRANCH"],
+                  "version": e["VERSION"],
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "run-id": e["GITHUB_RUN_ID"],
+              },
+          )
+          print(f"Uploaded {len(data)} bytes to r2://{e['R2_BUCKET']}/{key} (commit {e['GITHUB_SHA'][:7]})")
+          PY
       - name: Install GitHub CLI
         if: ${{ github.ref == 'refs/heads/main' }}
         run: |
@@ -391,6 +473,63 @@ jobs:
       - name: Set tag
         id: nanosp
         run: echo "tag_name=$(./app/pkg/installer_nanos_plus.sh version)" >> $GITHUB_OUTPUT
+      - name: Upload installer to R2
+        if: ${{ inputs.r2-upload-branch != '' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', inputs.r2-upload-branch) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ inputs.r2-bucket }}
+          R2_APP_ID: ${{ inputs.r2-app-id }}
+          R2_BRANCH: ${{ inputs.r2-upload-branch }}
+          INSTALLER: ./app/pkg/installer_nanos_plus.sh
+          VERSION: ${{ steps.nanosp.outputs.tag_name }}
+        run: |
+          pip install boto3 --break-system-packages --quiet
+          python3 - <<'PY'
+          import hashlib, os, sys, urllib.request
+          import boto3
+          from botocore.config import Config
+
+          e = os.environ
+          missing = [n for n in ("R2_APP_ID", "R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "VERSION") if not e.get(n)]
+          if missing:
+              sys.exit(f"::error::R2 upload is enabled but {', '.join(missing)} is empty (set r2-app-id and pass the R2_* secrets)")
+
+          # Only the branch head may write, so an older run that finishes late cannot replace a newer build.
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{e['GITHUB_REPOSITORY']}/commits/heads/{e['R2_BRANCH']}",
+              headers={"Accept": "application/vnd.github.sha", "Authorization": f"Bearer {e['GH_TOKEN']}"},
+          )
+          head = urllib.request.urlopen(req, timeout=30).read().decode().strip()
+          if head != e["GITHUB_SHA"]:
+              print(f"::notice::{e['R2_BRANCH']} is now at {head[:7]}, skipping upload of {e['GITHUB_SHA'][:7]}")
+              sys.exit(0)
+
+          data = open(e["INSTALLER"], "rb").read()
+          key = "/".join([e["R2_APP_ID"], e["R2_BRANCH"].replace("/", "-"), e["VERSION"], os.path.basename(e["INSTALLER"])])
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=f"https://{e['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              region_name="auto",
+              config=Config(request_checksum_calculation="when_required", response_checksum_validation="when_required"),
+          )
+          s3.put_object(
+              Bucket=e["R2_BUCKET"],
+              Key=key,
+              Body=data,
+              ContentType="text/x-shellscript",
+              Metadata={
+                  "commit": e["GITHUB_SHA"],
+                  "branch": e["R2_BRANCH"],
+                  "version": e["VERSION"],
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "run-id": e["GITHUB_RUN_ID"],
+              },
+          )
+          print(f"Uploaded {len(data)} bytes to r2://{e['R2_BUCKET']}/{key} (commit {e['GITHUB_SHA'][:7]})")
+          PY
       - name: Install GitHub CLI
         if: ${{ github.ref == 'refs/heads/main' }}
         run: |
@@ -472,6 +611,63 @@ jobs:
       - name: Set tag
         id: stax
         run: echo "tag_name=$(./app/pkg/installer_stax.sh version)" >> $GITHUB_OUTPUT
+      - name: Upload installer to R2
+        if: ${{ inputs.r2-upload-branch != '' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', inputs.r2-upload-branch) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ inputs.r2-bucket }}
+          R2_APP_ID: ${{ inputs.r2-app-id }}
+          R2_BRANCH: ${{ inputs.r2-upload-branch }}
+          INSTALLER: ./app/pkg/installer_stax.sh
+          VERSION: ${{ steps.stax.outputs.tag_name }}
+        run: |
+          pip install boto3 --break-system-packages --quiet
+          python3 - <<'PY'
+          import hashlib, os, sys, urllib.request
+          import boto3
+          from botocore.config import Config
+
+          e = os.environ
+          missing = [n for n in ("R2_APP_ID", "R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "VERSION") if not e.get(n)]
+          if missing:
+              sys.exit(f"::error::R2 upload is enabled but {', '.join(missing)} is empty (set r2-app-id and pass the R2_* secrets)")
+
+          # Only the branch head may write, so an older run that finishes late cannot replace a newer build.
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{e['GITHUB_REPOSITORY']}/commits/heads/{e['R2_BRANCH']}",
+              headers={"Accept": "application/vnd.github.sha", "Authorization": f"Bearer {e['GH_TOKEN']}"},
+          )
+          head = urllib.request.urlopen(req, timeout=30).read().decode().strip()
+          if head != e["GITHUB_SHA"]:
+              print(f"::notice::{e['R2_BRANCH']} is now at {head[:7]}, skipping upload of {e['GITHUB_SHA'][:7]}")
+              sys.exit(0)
+
+          data = open(e["INSTALLER"], "rb").read()
+          key = "/".join([e["R2_APP_ID"], e["R2_BRANCH"].replace("/", "-"), e["VERSION"], os.path.basename(e["INSTALLER"])])
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=f"https://{e['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              region_name="auto",
+              config=Config(request_checksum_calculation="when_required", response_checksum_validation="when_required"),
+          )
+          s3.put_object(
+              Bucket=e["R2_BUCKET"],
+              Key=key,
+              Body=data,
+              ContentType="text/x-shellscript",
+              Metadata={
+                  "commit": e["GITHUB_SHA"],
+                  "branch": e["R2_BRANCH"],
+                  "version": e["VERSION"],
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "run-id": e["GITHUB_RUN_ID"],
+              },
+          )
+          print(f"Uploaded {len(data)} bytes to r2://{e['R2_BUCKET']}/{key} (commit {e['GITHUB_SHA'][:7]})")
+          PY
       - name: Install GitHub CLI
         if: ${{ github.ref == 'refs/heads/main' }}
         run: |
@@ -553,6 +749,63 @@ jobs:
       - name: Set tag
         id: flex
         run: echo "tag_name=$(./app/pkg/installer_flex.sh version)" >> $GITHUB_OUTPUT
+      - name: Upload installer to R2
+        if: ${{ inputs.r2-upload-branch != '' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', inputs.r2-upload-branch) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ inputs.r2-bucket }}
+          R2_APP_ID: ${{ inputs.r2-app-id }}
+          R2_BRANCH: ${{ inputs.r2-upload-branch }}
+          INSTALLER: ./app/pkg/installer_flex.sh
+          VERSION: ${{ steps.flex.outputs.tag_name }}
+        run: |
+          pip install boto3 --break-system-packages --quiet
+          python3 - <<'PY'
+          import hashlib, os, sys, urllib.request
+          import boto3
+          from botocore.config import Config
+
+          e = os.environ
+          missing = [n for n in ("R2_APP_ID", "R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "VERSION") if not e.get(n)]
+          if missing:
+              sys.exit(f"::error::R2 upload is enabled but {', '.join(missing)} is empty (set r2-app-id and pass the R2_* secrets)")
+
+          # Only the branch head may write, so an older run that finishes late cannot replace a newer build.
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{e['GITHUB_REPOSITORY']}/commits/heads/{e['R2_BRANCH']}",
+              headers={"Accept": "application/vnd.github.sha", "Authorization": f"Bearer {e['GH_TOKEN']}"},
+          )
+          head = urllib.request.urlopen(req, timeout=30).read().decode().strip()
+          if head != e["GITHUB_SHA"]:
+              print(f"::notice::{e['R2_BRANCH']} is now at {head[:7]}, skipping upload of {e['GITHUB_SHA'][:7]}")
+              sys.exit(0)
+
+          data = open(e["INSTALLER"], "rb").read()
+          key = "/".join([e["R2_APP_ID"], e["R2_BRANCH"].replace("/", "-"), e["VERSION"], os.path.basename(e["INSTALLER"])])
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=f"https://{e['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              region_name="auto",
+              config=Config(request_checksum_calculation="when_required", response_checksum_validation="when_required"),
+          )
+          s3.put_object(
+              Bucket=e["R2_BUCKET"],
+              Key=key,
+              Body=data,
+              ContentType="text/x-shellscript",
+              Metadata={
+                  "commit": e["GITHUB_SHA"],
+                  "branch": e["R2_BRANCH"],
+                  "version": e["VERSION"],
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "run-id": e["GITHUB_RUN_ID"],
+              },
+          )
+          print(f"Uploaded {len(data)} bytes to r2://{e['R2_BUCKET']}/{key} (commit {e['GITHUB_SHA'][:7]})")
+          PY
       - name: Install GitHub CLI
         if: ${{ github.ref == 'refs/heads/main' }}
         run: |
@@ -634,6 +887,63 @@ jobs:
       - name: Set tag
         id: apex_p
         run: echo "tag_name=$(./app/pkg/installer_apex_p.sh version)" >> $GITHUB_OUTPUT
+      - name: Upload installer to R2
+        if: ${{ inputs.r2-upload-branch != '' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', inputs.r2-upload-branch) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ inputs.r2-bucket }}
+          R2_APP_ID: ${{ inputs.r2-app-id }}
+          R2_BRANCH: ${{ inputs.r2-upload-branch }}
+          INSTALLER: ./app/pkg/installer_apex_p.sh
+          VERSION: ${{ steps.apex_p.outputs.tag_name }}
+        run: |
+          pip install boto3 --break-system-packages --quiet
+          python3 - <<'PY'
+          import hashlib, os, sys, urllib.request
+          import boto3
+          from botocore.config import Config
+
+          e = os.environ
+          missing = [n for n in ("R2_APP_ID", "R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "VERSION") if not e.get(n)]
+          if missing:
+              sys.exit(f"::error::R2 upload is enabled but {', '.join(missing)} is empty (set r2-app-id and pass the R2_* secrets)")
+
+          # Only the branch head may write, so an older run that finishes late cannot replace a newer build.
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{e['GITHUB_REPOSITORY']}/commits/heads/{e['R2_BRANCH']}",
+              headers={"Accept": "application/vnd.github.sha", "Authorization": f"Bearer {e['GH_TOKEN']}"},
+          )
+          head = urllib.request.urlopen(req, timeout=30).read().decode().strip()
+          if head != e["GITHUB_SHA"]:
+              print(f"::notice::{e['R2_BRANCH']} is now at {head[:7]}, skipping upload of {e['GITHUB_SHA'][:7]}")
+              sys.exit(0)
+
+          data = open(e["INSTALLER"], "rb").read()
+          key = "/".join([e["R2_APP_ID"], e["R2_BRANCH"].replace("/", "-"), e["VERSION"], os.path.basename(e["INSTALLER"])])
+          s3 = boto3.client(
+              "s3",
+              endpoint_url=f"https://{e['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              region_name="auto",
+              config=Config(request_checksum_calculation="when_required", response_checksum_validation="when_required"),
+          )
+          s3.put_object(
+              Bucket=e["R2_BUCKET"],
+              Key=key,
+              Body=data,
+              ContentType="text/x-shellscript",
+              Metadata={
+                  "commit": e["GITHUB_SHA"],
+                  "branch": e["R2_BRANCH"],
+                  "version": e["VERSION"],
+                  "sha256": hashlib.sha256(data).hexdigest(),
+                  "run-id": e["GITHUB_RUN_ID"],
+              },
+          )
+          print(f"Uploaded {len(data)} bytes to r2://{e['R2_BUCKET']}/{key} (commit {e['GITHUB_SHA'][:7]})")
+          PY
       - name: Install GitHub CLI
         if: ${{ github.ref == 'refs/heads/main' }}
         run: |
