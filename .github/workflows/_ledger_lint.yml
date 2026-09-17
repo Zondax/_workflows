@@ -41,7 +41,7 @@ jobs:
         run: bear -- make -j BOLOS_SDK="$NANOSP_SDK"
       - name: Setup python
         if: ${{ !inputs.use_latest_builder }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Lint and format 💅
