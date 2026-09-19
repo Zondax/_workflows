@@ -1,0 +1,24 @@
+name: Warm Windows sysroot
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Linux runner label used to prepare the MSVC CRT and SDK.
+        type: string
+        default: kunobi-runners
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    # Caches are repository/ref scoped. Only default-branch caches can be
+    # restored by subsequent release tags; never publish from a PR context.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: Zondax/_workflows/.github/actions/windows-sysroot@c8cbba84fac31aabd59bf238e38bf5e83ec8891b
+        with:
+          save: "true"
