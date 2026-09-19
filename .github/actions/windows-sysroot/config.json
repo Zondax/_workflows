@@ -1,0 +1,8 @@
+{
+  "cargo_xwin": "0.23.1",
+  "version": "17",
+  "crt_version": "14.44.17.14",
+  "sdk_version": "10.0.26100",
+  "arch": "x86_64,aarch64",
+  "variant": "desktop"
+}

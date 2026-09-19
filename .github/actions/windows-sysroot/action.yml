@@ -1,0 +1,51 @@
+name: Prepare Windows sysroot
+description: Restore or download a versioned Microsoft CRT and SDK for cargo-xwin.
+inputs:
+  save:
+    description: Save on trusted default-branch runs; release callers only restore.
+    default: "false"
+outputs:
+  cache-hit:
+    description: Whether the exact cache key was restored and verified.
+    value: ${{ steps.restore.outputs.cache-hit }}
+  cache-key:
+    description: Key derived from the complete sysroot configuration.
+    value: ${{ steps.config.outputs.key }}
+runs:
+  using: composite
+  steps:
+    - name: Configure Windows sysroot
+      id: config
+      shell: bash
+      env:
+        SYSROOT_ACTION: ${{ github.action_path }}
+      run: python3 "$SYSROOT_ACTION/sysroot.py" configure
+    - name: Install cargo-xwin
+      uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2
+      with:
+        tool: cargo-xwin@${{ steps.config.outputs.cargo-xwin }}
+    - name: Restore Windows sysroot
+      id: restore
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ steps.config.outputs.path }}
+        key: ${{ steps.config.outputs.key }}
+    - name: Prepare or verify Windows sysroot
+      shell: bash
+      env:
+        SYSROOT_ACTION: ${{ github.action_path }}
+        CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        if [ "$CACHE_HIT" != true ]; then
+          # Discard any prefix match and any previous job's local files.
+          rm -rf -- "$XWIN_CACHE_DIR"
+          cargo-xwin xwin cache xwin
+          python3 "$SYSROOT_ACTION/sysroot.py" record
+        fi
+        python3 "$SYSROOT_ACTION/sysroot.py" verify
+    - name: Save Windows sysroot
+      if: inputs.save == 'true' && steps.restore.outputs.cache-hit != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ steps.config.outputs.path }}
+        key: ${{ steps.config.outputs.key }}

@@ -1,0 +1,65 @@
+name: Windows sysroot checks
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/windows-sysroot/**
+      - .github/workflows/windows-sysroot-checks.yml
+      - tests/test_windows_sysroot.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sysroot:
+    runs-on: zondax-runners
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Verify corruption and configuration rejection
+        run: python3 -m unittest discover -s tests -v
+      - name: Prepare pinned Windows SDK and CRT
+        uses: ./.github/actions/windows-sysroot
+        id: sysroot
+      - name: Save isolated probe cache
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/windows-sysroot
+          key: windows-sysroot-probe-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Remove local sysroot before restore
+        run: rm -rf -- "$XWIN_CACHE_DIR"
+      - name: Restore isolated probe cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/windows-sysroot
+          key: windows-sysroot-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Verify restored content and exercise offline reuse
+        shell: bash
+        run: |
+          python3 .github/actions/windows-sysroot/sysroot.py verify
+          # A completed sysroot must work without contacting the download host.
+          HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://127.0.0.1:1 \
+            cargo-xwin xwin cache xwin
+          python3 .github/actions/windows-sysroot/sysroot.py verify
+      - name: Install cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential curl
+          curl -fsSL https://apt.llvm.org/llvm.sh | sudo bash -s -- 21
+          sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21
+          echo /usr/lib/llvm-21/bin >> "$GITHUB_PATH"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
+      - name: Link both Windows targets with the restored sysroot
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+          CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo new --bin --name sysroot-probe "$RUNNER_TEMP/sysroot-probe"
+          for target in x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            cargo xwin build --manifest-path "$RUNNER_TEMP/sysroot-probe/Cargo.toml" --release --target "$target"
+            test -s "$RUNNER_TEMP/sysroot-probe/target/$target/release/sysroot-probe.exe"
+          done
