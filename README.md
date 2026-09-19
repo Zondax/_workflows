@@ -101,3 +101,26 @@ The reusable Docker publish workflow [`.github/workflows/_publish-docker-bake.ya
 
 - Composite actions: [Zondax/actions](https://github.com/Zondax/actions) (`@v1`)
 - Consumer migration for actions: [actions/MIGRATION.md](https://github.com/Zondax/actions/blob/main/MIGRATION.md)
+
+## Windows release sysroot cache
+
+Set `cache_windows_sysroot: true` on `_release-rust.yml` to reuse the prepared
+Microsoft CRT and Windows SDK. This pins cargo-xwin, the CRT component, and the
+SDK to the versions in `.github/actions/windows-sysroot/config.json`. Update
+that file and the action SHA in both reusable workflows when upgrading them.
+The cache key covers every configuration field, the Linux host architecture,
+and the cache schema. Restores verify the configuration, required libraries,
+and every cached file before the compiler uses them. An invalid exact-match
+cache fails the job; remove that cache entry and run the warmer again.
+
+Call `_warm-windows-sysroot.yml` from a scheduled or manually dispatched workflow
+on each consumer repository's default branch before enabling the release input.
+The warmer saves only from that branch. Release jobs restore only, and download
+the pinned sysroot on a cache miss. Saving a cache from one release tag does not
+make it available to the next tag.
+
+Run `python3 -m unittest discover -s tests -v` for the corruption and configuration
+checks. `Windows sysroot checks` also downloads the pinned sysroot, saves and
+restores an isolated probe cache, verifies reuse with an unreachable proxy, and
+links a Rust executable for both Windows architectures. Those checks do not
+publish or sign release assets.
