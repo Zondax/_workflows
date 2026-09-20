@@ -381,7 +381,7 @@ jobs:
 
       - name: Prepare cached Windows sysroot
         if: matrix.use_xwin && inputs.cache_windows_sysroot
-        uses: Zondax/_workflows/.github/actions/windows-sysroot@c8cbba84fac31aabd59bf238e38bf5e83ec8891b
+        uses: Zondax/_workflows/.github/actions/windows-sysroot@f66936022b77ef8373a0bd970b6251199cdf2313
 
       - name: Build
         env:
