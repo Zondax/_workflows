@@ -28,6 +28,11 @@ on:
         required: false
         type: string
         default: ""
+      upload_coverage_artifact:
+        description: "Upload the coverage JSON report as an artifact"
+        required: false
+        type: boolean
+        default: true
       coverage_regression_tolerance:
         description: "Max allowed coverage drop vs baseline in percentage points (0 to disable). Only applies on PRs."
         required: false
@@ -647,7 +652,7 @@ jobs:
           PYEOF
 
       - name: Upload coverage report as artifact
-        if: inputs.enable_coverage
+        if: inputs.enable_coverage && inputs.upload_coverage_artifact
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report-rust-${{ github.run_number }}${{ inputs.coverage_artifact_suffix != '' && format('-{0}', inputs.coverage_artifact_suffix) || '' }}
