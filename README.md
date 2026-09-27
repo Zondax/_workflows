@@ -43,6 +43,12 @@ Each workflow accepts specific inputs. See the workflow YAML for options.
 `50GiB` by default; override `kache_node_cache_max_size` only with a matching
 node-capacity review.
 
+This is the only mode in which the workflow passes an explicit `cache-dir`
+(`${{ runner.temp }}/kache`, the per-node trust-domain hostPath, which
+`kache-action` requires for `node-cache`). Ordinary jobs leave it unset so
+`kache-action` can place the store on the workspace's own mount and hardlink
+restored artifacts instead of copying them.
+
 Before rollout:
 
 - verify the builder disks were expanded and Kubernetes reports the expected

@@ -420,7 +420,11 @@ jobs:
         if: inputs.use_rust_cache
         uses: kunobi-ninja/kache-action@v1
         with:
-          cache-dir: ${{ runner.temp }}/kache
+          # No cache-dir: this job runs in a container, where runner.temp
+          # (/__w/_temp) is a separate bind mount from the workspace, so kache
+          # cannot hardlink out of it and copies every artifact into target/
+          # instead. kache-action probes the mounts and picks a directory on the
+          # workspace's own mount.
           s3-bucket: ${{ inputs.cache_bucket }}
           s3-endpoint: ${{ inputs.cache_endpoint }}
           s3-region: ${{ inputs.cache_region }}

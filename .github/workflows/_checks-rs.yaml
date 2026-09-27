@@ -402,11 +402,17 @@ jobs:
         uses: kunobi-ninja/kache-action@v1
         with:
           version: ${{ inputs.kache_version }}
-          # On ordinary Linux ARC jobs this is job-local but colocated with the
-          # workspace. On the restricted Kache scale set this exact path is a
-          # trust-domain hostPath; kache-action keeps runtime state job-local.
-          # Preserve the native persistent cache on the self-hosted macOS fleet.
-          cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
+          # Only the trusted node-local store names a path here: on the
+          # restricted Kache scale set this exact directory is the per-node
+          # trust-domain hostPath, and kache-action rejects node-cache without
+          # an explicit cache-dir. Leave it unset everywhere else. In a
+          # container job runner.temp (/__w/_temp) is a separate bind mount
+          # from the workspace (/__w/<repo>/<repo>), so a hardlink out of it
+          # fails with EXDEV and kache copies every artifact into target/
+          # instead; kache-action probes the mounts itself and picks a
+          # directory on the workspace's own mount. The self-hosted macOS
+          # fleet keeps its native persistent cache.
+          cache-dir: ${{ inputs.kache_node_cache && inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           runtime-dir: ${{ format('{0}/kache-runtime-{1}-{2}-{3}', runner.temp, github.run_id, github.run_attempt, github.job) }}
           node-cache: ${{ inputs.kache_node_cache }}
           max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
@@ -423,7 +429,10 @@ jobs:
         uses: kunobi-ninja/kache-action@v1
         with:
           version: ${{ inputs.kache_version }}
-          cache-dir: ${{ inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
+          # Same rule as the step above: a path only for the trusted node-local
+          # store, otherwise let kache-action colocate the cache with the
+          # workspace so it can hardlink instead of copying.
+          cache-dir: ${{ inputs.kache_node_cache && inputs.runner_preset != 'macos-arm64' && format('{0}/kache', runner.temp) || '' }}
           runtime-dir: ${{ format('{0}/kache-runtime-{1}-{2}-{3}', runner.temp, github.run_id, github.run_attempt, github.job) }}
           node-cache: ${{ inputs.kache_node_cache }}
           max-size: ${{ inputs.kache_node_cache && inputs.kache_node_cache_max_size || '' }}
