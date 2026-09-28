@@ -106,6 +106,11 @@ on:
         required: false
         type: boolean
         default: true
+      macos_entitlements:
+        description: "Entitlements plist to sign macOS binaries with, relative to the repository root (empty = none)"
+        required: false
+        type: string
+        default: ""
       # NOTE: the CODESIGN_*/PGP_SIGN_* config values are declared under `secrets:`
       # below (not here). Callers in public repos store them as secrets, and the
       # `secrets` context cannot be referenced from a reusable-workflow `with:` —
@@ -426,6 +431,7 @@ jobs:
           gcp-project: ${{ secrets.codesign_gcp_project }}
           service-account: ${{ secrets.codesign_service_account }}
           notarize: ${{ inputs.notarize_macos }}
+          entitlements: ${{ inputs.macos_entitlements }}
           rcodesign-sha256: ${{ inputs.rcodesign_sha256 }}
 
       - name: Authenticate with GCP (Authenticode)
