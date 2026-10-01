@@ -19,6 +19,6 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 45
     steps:
-      - uses: Zondax/_workflows/.github/actions/windows-sysroot@c8cbba84fac31aabd59bf238e38bf5e83ec8891b
+      - uses: Zondax/_workflows/.github/actions/windows-sysroot@202543b479f57140e75b4681ddcc73a45dc58cab
         with:
           save: "true"
