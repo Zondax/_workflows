@@ -271,7 +271,7 @@ jobs:
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
       - name: Setup mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           version: 2026.4.3
           install: true
@@ -484,7 +484,7 @@ jobs:
           echo "📁 Versioned upload path: $VERSIONED_PATH"
 
       - name: Setup mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           version: 2026.4.3
           install: true
