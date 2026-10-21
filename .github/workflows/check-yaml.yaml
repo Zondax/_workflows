@@ -17,4 +17,5 @@ jobs:
     name: YAML Checks
     uses: ./.github/workflows/_checks-yaml.yaml
     with:
+      runner: ubuntu-latest
       make_command: yaml-checks

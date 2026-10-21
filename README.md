@@ -36,6 +36,17 @@ jobs:
 
 Each workflow accepts specific inputs. See the workflow YAML for options.
 
+### Rust releases with a companion executable
+
+`_release-rust.yml` accepts `companion_binary` alongside `binary_name`. Both
+executables are built and included in the existing ZIP or tar archive. Enabled
+stripping and signing steps apply to both. Signed Linux archives include each
+binary's detached signature. Archive and checksum filenames stay the same.
+
+Set `upload_windows_exe: false` when using a companion: installing the primary
+EXE alone would omit its companion. Windows installers must consume the ZIP.
+For Debian packages, list both executables in the consumer's Cargo assets.
+
 ### Trusted node-local Kache rollout
 
 `_checks-rs.yaml` can route an opted-in Linux job to `zondax-kache-linux` with
