@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check archive contents and invalid build configuration
         run: python -m unittest discover -s tests -p test_release_binaries.py -v
       - name: Prepare generated composite smoke test
