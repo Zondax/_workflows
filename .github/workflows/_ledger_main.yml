@@ -79,7 +79,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install dependencies
@@ -102,7 +102,7 @@ jobs:
           reshim: true
       - name: Setup Rust
         if: ${{ inputs.has-rust }}
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: ${{ inputs.rust-version }}
       - name: Run CMake
@@ -126,7 +126,7 @@ jobs:
       size: ${{steps.build.outputs.size}}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Setup Rust environment
@@ -137,7 +137,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -172,11 +172,11 @@ jobs:
       image: zondax/rust-ci:latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Cache/restore Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./app/rust/.cargo
           key: ${{ runner.os }}-cargo-${{ runner.arch }}-${{ hashFiles('./Cargo.lock') }}
@@ -203,11 +203,11 @@ jobs:
       image: zondax/rust-ci:latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Cache/restore Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ./app/rust/.cargo
           key: ${{ runner.os }}-cargo-${{ runner.arch }}-${{ hashFiles('./Cargo.lock') }}
@@ -243,7 +243,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install dependencies
@@ -255,17 +255,17 @@ jobs:
           sudo update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 10
       - name: Setup Rust
         if: ${{ inputs.has-rust }}
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           toolchain: ${{ inputs.rust-version }}
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node-version }}
       - name: Enable corepack (pnpm version is pinned in zxlib's dockerized_build.mk)
         run: corepack enable
       - name: Install Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: Build and run zemu tests
@@ -293,7 +293,7 @@ jobs:
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install deps
@@ -306,7 +306,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -432,7 +432,7 @@ jobs:
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install deps
@@ -445,7 +445,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -571,7 +571,7 @@ jobs:
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install deps
@@ -584,7 +584,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -709,7 +709,7 @@ jobs:
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install deps
@@ -722,7 +722,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
@@ -847,7 +847,7 @@ jobs:
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${{ needs.setup.outputs.cargo_home }}/bin
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Install deps
@@ -860,7 +860,7 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Cache Rust dependencies
         if: ${{ inputs.has-rust }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ needs.setup.outputs.cargo_home }}
