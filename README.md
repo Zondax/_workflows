@@ -36,16 +36,25 @@ jobs:
 
 Each workflow accepts specific inputs. See the workflow YAML for options.
 
-### Rust releases with a companion executable
+### Rust releases with companion executables
 
-`_release-rust.yml` accepts `companion_binary` alongside `binary_name`. Both
-executables are built and included in the existing ZIP or tar archive. Enabled
-stripping and signing steps apply to both. Signed Linux archives include each
-binary's detached signature. Archive and checksum filenames stay the same.
+Set `companion_binaries` to a JSON array of additional executable names:
 
-Set `upload_windows_exe: false` when using a companion: installing the primary
-EXE alone would omit its companion. Windows installers must consume the ZIP.
-For Debian packages, list both executables in the consumer's Cargo assets.
+```yaml
+with:
+  binary_name: kache
+  companion_binaries: '["kache-engine", "kache-worker"]'
+  upload_windows_exe: false
+```
+
+Every selected executable is built, stripped, signed and included in the ZIP or
+tar archive. Signed Linux archives include each binary's detached signature.
+Archive and checksum filenames stay the same.
+
+`companion_binary` remains compatible and is combined with the array. Names must
+be unique, differ from the primary name and contain no directory separators.
+Bare Windows EXE assets cannot install companions; use the ZIP archive.
+For Debian packages, list all executables in the consumer's Cargo assets.
 
 ### Trusted node-local Kache rollout
 
