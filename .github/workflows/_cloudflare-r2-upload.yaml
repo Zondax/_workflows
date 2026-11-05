@@ -168,7 +168,7 @@ jobs:
       
       - name: Checkout repository
         if: ${{ !inputs.github_app_auth }}
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
       
       # ARTIFACTS MODE: Download from GitHub Actions artifacts
       - name: Download artifacts

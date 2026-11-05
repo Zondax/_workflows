@@ -111,7 +111,7 @@ jobs:
           project_id: ${{ vars.PULUMI_GCP_PROJECT_ID }}
 
       - name: Setup mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         env:
           # Self-hosted runners carry a global ~/.config/mise/config.toml (uv,
           # bun, typescript, yarn at @latest). When a repo ships a mise.lock,
